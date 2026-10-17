@@ -36,6 +36,12 @@ except Exception as _e_dev:
     dev = None
     print("modo dev indisponível:", _e_dev, flush=True)
 try:
+    import dev_ide                           # IDE do MODO DEV: projetos, árvore, diff e Claude CLI (shell/DevIDE.qml)
+except Exception as _e_ide:
+    dev_ide = None
+    print("dev_ide indisponível:", _e_ide, flush=True)
+ide_inst = None
+try:
     import ptz
 except Exception as _e_ptz:
     print("ptz import:", _e_ptz, flush=True)
@@ -2163,18 +2169,29 @@ def cam_ptz_thread():
                         url_ptz = conf.get("rtsp_sub") or f"rtsp://{ip_ptz}:554/onvif2"
             if not url_ptz:
                 _shared["frame_ptz"] = None
-                time.sleep(3); continue
+                if os.path.exists("/tmp/friday-cam-ptz.jpg"):
+                    try:
+                        os.unlink("/tmp/friday-cam-ptz.jpg")
+                    except OSError:
+                        pass
+                time.sleep(10); continue
 
             try:
                 cap = _LeitorRTSP(url_ptz, 640, 360)
                 _shared["cap_ptz"] = cap                         # o desligamento do daemon fecha (TEARDOWN): sem isso o firmware reinicia
                 if not cap.isOpened():
-                    cap.release(); cap = None; time.sleep(5); continue
+                    cap.release(); cap = None
+                    if os.path.exists("/tmp/friday-cam-ptz.jpg"):
+                        try:
+                            os.unlink("/tmp/friday-cam-ptz.jpg")
+                        except OSError:
+                            pass
+                    time.sleep(10); continue
                 falhas = 0
                 print("câmera PTZ conectada:", url_ptz.split("@")[-1] if "@" in url_ptz else url_ptz, flush=True)
             except Exception as e:
                 print("câmera PTZ falha conexão:", repr(e), flush=True)
-                cap = None; time.sleep(5); continue
+                cap = None; time.sleep(10); continue
 
         if _PTZ_HD["pedido"] and time.time() - _PTZ_HD["pedido"] < 6:      # "ver longe": troca a ÚNICA sessão p/ o onvif1 por ~2 s
             _PTZ_HD["pedido"] = 0.0
@@ -2213,9 +2230,14 @@ def cam_ptz_thread():
                 if cap is not None:
                     cap.release(); cap = None
                 _shared["frame_ptz"] = None
+                if os.path.exists("/tmp/friday-cam-ptz.jpg"):
+                    try:
+                        os.unlink("/tmp/friday-cam-ptz.jpg")
+                    except OSError:
+                        pass
                 if ipcam is not None:
                     ipcam.perdeu()
-                time.sleep(6)
+                time.sleep(10)
             continue
 
         falhas = 0
@@ -3208,21 +3230,25 @@ async def handle_modes(txt):
         _ptz_rosto["pedido_ate"] = time.time() + 15
         await dizer("Olhe para a câmera do quarto por quinze segundos; vou aprender seu rosto por ela.")
         return True
-    # --- MODO DEV: painel com o que ela ouve, pensa e faz ---
-    if dev is not None and re.search(r"\bmodo\s+dev\b|\bpainel\s+(?:dev|de\s+desenvolvedor)\b", t):
+    # --- MODO DEV: IDE autônoma de desenvolvimento (DevIDE.qml) ---
+    if re.search(r"\bmodo\s+dev\b|\bpainel\s+(?:dev|de\s+desenvolvedor)\b|\b(?:abrir|fecha|mostra|inicia)\s+(?:o\s+)?(?:modo\s+)?ide\b", t):
         liga = not re.search(r"\b(desativ\w*|deslig\w*|fech\w*|sai\w*|tira\w*|esconde\w*)\b", t)
-        if liga:
-            try:
-                import dev_cli
-                asyncio.create_task(asyncio.to_thread(dev_cli.mostrar))      # MODO DEV = terminal do Claude CLI
-            except Exception as e:
-                print("dev_cli:", e, flush=True)
-        dev.estado["on"] = liga
+        if dev is not None:
+            dev.estado["on"] = liga
+            dev.emitir("sistema", "modo", "MODO DEV " + ("ligado" if liga else "desligado"))
         await broadcast({"type": "dev_modo", "on": liga})
         if liga:
-            await broadcast({"type": "dev_hist", "itens": dev.historico(200)})
-        dev.emitir("sistema", "modo", "MODO DEV " + ("ligado" if liga else "desligado"))
-        await dizer("Modo dev ligado. Está tudo no painel." if liga else "Modo dev desligado.")
+            if dev is not None:
+                await broadcast({"type": "dev_hist", "itens": dev.historico(200)})
+            if ide_inst is not None:
+                try:
+                    await ide_inst.tratar({"type": "ide", "op": "estado"}, broadcast)
+                    await ide_inst.tratar({"type": "ide", "op": "arvore", "rel": ""}, broadcast)
+                except Exception as _e_ide:
+                    print("ide_inst broadcast estado:", _e_ide, flush=True)
+            await dizer("Modo Dev IDE ativado. Painel de programação aberto na tela.")
+        else:
+            await dizer("Modo Dev desligado.")
         return True
     # --- desligar o PC: SEMPRE com confirmação falada (o STT pode errar e desligar é caro) ---
     if _DESLIGA["t"] and time.time() - _DESLIGA["t"] < 20:
@@ -6990,6 +7016,8 @@ async def handle(r, w):
                     dev.estado["on"] = (op_ == "ligar") or (op_ == "alternar" and not dev.estado["on"])
                     await broadcast({"type": "dev_modo", "on": dev.estado["on"]})
                 await send(w, {"type": "dev_hist", "itens": dev.historico(int(m.get("n", 200)))})
+            elif t == "ide" and ide_inst is not None:     # IDE do MODO DEV: estado/arvore/ler/diff/enviar/parar/nova_sessao/modelo/abrir_projeto
+                await ide_inst.tratar(m, lambda r: send(w, r))
             elif t == "mood":
                 await set_state(mood=m.get("mood"))
             elif t == "voice":
@@ -7204,6 +7232,12 @@ async def main():
                 if len(itens) >= n_:
                     break
             return itens[::-1]
+        global ide_inst
+        if dev_ide is not None and ide_inst is None:
+            try:
+                ide_inst = dev_ide.IDE(broadcast)
+            except Exception as _e_i:
+                print("dev_ide init:", _e_i, flush=True)
         await _rm.iniciar({
             "aprovacoes": _aprovacoes_pendentes, "resolver": _rm_resolver, "historico": _rm_historico,
             "estado": lambda: {"on": friday_state["on"], "state": state["state"], "mood": state["mood"], "modes": dict(modes), "agente": bool(agente_ativo[0])},
@@ -7212,7 +7246,8 @@ async def main():
             "foto": lambda p_: _shared.__setitem__("remote_jpg", (time.time(), p_)), "stt_prompt": _stt_prompt,
             "stt": lambda a_: _wake_fix(_transcrever(a_)[0]),    # STT do celular (/api/stt): mesmo Whisper e vocabulário daqui
             "aprimorar": lambda p_: run_aprimorar("propor", p_),  # celular pede melhoria no código do app (aprovação do dono)
-            "voz_dono": lambda: voz_dono})   # lambda: o perfil carrega depois (thread de voz); o valor capturado aqui era None
+            "voz_dono": lambda: voz_dono,
+            "ide": ide_inst})   # lambda: o perfil carrega depois (thread de voz); o valor capturado aqui era None
         _remoto_on[0] = True
     except Exception as e:
         print("remoto indisponível:", e, flush=True)

@@ -135,7 +135,7 @@ final class Flutuante {
             t.setLetterSpacing(0.15f);
             topo.addView(t, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             TextView x = new TextView(c);
-            x.setText("✕"); x.setTextColor(Color.argb(200, 255, 255, 255)); x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            x.setText("X"); x.setTextColor(Color.argb(200, 255, 255, 255)); x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
             x.setPadding(dp(c, 12), dp(c, 4), dp(c, 2), dp(c, 4));
             x.setOnClickListener(v -> fechar(c, id));
             topo.addView(x);
@@ -247,7 +247,7 @@ final class Flutuante {
         String obj = Ide.objetivo();
         ideObj.setText(obj.isEmpty() ? "Sem tarefa" : obj);
         boolean ativa = Ide.ativa();
-        idePausa.setText(Ide.pausada() ? "▶  Continuar" : "❚❚  Pausar");
+        idePausa.setText(Ide.pausada() ? "Continuar" : "Pausar");
         idePausa.setEnabled(ativa); idePausa.setAlpha(ativa ? 1f : 0.35f);
         ideParar.setEnabled(ativa); ideParar.setAlpha(ativa ? 1f : 0.35f);
     }
@@ -380,17 +380,17 @@ final class Flutuante {
             // ---- barra de ações (botões grandes, com rótulo)
             LinearLayout acoes = new LinearLayout(c);
             acoes.setOrientation(LinearLayout.HORIZONTAL);
-            idePausa = ideBotao(c, "❚❚  Pausar", AMBAR, () -> Ide.pausar(!Ide.pausada()));
+            idePausa = ideBotao(c, "Pausar", AMBAR, () -> Ide.pausar(!Ide.pausada()));
             acoes.addView(idePausa, peso(c, false));
-            ideParar = ideBotao(c, "■  Parar", VERMELHO, null);
-            Runnable desarma = () -> { ideConfirma = false; if (ideParar != null) ideParar.setText("■  Parar"); };
+            ideParar = ideBotao(c, "Parar", VERMELHO, null);
+            Runnable desarma = () -> { ideConfirma = false; if (ideParar != null) ideParar.setText("Parar"); };
             ideParar.setOnClickListener(v -> {                         // 2 toques: evita matar o Claude sem querer
                 if (!ideConfirma) { ideConfirma = true; ideParar.setText("Confirmar?"); main.postDelayed(desarma, 3000); return; }
                 main.removeCallbacks(desarma); desarma.run(); Ide.parar();
             });
             acoes.addView(ideParar, peso(c, false));
-            acoes.addView(ideBotao(c, "▁  Minimizar", CIANO, () -> ideMinimizar(c)), peso(c, false));
-            acoes.addView(ideBotao(c, "✕  Fechar", Color.argb(220, 210, 220, 226), () -> ide(c, false)), peso(c, true));
+            acoes.addView(ideBotao(c, "Minimizar", CIANO, () -> ideMinimizar(c)), peso(c, false));
+            acoes.addView(ideBotao(c, "Fechar", Color.argb(220, 210, 220, 226), () -> ide(c, false)), peso(c, true));
             caixa.addView(acoes);
 
             ideBuf.clear();
@@ -544,7 +544,7 @@ final class Flutuante {
             agStatus.setSingleLine(true); agStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
             tit.addView(agStatus);
             topo.addView(tit, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            TextView x = tv(c, "✕", Color.argb(220, 255, 255, 255), 17, Typeface.NORMAL);
+            TextView x = tv(c, "X", Color.argb(220, 255, 255, 255), 17, Typeface.NORMAL);
             x.setGravity(Gravity.CENTER);
             GradientDrawable gx = new GradientDrawable(); gx.setShape(GradientDrawable.OVAL); gx.setColor(Color.argb(30, 255, 255, 255));
             x.setBackground(gx);
@@ -685,7 +685,7 @@ final class Flutuante {
         }
         nc.addView(l1);
         String est = n.total == 0 ? "Nada marcado. Bom dia para adiantar o que está pendente."
-            : n.feitos + " de " + n.total + " concluídos" + (n.conflitos > 0 ? "  ·  ⚠ " + n.conflitos + (n.conflitos > 1 ? " conflitos" : " conflito") : "")
+            : n.feitos + " de " + n.total + " concluídos" + (n.conflitos > 0 ? "  ·  [!] " + n.conflitos + (n.conflitos > 1 ? " conflitos" : " conflito") : "")
               + (n.livreMin >= 30 ? "  ·  " + n.livreMin / 60 + "h" + String.format(Locale.ROOT, "%02d", n.livreMin % 60) + " livres" : "");
         TextView te = tv(c, est, n.conflitos > 0 ? VERMELHO : Color.argb(200, 220, 235, 240), 12, Typeface.NORMAL);
         te.setPadding(0, dp(c, 4), 0, 0);
@@ -709,7 +709,7 @@ final class Flutuante {
             rf.setLetterSpacing(0.25f); rf.setPadding(0, dp(c, 10), 0, dp(c, 2));
             nc.addView(rf);
             for (Agenda.Item f : n.foco) {
-                TextView tf = tv(c, (f.prio == 1 ? "★  " : "•  ") + (f.diaTodo ? "" : fh.format(new Date(f.ini)) + "  ") + f.titulo,
+                TextView tf = tv(c, (f.prio == 1 ? "[ALTA] " : "•  ") + (f.diaTodo ? "" : fh.format(new Date(f.ini)) + "  ") + f.titulo,
                     f.prio == 1 ? Color.WHITE : Color.argb(200, 220, 235, 240), 13, f.prio == 1 ? Typeface.BOLD : Typeface.NORMAL);
                 tf.setSingleLine(true); tf.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 tf.setPadding(0, dp(c, 2), 0, dp(c, 2));
@@ -812,15 +812,15 @@ final class Flutuante {
         LinearLayout selos = new LinearLayout(c);
         selos.setOrientation(LinearLayout.HORIZONTAL);
         if (emCurso && !e.feito) selos.addView(selo(c, "EM ANDAMENTO", VERDE));
-        if (e.prio != 2) selos.addView(selo(c, e.prio == 1 ? "★ ALTA" : "BAIXA", cp));
+        if (e.prio != 2) selos.addView(selo(c, e.prio == 1 ? "ALTA" : "BAIXA", cp));
         if ("google".equals(e.fonte)) selos.addView(selo(c, "GOOGLE", Color.argb(170, 190, 205, 212)));
         if (selos.getChildCount() > 0) txt.addView(selos);
         TextView t = tv(c, e.titulo, apagado ? Color.argb(110, 255, 255, 255) : Color.WHITE, 15, Typeface.BOLD);
         if (e.feito) t.setPaintFlags(t.getPaintFlags() | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
         txt.addView(t);
-        if (e.local != null && !e.local.trim().isEmpty()) txt.addView(tv(c, "📍 " + e.local, Color.argb(apagado ? 80 : 160, 200, 220, 230), 12, Typeface.NORMAL));
+        if (e.local != null && !e.local.trim().isEmpty()) txt.addView(tv(c, "[LOCAL] " + e.local, Color.argb(apagado ? 80 : 160, 200, 220, 230), 12, Typeface.NORMAL));
         card.addView(txt, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        TextView ok = tv(c, e.feito ? "✓" : "", e.feito ? Color.rgb(6, 10, 14) : Color.WHITE, 16, Typeface.BOLD);
+        TextView ok = tv(c, e.feito ? "OK" : "", e.feito ? Color.rgb(6, 10, 14) : Color.WHITE, 16, Typeface.BOLD);
         ok.setGravity(Gravity.CENTER);
         GradientDrawable go = new GradientDrawable(); go.setShape(GradientDrawable.OVAL);
         go.setColor(e.feito ? VERDE : Color.TRANSPARENT); go.setStroke(dp(c, 2), e.feito ? VERDE : Color.argb(120, 255, 255, 255));

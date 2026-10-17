@@ -455,7 +455,7 @@ final class Agenda {
             if (ex != null && ex[1] == modv) continue;               // igual: nada a fazer
             ContentValues v = new ContentValues();
             v.put(CalendarContract.Events.CALENDAR_ID, cal);
-            v.put(CalendarContract.Events.TITLE, (i.feito ? "✓ " : i.prio == 1 ? "★ " : "") + i.titulo);
+            v.put(CalendarContract.Events.TITLE, (i.feito ? "[CONCLUÍDO] " : i.prio == 1 ? "[ALTA] " : "") + i.titulo);
             v.put(CalendarContract.Events.DTSTART, i.ini);
             v.put(CalendarContract.Events.DTEND, Math.max(i.fim, i.ini + 60000));
             v.put(CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().getID());

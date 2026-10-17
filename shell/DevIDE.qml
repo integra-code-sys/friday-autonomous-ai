@@ -225,7 +225,7 @@ Item {
             Text { text: "US$ " + ide.custoTotal.toFixed(3); color: "#ffd27f"; font.pixelSize: 12; font.family: "monospace" }
             BotaoIde { rotulo: "■ Parar"; ativo: ide.rodando; corBorda: "#88ff7f9f"; onClicado: ide.cmd("parar") }
             BotaoIde { rotulo: "＋ Nova sessão"; ativo: !ide.rodando; onClicado: ide.cmd("nova_sessao") }
-            BotaoIde { rotulo: "✕ Fechar"; onClicado: ide.fechar() }
+            BotaoIde { rotulo: "FECHAR"; onClicado: ide.fechar() }
         }
 
         Text {
@@ -247,7 +247,7 @@ Item {
             // ---------- ÁRVORE ----------
             Rectangle {
                 Layout.fillHeight: true
-                Layout.preferredWidth: parent.width * 0.20
+                Layout.preferredWidth: 220
                 color: "#66020810"; radius: 6; border.color: "#337fe6ff"
                 ColumnLayout {
                     anchors.fill: parent; anchors.margins: 6; spacing: 4
@@ -285,7 +285,7 @@ Item {
                                 x: 4 + (noArv.modelData.nivel || 0) * 12
                                 width: parent.width - x - 4
                                 anchors.verticalCenter: parent.verticalCenter
-                                text: (noArv.ehDir ? "▸ 📁 " : "   📄 ") + noArv.modelData.nome
+                                text: (noArv.ehDir ? "▸ [DIR] " : "   [DOC] ") + noArv.modelData.nome
                                 textFormat: Text.PlainText
                                 color: noArv.modelData.alterado ? ide.cLaranja : (noArv.ehDir ? ide.cCiano : ide.cTexto)
                                 font.pixelSize: 12
@@ -322,7 +322,8 @@ Item {
                     // ---------- CÓDIGO ----------
                     Rectangle {
                         Layout.fillHeight: true
-                        Layout.preferredWidth: meio.width * 0.56
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 320
                         color: "#66020810"; radius: 6; border.color: "#337fe6ff"
                         ColumnLayout {
                             anchors.fill: parent; anchors.margins: 6; spacing: 4
@@ -363,7 +364,7 @@ Item {
                                                 Text {
                                                     anchors.right: parent.right; anchors.rightMargin: 6
                                                     anchors.verticalCenter: parent.verticalCenter
-                                                    text: "✕"; color: xMa.containsMouse ? ide.cVermelho : ide.cSuave; font.pixelSize: 10
+                                                    text: "×"; color: xMa.containsMouse ? ide.cVermelho : ide.cSuave; font.pixelSize: 10
                                                     MouseArea {
                                                         id: xMa; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true
                                                         onClicked: {
@@ -420,9 +421,9 @@ Item {
                                     boundsBehavior: Flickable.StopAtBounds
                                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                                     ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
-                                    readonly property string codigo: (ide.abaAtual >= 0 && ide.abaAtual < abas.count) ? abas.get(ide.abaAtual).texto : ""
-                                    readonly property int nLinhas: codigo === "" ? 0 : codigo.split("\n").length
-                                    onCodigoChanged: { contentY = 0; contentX = 0 }
+                                    readonly property string textoCodigo: (ide.abaAtual >= 0 && ide.abaAtual < abas.count) ? abas.get(ide.abaAtual).texto : ""
+                                    readonly property int nLinhas: flCodigo.textoCodigo === "" ? 0 : flCodigo.textoCodigo.split("\n").length
+                                    onTextoCodigoChanged: { contentY = 0; contentX = 0 }
                                     Row {
                                         id: rowCod
                                         spacing: 10
@@ -442,7 +443,7 @@ Item {
                                         }
                                         TextEdit {
                                             id: codigo
-                                            text: flCodigo.codigo
+                                            text: flCodigo.textoCodigo
                                             textFormat: TextEdit.PlainText
                                             readOnly: true
                                             selectByMouse: true
@@ -590,7 +591,7 @@ Item {
                                                     color: ev.ehErro ? ide.cVermelho : (ev.kind === "resultado" ? ide.cSuave : ide.cRoxo)
                                                     text: ev.kind === "terminal" ? ("$ " + String(ev.model.comando || ""))
                                                         : ev.kind === "resultado" ? ("  ↳ " + (ev.ehErro ? "erro: " : "") + ev.texto.split("\n")[0])
-                                                        : ("⚙ " + String(ev.model.nome || "") + "  " + String(ev.model.resumo || ""))
+                                                        : ("[TOOL] " + String(ev.model.nome || "") + "  " + String(ev.model.resumo || ""))
                                                 }
                                                 Text {
                                                     visible: ev.aberto
@@ -623,7 +624,7 @@ Item {
                                                     width: parent.width
                                                     Text {
                                                         Layout.fillWidth: true
-                                                        text: "✎ " + String(ev.model.arquivo || "")
+                                                        text: "[EDIT] " + String(ev.model.arquivo || "")
                                                         textFormat: Text.PlainText
                                                         elide: Text.ElideMiddle
                                                         color: ide.cVerde; font.pixelSize: 12; font.bold: true; font.family: "monospace"
@@ -647,7 +648,7 @@ Item {
                                             visible: ev.kind === "fim"
                                             width: parent.width
                                             height: visible ? implicitHeight : 0
-                                            text: "✓ concluído · " + Number(ev.model.dur_s || 0).toFixed(1) + " s · "
+                                            text: "[OK] concluído · " + Number(ev.model.dur_s || 0).toFixed(1) + " s · "
                                                   + String(ev.model.turnos || "?") + " turnos · US$ " + Number(ev.model.custo || 0).toFixed(4)
                                             textFormat: Text.PlainText
                                             color: "#ffd27f"; font.pixelSize: 11; font.family: "monospace"
@@ -673,7 +674,7 @@ Item {
                                             Text {
                                                 id: txtErr
                                                 x: 6; y: 5; width: parent.width - 12
-                                                text: "⚠ " + ev.texto
+                                                text: "[!] " + ev.texto
                                                 textFormat: Text.PlainText
                                                 wrapMode: Text.WrapAnywhere
                                                 color: ide.cVermelho; font.pixelSize: 12
@@ -717,7 +718,7 @@ Item {
                                 }
                                 BotaoIde {
                                     Layout.preferredHeight: 44
-                                    rotulo: ide.rodando ? "…" : "Enviar ➤"
+                                    rotulo: ide.rodando ? "…" : "ENVIAR >"
                                     ativo: !ide.rodando && ide.online && entrada.text.trim() !== ""
                                     corBorda: "#88ff8a1f"
                                     onClicado: ide.enviar()

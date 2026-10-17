@@ -84,7 +84,7 @@ public class Assistente extends VoiceInteractionService {
 
         private String nomeModeloCurto() {
             String m = Cerebro.get(getContext()).modelo().replace(".gguf", "").replace("-q4_0", "").replace("-q4_k_m", "");
-            return "🧠 " + m.toUpperCase( java.util.Locale.ROOT);
+            return "[CORE] " + m.toUpperCase(java.util.Locale.ROOT);
         }
 
         private TextView chipAcao(String rotulo, int cor, Runnable acao) {
@@ -121,7 +121,7 @@ public class Assistente extends VoiceInteractionService {
             LinearLayout topo = new LinearLayout(c);
             topo.setOrientation(LinearLayout.HORIZONTAL);
             topo.setGravity(Gravity.CENTER_VERTICAL);
-            TextView seloVoz = tv("🔒 SÓ VOZ DO DONO", VERDE, 9.5f, Typeface.BOLD);
+            TextView seloVoz = tv("[STARK BIO] SÓ VOZ DO DONO", VERDE, 9.5f, Typeface.BOLD);
             seloVoz.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
             seloVoz.setPadding(dp(9), dp(4), dp(9), dp(4));
             seloVoz.setBackground(fundo(Color.argb(32, 108, 196, 143), 12, Color.argb(100, 108, 196, 143)));
@@ -278,7 +278,7 @@ public class Assistente extends VoiceInteractionService {
             lhs.topMargin = dp(8);
             folha.addView(hsAtalhos, lhs);
 
-            // entrada: campo + botão ENVIAR (➤) + microfone circular que pulsa com a voz
+            // entrada: campo + botão ENVIAR (>) + microfone circular que pulsa com a voz
             LinearLayout linha = new LinearLayout(c);
             linha.setOrientation(LinearLayout.HORIZONTAL);
             linha.setGravity(Gravity.CENTER_VERTICAL);
@@ -294,7 +294,7 @@ public class Assistente extends VoiceInteractionService {
             linha.addView(campo, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
             // Botão ENVIAR MENSAGEM visível e dedicado
-            enviarBtn = tv("➤", Color.rgb(4, 14, 20), 20, Typeface.BOLD);
+            enviarBtn = tv(">", Color.rgb(4, 14, 20), 20, Typeface.BOLD);
             enviarBtn.setGravity(Gravity.CENTER);
             enviarBtn.setContentDescription("Enviar mensagem");
             GradientDrawable ge = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
@@ -312,7 +312,7 @@ public class Assistente extends VoiceInteractionService {
             GradientDrawable ga = new GradientDrawable(); ga.setShape(GradientDrawable.OVAL); ga.setColor(Color.argb(60, 54, 214, 255));
             anelMic.setBackground(ga);
             micBox.addView(anelMic, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
-            mic = tv("🎙", Color.WHITE, 21, Typeface.NORMAL);
+            mic = tv("●", Color.WHITE, 21, Typeface.BOLD);
             mic.setGravity(Gravity.CENTER);
             GradientDrawable gm = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(40, 190, 240), Color.rgb(20, 110, 170)});
             gm.setShape(GradientDrawable.OVAL);

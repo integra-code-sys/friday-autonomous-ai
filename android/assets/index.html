@@ -274,7 +274,7 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
 <header id="top">
   <i id="dot"></i>
   <span id="nome">F.R.I.D.A.Y.</span>
-  <span id="vozLockTop" title="Reconhecimento Biométrico Estrito: Somente Voz do Dono">🔒 SÓ DONO</span>
+  <span id="vozLockTop" title="Reconhecimento Biométrico Estrito: Somente Voz do Dono">[BIO] SÓ DONO</span>
   <span id="aprBadge"></span>
   <span id="sub">CONECTANDO…</span>
 </header>
@@ -287,12 +287,12 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
     <div id="msgs"></div>
     <div id="anexos"></div>
     <div id="atalhosConv" class="hscroll">
-      <button type="button" class="chipAcao lar" data-atalho="agenda">📅 AGENDA FRIDAY</button>
-      <button type="button" class="chipAcao roxo" data-atalho="dev">💻 MODO DEV</button>
-      <button type="button" class="chipAcao" data-atalho="pesquisa">🌐 PESQUISAR WEB</button>
-      <button type="button" class="chipAcao" data-atalho="pdf">📄 CRIAR PDF/DOC</button>
-      <button type="button" class="chipAcao lar" data-atalho="comp_zap">💬 PESQUISAR + ZAP</button>
-      <button type="button" class="chipAcao" data-atalho="comp_doc">📝 PESQUISAR + ARQUIVO</button>
+      <button type="button" class="chipAcao lar" data-atalho="agenda">[AGENDA] FRIDAY</button>
+      <button type="button" class="chipAcao roxo" data-atalho="dev">[DEV] MODO IDE</button>
+      <button type="button" class="chipAcao" data-atalho="pesquisa">[WEB] PESQUISA</button>
+      <button type="button" class="chipAcao" data-atalho="pdf">[DOC] CRIAR PDF</button>
+      <button type="button" class="chipAcao lar" data-atalho="comp_zap">[COM] PESQUISA + ZAP</button>
+      <button type="button" class="chipAcao" data-atalho="comp_doc">[FILE] PESQUISA + ARQUIVO</button>
     </div>
     <form id="form" autocomplete="off">
       <button type="button" class="rb" id="bAnexo" aria-label="Anexar"><svg viewBox="0 0 24 24"><path d="M20 12l-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></svg></button>
@@ -305,7 +305,7 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
       <button type="button" id="cerebroSel" aria-label="Trocar cérebro">CÉREBRO · <b id="cerebroNome">LOCAL</b></button>
       <button type="button" id="tsSel" aria-label="Ligar ou desligar o Tailscale">TAILSCALE · <b id="tsNome">…</b></button>
       <button type="button" id="devSel" aria-label="Modo dev">MODO DEV · <b id="devNome">OFF</b></button>
-      <button type="button" id="vozSel" aria-label="Segurança biométrica da voz do dono">🔒 VOZ DONO · <b id="vozCont">+</b></button>
+      <button type="button" id="vozSel" aria-label="Segurança biométrica da voz do dono">[BIO] VOZ DONO · <b id="vozCont">+</b></button>
     </div>
     <input type="file" id="arq" multiple hidden>
   </section>
@@ -351,13 +351,13 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
       <div class="agFormGrid" style="margin-top:8px">
         <select id="agPrioIn" class="agInput">
           <option value="1">Prioridade: Normal</option>
-          <option value="2">Prioridade: Alta ★</option>
-          <option value="3">Prioridade: Crítica ⚠</option>
+          <option value="2">Prioridade: ALTA</option>
+          <option value="3">Prioridade: CRÍTICA</option>
         </select>
         <input id="agNotasIn" class="agInput" placeholder="Notas / observações (opcional)">
       </div>
       <div style="display:flex;gap:8px;margin-top:10px">
-        <button type="button" class="bt ok" id="bAgSalvar" style="flex:2;min-height:42px">✓ SALVAR COMPROMISSO</button>
+        <button type="button" class="bt ok" id="bAgSalvar" style="flex:2;min-height:42px">SALVAR COMPROMISSO</button>
         <button type="button" class="bt perigo" id="bAgCancelarForm" style="flex:1;min-height:42px">FECHAR</button>
       </div>
     </div>
@@ -376,26 +376,26 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
         <span class="devStatusPill" id="devEstadoPill">PRONTA</span>
         <span class="mono" style="font-size:11px;color:var(--cia)" id="devRoundTxt">ROUND 0 / 8</span>
         <div style="margin-left:auto;display:flex;gap:6px">
-          <button type="button" class="bt roxo" id="bDevFlut" style="min-height:34px;padding:4px 10px">⧉ IDE HUD</button>
-          <button type="button" class="bt" id="bDevTermux" style="min-height:34px;padding:4px 10px">&gt;_ TERMUX</button>
+          <button type="button" class="bt roxo" id="bDevFlut" style="min-height:34px;padding:4px 10px">[HUD] IDE FLUTUANTE</button>
+          <button type="button" class="bt" id="bDevTermux" style="min-height:34px;padding:4px 10px">[TERM] TERMUX</button>
         </div>
       </div>
       <div class="pb"><i id="devProgBar" style="width:0%"></i></div>
       <div class="devAlvoSwitch">
-        <button type="button" class="devAlvoBtn on" data-devalvo="auto" id="bDevAlvoAuto">⚡ HÍBRIDO (CELULAR + PC)</button>
-        <button type="button" class="devAlvoBtn" data-devalvo="pc" id="bDevAlvoPc">🖥 FORÇAR IDE DO PC</button>
+        <button type="button" class="devAlvoBtn on" data-devalvo="auto" id="bDevAlvoAuto">[AUTO] HÍBRIDO (CELULAR + PC)</button>
+        <button type="button" class="devAlvoBtn" data-devalvo="pc" id="bDevAlvoPc">[PC] FORÇAR IDE DO PC</button>
       </div>
       <textarea id="devPrompt" placeholder="Descreva a tarefa de programação, script, página web, refatoração ou correção de bugs que a Sexta-Feira deve planejar, codar e testar autonomamente…"></textarea>
       <div class="hscroll" style="display:flex;gap:6px;overflow-x:auto;padding:8px 0">
-        <button type="button" class="chipAcao roxo" data-devpreset="Crie um script Python completo com testes automatizados que analisa uso de CPU, RAM e rede e gera um relatório em Markdown.">🐍 Script Diagnóstico</button>
-        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma página HTML5 interativa com painel futurista em Canvas e salve em calculadora_hud.html.">🌐 App Web HUD</button>
-        <button type="button" class="chipAcao roxo" data-devpreset="Audite os arquivos recentes do projeto, rode validação de sintaxe e corrija eventuais erros encontrados.">🧪 Auditar &amp; Testar</button>
-        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma API REST rápida em Python com endpoint /health e salve com documentação.">⚡ Microserviço API</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie um script Python completo com testes automatizados que analisa uso de CPU, RAM e rede e gera um relatório em Markdown.">[PY] Script Diagnóstico</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma página HTML5 interativa com painel futurista em Canvas e salve em calculadora_hud.html.">[WEB] App Web HUD</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Audite os arquivos recentes do projeto, rode validação de sintaxe e corrija eventuais erros encontrados.">[TEST] Auditar &amp; Testar</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma API REST rápida em Python com endpoint /health e salve com documentação.">[API] Microserviço API</button>
       </div>
       <div class="grade" style="margin-top:4px">
-        <button type="button" class="bt ok" id="bDevIniciar">▶ CODAR AGORA</button>
-        <button type="button" class="bt lar" id="bDevPausar">⏸ PAUSAR / RETOMAR</button>
-        <button type="button" class="bt perigo" id="bDevParar">■ PARAR</button>
+        <button type="button" class="bt ok" id="bDevIniciar">EXECUTAR AGORA</button>
+        <button type="button" class="bt lar" id="bDevPausar">PAUSAR / RETOMAR</button>
+        <button type="button" class="bt perigo" id="bDevParar">PARAR</button>
       </div>
     </div>
 
@@ -407,15 +407,15 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
 
   <!-- ===== CÂMERAS ===== -->
   <section class="aba" id="cameras">
-    <div class="cams">
-      <div class="cam" data-cam="ptz"><img alt=""><span class="rot">PTZ · QUARTO</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+    <div class="cams" id="camPrincipalSlot">
+      <div class="cam" data-cam="ptz" id="camCardPtz"><img alt=""><span class="rot">PTZ · QUARTO</span><span class="idade">--</span><span class="off">DESCONECTADA</span></div>
     </div>
-    <div class="camsMin">
-      <div class="cam" data-cam="nativa"><img alt=""><span class="rot">NATIVA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
-      <div class="cam" data-cam="porta"><img alt=""><span class="rot">PORTA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+    <div class="camsMin" id="camsMinSlot">
+      <div class="cam" data-cam="nativa" id="camCardNativa"><img alt=""><span class="rot">NATIVA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+      <div class="cam" data-cam="porta" id="camCardPorta"><img alt=""><span class="rot">PORTA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
     </div>
-    <div class="card" style="margin-top:12px">
-      <h4>CONTROLE PTZ<small id="ptzMsg"></small></h4>
+    <div class="card" id="cardControlePtz" style="margin-top:12px">
+      <h4>CONTROLE PTZ<small id="ptzMsg">[DESCONECTADA]</small></h4>
       <div class="dpad">
         <span></span><button data-ptz="cima" aria-label="Cima">▲</button><span></span>
         <button data-ptz="esquerda" aria-label="Esquerda">◀</button><button data-ptz="centro" class="c">CENTRO</button><button data-ptz="direita" aria-label="Direita">▶</button>
@@ -464,7 +464,7 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
       <input type="range" id="vozBioSlider" min="0.48" max="0.72" step="0.01" value="0.54" style="width:100%;accent-color:var(--cia);margin-bottom:8px">
       <div class="grade g2">
         <button type="button" class="bt ok" id="bVozGravar">+ GRAVAR MINHA VOZ</button>
-        <button type="button" class="bt lar" id="bVozFuiEu">✓ ENSINAR ÚLTIMA FALA</button>
+        <button type="button" class="bt lar" id="bVozFuiEu">ENSINAR ÚLTIMA FALA</button>
       </div>
     </div>
 

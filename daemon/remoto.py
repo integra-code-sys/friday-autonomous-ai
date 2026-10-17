@@ -520,14 +520,17 @@ async def agenda_add(req):
 
 
 async def cam(req):
-    caminho = CAMS.get(req.match_info.get("nome", ""))
+    nome = req.match_info.get("nome", "")
+    caminho = CAMS.get(nome)
     if caminho is None:
-        return web.json_response({"erro": "câmera desconhecida"}, status=404)
+        return web.json_response({"erro": "câmera desconhecida", "conectada": False}, status=404)
     try:
-        dados = await asyncio.to_thread(lambda: open(caminho, "rb").read())
         idade = max(0.0, time.time() - os.path.getmtime(caminho))
+        if idade > 4.0:
+            return web.json_response({"erro": "desconectada", "conectada": False, "idade": idade}, status=404)
+        dados = await asyncio.to_thread(lambda: open(caminho, "rb").read())
     except OSError:
-        return web.json_response({"erro": "sem imagem"}, status=404)
+        return web.json_response({"erro": "desconectada", "conectada": False}, status=404)
     return web.Response(body=dados, content_type="image/jpeg",
                         headers={"Cache-Control": "no-store", "X-Idade": f"{idade:.1f}", "Access-Control-Expose-Headers": "X-Idade"})
 

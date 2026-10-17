@@ -123,10 +123,21 @@ ShellRoot {
 
     // ---- conversa (tela preta + chat) ----
     ListModel { id: chatModelObj }
-    // ---- MODO DEV (daemon/dev.py): eventos ao vivo do que ela ouve/pensa/faz ----
+    // ---- MODO DEV: eventos ao vivo e IDE Claude CLI (dev_ide.py) ----
     ListModel { id: devModelObj }
+    ListModel { id: ideEventosObj }
     property bool devOn: false
     property bool devPausado: false
+    property var ideEstado: null
+    property var ideArvore: null
+    property var ideArquivo: null
+    property var ideDiff: null
+    onDevOnChanged: {
+        if (devOn) {
+            celEnviar({ type: "ide", op: "estado" })
+            celEnviar({ type: "ide", op: "arvore", rel: "" })
+        }
+    }
     function devPush(e) {
         if (devPausado || !e) return
         const ex = {}
@@ -233,6 +244,22 @@ ShellRoot {
                         if (m.type === "dev") root.devPush(m)
                         if (m.type === "dev_modo") root.devOn = !!m.on
                         if (m.type === "dev_hist") { devModelObj.clear(); (m.itens || []).forEach(e => root.devPush(e)) }
+                        if (m.type === "ide_estado") root.ideEstado = m
+                        if (m.type === "ide_arvore") root.ideArvore = m
+                        if (m.type === "ide_arquivo") root.ideArquivo = m
+                        if (m.type === "ide_diff") root.ideDiff = m
+                        if (m.type === "ide_ev") {
+                            ideEventosObj.append({
+                                id: String(m.id || ""),
+                                hora: String(m.hora || ""),
+                                kind: String(m.kind || ""),
+                                texto: String(m.texto || ""),
+                                arquivo: String(m.arquivo || m.caminho || ""),
+                                diff: String(m.diff || ""),
+                                extra: JSON.stringify(m)
+                            })
+                            if (ideEventosObj.count > 600) ideEventosObj.remove(0, 1)
+                        }
                         if (m.type === "friday_heard") { root.heardText = String(m.text || ""); root.heardAt = Date.now(); root.reagirFala(m.text); root.activity() }
                         if (m.type === "voice") root.micOn = !!m.on
                         if (m.type === "painel") { root.painelOp = String(m.op || ""); root.painelData = m.data || m.dados || {}; root.painelSeq++ }
@@ -341,7 +368,7 @@ ShellRoot {
         }
     }
 
-    // ================== MODO DEV: painel à direita com a linha do tempo (voz, cérebro, Claude CLI, câmera, tempos) ==================
+    // ================== MODO DEV: IDE AUTÔNOMA CLAUDE CLI (DevIDE) ==================
     Variants {
         model: root.devOn ? Quickshell.screens : []
         PanelWindow {
@@ -350,21 +377,22 @@ ShellRoot {
             screen: modelData
             color: "transparent"
             anchors { right: true; top: true; bottom: true }
-            implicitWidth: Math.round(modelData.width * 0.32)
+            implicitWidth: Math.round(modelData.width * 0.62)
             exclusionMode: ExclusionMode.Ignore
             WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.namespace: "friday-dev"
+            WlrLayershell.namespace: "friday-dev-ide"
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
-            DevPanel {
+            DevIDE {
                 anchors.fill: parent
                 anchors.margins: 10
-                model: devModelObj
                 online: root.online
-                pausado: root.devPausado
-                onPausadoChanged: root.devPausado = pausado
+                estado: root.ideEstado
+                arvore: root.ideArvore
+                arquivo: root.ideArquivo
+                diffAtual: root.ideDiff
+                eventos: ideEventosObj
+                onEnviarCmd: obj => root.celEnviar(obj)
                 onFechar: root.devPedir("desligar")
-                onPedirHistorico: root.devPedir("hist")
-                onLimpar: devModelObj.clear()
             }
         }
     }

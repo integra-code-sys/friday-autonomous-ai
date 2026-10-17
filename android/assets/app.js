@@ -168,7 +168,7 @@ function receber(m) {
     case "text":
       if (m.role === "assistant") msg("a", m.text);
       else if (m.role === "user") msg("u", m.text);
-      else if (m.role === "tool") msg("t", "⚙ " + m.text);
+      else if (m.role === "tool") msg("t", "[TOOL] " + m.text);
       break;
     case "friday_heard": case "remote_heard": ouvi(m.text); break;
     case "painel": holo(m.op, m.data || {}); break;
@@ -232,7 +232,7 @@ $("#arq").onchange = async () => {
   try {
     const r = await (await api("/api/anexo", { method: "POST", body: fd })).json();
     st.anexos.push(...(r.arquivos || []));
-    $("#anexos").innerHTML = st.anexos.map((a) => `<span class="anx">📎 ${esc(a.split("/").pop())}</span>`).join("");
+    $("#anexos").innerHTML = st.anexos.map((a) => `<span class="anx">[ANEXO] ${esc(a.split("/").pop())}</span>`).join("");
     toast(`${(r.arquivos || []).length} arquivo(s) no PC`);
   } catch { toast("Falha ao enviar"); }
   $("#arq").value = "";
@@ -260,15 +260,17 @@ $("#cerebroSel").onclick = () => {
 window.fridayLocal = (tipo, t) => {
   if (tipo === "ouvi") { msg("u", t); $("#ouviTxt").textContent = t; st.state = "thinking"; }
   else if (tipo === "parcial") $("#ouviTxt").textContent = t;
-  else if (tipo === "passo") msg("t", "⚙ " + t.slice(0, 140));
+  else if (tipo === "passo") msg("t", "[PASSO] " + t.slice(0, 140));
   else if (tipo === "resultado") msg("t", "↳ " + t.slice(0, 160));
   else if (tipo === "fim") { msg("a", t); st.state = "speaking"; setTimeout(() => { st.state = "idle"; }, 2500); }
   else if (tipo === "estado") { toast(t === "pronta" ? "Friday local pronta" : t); }
   else if (tipo === "erro") toast(t);
   else if (tipo === "recusada") {
-    const e = msg("t", "🔒 " + t); const b = document.createElement("button");
+    const e = msg("t", "[SEGURANÇA] " + t); const b = document.createElement("button");
     b.textContent = "FUI EU"; b.className = "fuiEu";
-    b.onclick = () => { try { Nativo.fuiEu(); } catch {} b.disabled = true; b.textContent = "✓ APRENDIDO"; carregarVozStatus(); };
+    b.onclick = () => { try { Nativo.fuiEu(); } catch {} b.disabled = true; b.textContent = "CONFIRMADO"; carregarVozStatus(); };
+    e.appendChild(document.createTextNode(" ")); e.appendChild(b);
+  }
     e.appendChild(document.createTextNode(" ")); e.appendChild(b);
   }
   else if (tipo === "dev") {
@@ -380,11 +382,11 @@ function iniciarGravacao() {
       const r = await (await api("/api/audio", { method: "POST", body: new Blob(chunks, { type: "audio/webm" }) })).json();
       if (r.recusada) {
         ouvi("");
-        toast("🔒 " + (r.msg || "Apenas a voz do dono é autorizada"), 4000);
-        const e = msg("t", "🔒 " + (r.msg || "Voz recusada: não é a voz do dono"));
+        toast("[BIO] " + (r.msg || "Apenas a voz do dono é autorizada"), 4000);
+        const e = msg("t", "[BIO] " + (r.msg || "Voz recusada: não é a voz do dono"));
         const b = document.createElement("button");
         b.textContent = "FUI EU"; b.className = "fuiEu";
-        b.onclick = () => { try { Nativo.fuiEu(); } catch {} b.disabled = true; b.textContent = "✓ APRENDIDO"; carregarVozStatus(); };
+        b.onclick = () => { try { Nativo.fuiEu(); } catch {} b.disabled = true; b.textContent = "CONFIRMADO"; carregarVozStatus(); };
         e.appendChild(document.createTextNode(" ")); e.appendChild(b);
         return;
       }
@@ -441,18 +443,68 @@ $("#bVirar").onclick = () => { traseira = !traseira; ls.set("traseira", traseira
 const CAM_NOME = { ptz: "PTZ · QUARTO", nativa: "NATIVA", porta: "PORTA" };
 const camEst = {};
 let camFull = null;
+let ptzDesconectada = true;
+
+function atualizarLayoutCams() {
+  const ptzCard = $("#camCardPtz"), natCard = $("#camCardNativa");
+  const pSlot = $("#camPrincipalSlot"), mSlot = $("#camsMinSlot");
+  const ptzControle = $("#cardControlePtz"), ptzMsg = $("#ptzMsg");
+  if (ptzDesconectada) {
+    if (ptzControle) {
+      ptzControle.style.opacity = "0.45";
+      ptzControle.style.pointerEvents = "none";
+    }
+    if (ptzMsg) ptzMsg.textContent = "[DESCONECTADA]";
+    if (pSlot && mSlot && natCard && ptzCard && pSlot.contains(ptzCard)) {
+      pSlot.appendChild(natCard);
+      mSlot.prepend(ptzCard);
+    }
+  } else {
+    if (ptzControle) {
+      ptzControle.style.opacity = "1";
+      ptzControle.style.pointerEvents = "auto";
+    }
+    if (ptzMsg && ptzMsg.textContent === "[DESCONECTADA]") ptzMsg.textContent = "";
+    if (pSlot && mSlot && ptzCard && natCard && pSlot.contains(natCard)) {
+      pSlot.appendChild(ptzCard);
+      mSlot.prepend(natCard);
+    }
+  }
+}
+
 async function camPuxar(nome) {
   const s = camEst[nome] = camEst[nome] || { busy: false, url: "" };
   if (s.busy) return; s.busy = true;
   try {
     const r = await apiNova(`/api/cam/${nome}`);
     const els = $$(`.cam[data-cam="${nome}"]`);
-    if (r.status === 404) { const sem = await r.json().catch(() => ({})); els.forEach((e) => { e.classList.remove("viva"); e.querySelector(".off").hidden = false; e.querySelector(".off").textContent = sem.erro === "sem imagem" ? "SEM SINAL" : "ATUALIZE O PC"; }); return; }
+    if (r.status === 404) {
+      const sem = await r.json().catch(() => ({}));
+      if (nome === "ptz") {
+        ptzDesconectada = true;
+        atualizarLayoutCams();
+      }
+      els.forEach((e) => {
+        e.classList.remove("viva");
+        const off = e.querySelector(".off");
+        if (off) {
+          off.hidden = false;
+          off.textContent = (nome === "ptz" || sem.erro === "desconectada") ? "DESCONECTADA" : "SEM SINAL";
+        }
+      });
+      return;
+    }
     if (!r.ok) return;
+    if (nome === "ptz") {
+      ptzDesconectada = false;
+      atualizarLayoutCams();
+    }
     const idade = parseFloat(r.headers.get("X-Idade") || "0"), b = await r.blob(), u = URL.createObjectURL(b);
     els.forEach((e) => {
-      e.querySelector("img").src = u; e.querySelector(".off").hidden = true;
-      e.classList.toggle("viva", idade < 3); e.querySelector(".idade").textContent = idade < 3 ? "AO VIVO" : `${Math.round(idade)} s`;
+      e.querySelector("img").src = u;
+      e.querySelector(".off").hidden = true;
+      e.classList.toggle("viva", idade < 3);
+      e.querySelector(".idade").textContent = idade < 3 ? "AO VIVO" : `${Math.round(idade)} s`;
     });
     if (camFull === nome) $("#camFull img").src = u;
     if (s.url) URL.revokeObjectURL(s.url); s.url = u;
@@ -464,7 +516,7 @@ function camerasAtivas(on) {
   const tick = () => {
     if (!st.online || document.hidden) return;
     if (camFull) return camPuxar(camFull);
-    for (const n of ["ptz", "nativa", "porta"]) camPuxar(n);
+    for (const n of ["nativa", "porta", "ptz"]) camPuxar(n);
   };
   tick(); camLoop = setInterval(tick, 330);
 }
@@ -490,7 +542,7 @@ const NIVEL_CORES = {
   leve: { b: "var(--cia)", bg: "rgba(54,214,255,.12)", t: "LEVE" },
   moderado: { b: "var(--lar)", bg: "rgba(255,138,31,.15)", t: "MODERADO" },
   intenso: { b: "var(--lar)", bg: "rgba(255,138,31,.25)", t: "INTENSO" },
-  critico: { b: "var(--err)", bg: "rgba(255,90,110,.2)", t: "CRÍTICO ⚠" }
+  critico: { b: "var(--err)", bg: "rgba(255,90,110,.2)", t: "CRÍTICO" }
 };
 
 function carregarAgenda() {
@@ -561,7 +613,7 @@ function renderAgenda() {
     return;
   }
 
-  const PRIO_ROT = { 1: "NORMAL", 2: "ALTA ★", 3: "CRÍTICA ⚠" };
+  const PRIO_ROT = { 1: "NORMAL", 2: "ALTA", 3: "CRÍTICA" };
   const itemsHtml = itens.map((it) => {
     const clsPrio = it.prioridade === 3 ? "critica" : it.prioridade === 2 ? "alta" : "";
     const clsFeito = it.feito ? "feito" : "";
@@ -575,9 +627,9 @@ function renderAgenda() {
       <div class="agTit">${esc(it.titulo || it.texto || "Sem título")}</div>
       ${it.notas ? `<div class="agNotas">${esc(it.notas)}</div>` : ""}
       <div class="agItemBtns">
-        <button type="button" class="agBtn ok" data-agop="feito">${it.feito ? "↺ REABRIR" : "✓ CONCLUIR"}</button>
-        <button type="button" class="agBtn lar" data-agop="prio">★ PRIORIDADE</button>
-        <button type="button" class="agBtn err" data-agop="cancelar">✕ EXCLUIR</button>
+        <button type="button" class="agBtn ok" data-agop="feito">${it.feito ? "REABRIR" : "CONCLUIR"}</button>
+        <button type="button" class="agBtn lar" data-agop="prio">PRIORIDADE</button>
+        <button type="button" class="agBtn err" data-agop="cancelar">EXCLUIR</button>
       </div>
     </div>`;
   }).join("");
@@ -628,7 +680,7 @@ $("#bAgSalvar").onclick = () => {
   vibrar(25);
   if (window.Nativo && Nativo.agendaNovo) {
     Nativo.agendaNovo(tit, data, hora, dur, cat, prio, notas);
-    toast("Compromisso salvo na Sexta-Feira ✓");
+    toast("Compromisso salvo na Sexta-Feira");
   } else {
     toast("Salvo na agenda local");
   }
@@ -800,7 +852,7 @@ $("#bVozFuiEu").onclick = () => {
   try {
     if (window.Nativo && Nativo.fuiEu) {
       Nativo.fuiEu();
-      toast("Última fala adicionada ao perfil biométrico ✓");
+      toast("Última fala adicionada ao perfil biométrico");
     }
   } catch {}
   setTimeout(carregarVozStatus, 500);
@@ -820,9 +872,9 @@ function carregarModelos() {
     const ehAtivo = m.ativo || m.nome.toUpperCase().includes(atual);
     return `<div class="modCard ${ehAtivo ? "ativo" : ""}">
       <div class="mInfo">
-        <b>${esc(m.nome)} ${m.recomendado ? "★ [RECOMENDADO]" : ""}</b>
+        <b>${esc(m.nome)} ${m.recomendado ? "[RECOMENDADO]" : ""}</b>
         <small>${esc(m.desc || "")}</small>
-        <div class="mMeta">${m.instalado ? "✓ INSTALADO" : "PENDENTE"} · RAM: ${esc(m.ram || "2GB")} · TAM: ${esc(m.tamanho || "--")}</div>
+        <div class="mMeta">${m.instalado ? "[INSTALADO]" : "PENDENTE"} · RAM: ${esc(m.ram || "2GB")} · TAM: ${esc(m.tamanho || "--")}</div>
       </div>
       <button type="button" class="bt ${ehAtivo ? "ok" : "lar"}" data-modid="${esc(m.id)}" style="min-height:36px;padding:4px 10px">${ehAtivo ? "ATIVO" : "USAR"}</button>
     </div>`;
@@ -858,11 +910,15 @@ function stats(m) {
   $("#pGauges").innerHTML = gauge("CPU", m.cpu) + gauge("RAM", m.ram) + gauge("GPU", m.gpu) + gauge("VRAM", m.vram);
   $("#pTemp").textContent = num(m.temp) !== null ? Math.round(m.temp) + " °C" : "--";
   $("#pSisH").textContent = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const pes = (m.pessoas || []).map((p) => `<span class="tag p">👤 ${esc(typeof p === "string" ? p : p.nome || JSON.stringify(p))}</span>`).join("");
+  const pes = (m.pessoas || []).map((p) => `<span class="tag p">[PESSOA] ${esc(typeof p === "string" ? p : p.nome || JSON.stringify(p))}</span>`).join("");
   $("#pPessoas").innerHTML = pes || `<span class="vazio">NINGUÉM À VISTA</span>`;
   const obj = (m.objetos || []).slice(0, 16).map((o) => `<span class="tag">${esc(typeof o === "string" ? o : o.nome || o.label || JSON.stringify(o))}</span>`).join("");
   $("#pObjetos").innerHTML = obj;
   $("#pAlvo").textContent = m.alvo ? "ALVO: " + String(typeof m.alvo === "string" ? m.alvo : m.alvo.nome || "").toUpperCase() : "";
+  if ("ptz_on" in m) {
+    ptzDesconectada = !m.ptz_on;
+    atualizarLayoutCams();
+  }
   for (const [k, nome] of [["ptz_on", "ptz"], ["nat_on", "nativa"], ["usb_on", "porta"]])
     if (k in m && !m[k]) $$(`.cam[data-cam="${nome}"]`).forEach((e) => e.classList.remove("viva"));
 }
@@ -1016,7 +1072,7 @@ function holoCorpo(op, d) {
   if (op === "sistema") return `<div class="gs" style="grid-template-columns:repeat(3,1fr)">${gauge("CPU", d.cpu)}${gauge("RAM", d.ram)}${gauge("DISCO", d.disco)}</div>`;
   if (op === "midia") return `<div style="text-align:center;font-size:18px">${esc(d.titulo || "Nada tocando")}</div><div style="text-align:center;color:var(--cia)">${esc(d.artista)}</div><div class="vazio" style="text-align:center">${esc(String(d.status || "").toUpperCase())}</div>`;
   if (op === "plano") {
-    const tot = Math.max(1, num(d.total) || 1), et = num(d.etapa) || 0, pct = Math.max(0, Math.min(100, (d.fim ? et : Math.max(0, et - 1)) / tot * 100)), ic = { ok: "✓", falhou: "✕", pulado: "»" };
+    const tot = Math.max(1, num(d.total) || 1), et = num(d.etapa) || 0, pct = Math.max(0, Math.min(100, (d.fim ? et : Math.max(0, et - 1)) / tot * 100)), ic = { ok: "[OK]", falhou: "[X]", pulado: ">>" };
     return `<div><b style="color:var(--lar)">${esc(et)}/${esc(d.total ?? 0)}</b> ${esc(d.objetivo)}</div><div class="pb"><i style="width:${pct}%"></i></div>` +
       (d.etapas || []).map(([o, e]) => `<div class="etapa ${esc(e)}"><i>${ic[e] || ""}</i><span>${esc(o)}</span></div>`).join("");
   }
@@ -1048,14 +1104,14 @@ function aprovFim(id, estado, m) {
   const eraAtual = aprov.fila[0] && aprov.fila[0].id === id;
   if (!aprov.fila.some((x) => x.id === id)) return;
   aprov.fila = aprov.fila.filter((x) => x.id !== id);
-  if (m) toast(m, 3000); else if (estado) toast(({ aprovada: "Aprovado ✓", rejeitada: "Cancelado", falhou: "Falhou ao executar" })[estado] || estado);
+  if (m) toast(m, 3000); else if (estado) toast(({ aprovada: "Aprovado", rejeitada: "Cancelado", falhou: "Falhou ao executar" })[estado] || estado);
   if (eraAtual) aprovFechar();
   aprovRender();
 }
 function aprovFechar() { aprov.editando = false; $("#aprEdit").hidden = true; $("#aprTexto").hidden = false; $("#aprAlt").textContent = "ALTERAR"; }
 function aprovRender(alterado) {
   const c = $("#aprov"), bd = $("#aprBadge"), it = aprov.fila[0], n = aprov.fila.length;
-  bd.textContent = n ? `⚠ ${n}` : ""; bd.classList.toggle("on", !!n && aprov.min);
+  bd.textContent = n ? `[!] ${n}` : ""; bd.classList.toggle("on", !!n && aprov.min);
   if (!it || aprov.min) { c.classList.remove("open"); return; }
   if (c.dataset.id !== it.id) aprovFechar();
   c.dataset.id = it.id;

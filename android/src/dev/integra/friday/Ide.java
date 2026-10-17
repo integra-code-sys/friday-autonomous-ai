@@ -89,14 +89,14 @@ final class Ide {
         String arq = in.optString("file_path", in.optString("path", "")).replace("/data/data/com.termux/files/home", "~");
         switch (nome) {
             case "Edit": case "MultiEdit": {
-                add("arquivo", "✎ " + arq);
+                add("arquivo", "[EDIT] " + arq);
                 for (String l : corta(in.optString("old_string"), 6)) add("menos", "- " + l);
                 for (String l : corta(in.optString("new_string"), 8)) add("mais", "+ " + l);
                 break;
             }
             case "Write": {
                 String c = in.optString("content");
-                add("arquivo", "✚ " + arq + " (" + c.split("\n").length + " linhas)");
+                add("arquivo", "[NEW] " + arq + " (" + c.split("\n").length + " linhas)");
                 for (String l : corta(c, 6)) add("mais", "+ " + l);
                 break;
             }
@@ -109,11 +109,11 @@ final class Ide {
                     JSONObject o = t.optJSONObject(i);
                     if (o == null) continue;
                     String st = o.optString("status");
-                    add("todo", (st.equals("completed") ? "☑ " : st.equals("in_progress") ? "▶ " : "☐ ") + o.optString("content"));
+                    add("todo", (st.equals("completed") ? "[OK] " : st.equals("in_progress") ? "[RUN] " : "[ ] ") + o.optString("content"));
                 }
                 break;
             }
-            default: add("ferr", "⚙ " + nome + (arq.isEmpty() ? "" : " " + arq));
+            default: add("ferr", "[TOOL] " + nome + (arq.isEmpty() ? "" : " " + arq));
         }
     }
 
@@ -214,8 +214,8 @@ final class Ide {
                     if (ev == null) continue;
                     String op = ev.optString("op");
                     if ("texto".equals(op)) add("claude", ev.optString("texto"));
-                    else if ("ferramenta".equals(op)) add("ferr", "⚙ " + ev.optString("nome") + " " + ev.optString("detalhe"));
-                    else if ("diff".equals(op)) add("arquivo", "✎ " + ev.optString("caminho"));
+                    else if ("ferramenta".equals(op)) add("ferr", "[TOOL] " + ev.optString("nome") + " " + ev.optString("detalhe"));
+                    else if ("diff".equals(op)) add("arquivo", "[DIFF] " + ev.optString("caminho"));
                     else if ("fim".equals(op)) add("ok", "■ Concluído no PC (" + ev.optInt("ms") / 1000 + "s)");
                     else if ("erro".equals(op)) add("erro", ev.optString("msg"));
                 }
@@ -248,7 +248,7 @@ final class Ide {
             String ext = objetivo.toLowerCase(java.util.Locale.ROOT).contains("html") || objetivo.toLowerCase(java.util.Locale.ROOT).contains("site") ? "html"
                 : objetivo.toLowerCase(java.util.Locale.ROOT).contains("python") || objetivo.toLowerCase(java.util.Locale.ROOT).contains("script") ? "py" : "md";
             String arq = Docs.criar(c, "Dev_" + objetivo.replaceAll("[^\\p{L}\\d]+", "_").substring(0, Math.min(24, objetivo.length())), ext, codigo);
-            add("arquivo", "✚ " + arq);
+            add("arquivo", "[NEW] " + arq);
             add("ok", "■ FINALIZADO localmente · salvo em " + arq);
             mudar("finalizada");
             Voz.get(c).falar("Pronto, gerei no Modo Dev local e salvei em " + arq + ".");

@@ -71,15 +71,15 @@ final class Cerebro {
         try {
             String ativo = modelo();
             Object[][] cat = {
-                {"qwen2.5-3b-q4_0.gguf", "Qwen 2.5 3B Instruct (Q4_0)", "1.82 GB", "★★★★★ Recomendado · Rápido e preciso em ferramentas/JSON",
+                {"qwen2.5-3b-q4_0.gguf", "Qwen 2.5 3B Instruct (Q4_0)", "1.82 GB", "[NOTA 5.0/5] Recomendado · Rápido e preciso em ferramentas/JSON",
                  "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_0.gguf"},
-                {"smollm3-3b-q4_0.gguf", "SmolLM3 3B Instruct (Q4_0)", "1.81 GB", "★★★★☆ Excelente raciocínio geral e código compacto",
+                {"smollm3-3b-q4_0.gguf", "SmolLM3 3B Instruct (Q4_0)", "1.81 GB", "[NOTA 4.8/5] Excelente raciocínio geral e código compacto",
                  "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF/resolve/main/SmolLM3-Q4_K_M.gguf"},
-                {"qwen3-1.7b-q4_0.gguf", "Qwen 3 1.7B (Q4_0)", "1.05 GB", "★★★★☆ Ultra-rápido · Menor consumo de RAM/bateria",
+                {"qwen3-1.7b-q4_0.gguf", "Qwen 3 1.7B (Q4_0)", "1.05 GB", "[NOTA 4.7/5] Ultra-rápido · Menor consumo de RAM/bateria",
                  "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"},
-                {"qwen3-4b-q4_k_m.gguf", "Qwen 3 4B Instruct (Q4_K_M)", "2.50 GB", "★★★★★ Máxima inteligência local para aparelhos 8GB+ RAM",
+                {"qwen3-4b-q4_k_m.gguf", "Qwen 3 4B Instruct (Q4_K_M)", "2.50 GB", "[NOTA 5.0/5] Máxima inteligência local para aparelhos 8GB+ RAM",
                  "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf"},
-                {"gemma-3-4b-it-q4_k_m.gguf", "Google Gemma 3 4B IT (Q4_K_M)", "2.48 GB", "★★★★★ Ótimo português natural e tarefas compostas",
+                {"gemma-3-4b-it-q4_k_m.gguf", "Google Gemma 3 4B IT (Q4_K_M)", "2.48 GB", "[NOTA 5.0/5] Ótimo português natural e tarefas compostas",
                  "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf"}
             };
             org.json.JSONArray arr = new org.json.JSONArray();
