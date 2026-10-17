@@ -1953,6 +1953,7 @@ class _LeitorRTSP:
             w, h = (640, 360) if url.rstrip("/").endswith("onvif2") else (1280, 720)
         self.w, self.h, self.n = w, h, w * h * 3
         self.p = subprocess.Popen(["ffmpeg", "-nostdin", "-loglevel", "error", "-rtsp_transport", "udp",
+                                   "-timeout", "3000000",
                                    "-allowed_media_types", "video", "-buffer_size", "4194304",
                                    "-fflags", "nobuffer+discardcorrupt", "-flags", "low_delay", "-max_delay", "0", "-reorder_queue_size", "0",
                                    "-i", url, "-an", "-vf", f"scale={w}:{h}",
@@ -2150,7 +2151,7 @@ def cam_ptz_thread():
         if cap is None:
             url_ptz = None
             if ipcam is not None:
-                c_ip = ipcam.atual()
+                c_ip = ipcam.obter(forcar=True, intervalo=2.5) if ipcam.atual() is None else ipcam.atual()
                 if c_ip is not None:
                     url_ptz = c_ip.rtsp_sub
             if not url_ptz:
@@ -2174,7 +2175,7 @@ def cam_ptz_thread():
                         os.unlink("/tmp/friday-cam-ptz.jpg")
                     except OSError:
                         pass
-                time.sleep(10); continue
+                time.sleep(2.0); continue
 
             try:
                 cap = _LeitorRTSP(url_ptz, 640, 360)
@@ -2186,7 +2187,7 @@ def cam_ptz_thread():
                             os.unlink("/tmp/friday-cam-ptz.jpg")
                         except OSError:
                             pass
-                    time.sleep(10); continue
+                    time.sleep(2.0); continue
                 falhas = 0
                 print("câmera PTZ conectada:", url_ptz.split("@")[-1] if "@" in url_ptz else url_ptz, flush=True)
             except Exception as e:
@@ -2196,7 +2197,7 @@ def cam_ptz_thread():
                         os.unlink("/tmp/friday-cam-ptz.jpg")
                     except OSError:
                         pass
-                time.sleep(10); continue
+                time.sleep(2.0); continue
 
         if _PTZ_HD["pedido"] and time.time() - _PTZ_HD["pedido"] < 6:      # "ver longe": troca a ÚNICA sessão p/ o onvif1 por ~2 s
             _PTZ_HD["pedido"] = 0.0
@@ -2242,7 +2243,7 @@ def cam_ptz_thread():
                         pass
                 if ipcam is not None:
                     ipcam.perdeu()
-                time.sleep(10)
+                time.sleep(2.0)
             continue
 
         falhas = 0
@@ -7097,9 +7098,44 @@ async def handle(r, w):
                 if op_ in ("ligar", "desligar", "alternar"):
                     dev.estado["on"] = (op_ == "ligar") or (op_ == "alternar" and not dev.estado["on"])
                     await broadcast({"type": "dev_modo", "on": dev.estado["on"]})
+                    if dev.estado["on"] and ide_inst is not None:
+                        try:
+                            await ide_inst.tratar({"type": "ide", "op": "estado"}, broadcast)
+                            await ide_inst.tratar({"type": "ide", "op": "arvore", "rel": ""}, broadcast)
+                        except Exception as _e_ide:
+                            print("ide_inst broadcast estado:", _e_ide, flush=True)
                 await send(w, {"type": "dev_hist", "itens": dev.historico(int(m.get("n", 200)))})
             elif t == "ide" and ide_inst is not None:     # IDE do MODO DEV: estado/arvore/ler/diff/enviar/parar/nova_sessao/modelo/abrir_projeto
                 await ide_inst.tratar(m, lambda r: send(w, r))
+            elif t == "orquestrador":
+                op_orc = m.get("op", "listar")
+                try:
+                    import orchestrator
+                    orc = orchestrator.get_orquestrador(broadcast)
+                    if op_orc == "listar":
+                        await send(w, {"type": "orquestrador_lista", "objetivos": orc.listar_objetivos()})
+                    elif op_orc == "iniciar":
+                        res = orc.iniciar_ou_retomar_objetivo(
+                            objetivo_id=m.get("id") or f"obj_{int(time.time())}",
+                            titulo=m.get("titulo") or "Tarefa Geral",
+                            instrucao=m.get("instrucao") or m.get("prompt") or "",
+                            tipo=m.get("tipo", "continua"),
+                            intervalo_s=float(m.get("intervalo_s", 60))
+                        )
+                        await send(w, {"type": "orquestrador_resp", "res": res})
+                    elif op_orc == "parar":
+                        res = orc.parar_objetivo(m.get("id"))
+                        await send(w, {"type": "orquestrador_resp", "res": res})
+                    elif op_orc == "criar_tela":
+                        res = orc.criar_ou_modificar_tela_interna(
+                            nome=m.get("nome"),
+                            tipo=m.get("tipo", "qml"),
+                            codigo=m.get("codigo", ""),
+                            titulo=m.get("titulo", "")
+                        )
+                        await send(w, {"type": "orquestrador_resp", "res": res})
+                except Exception as _e_orc:
+                    await send(w, {"type": "orquestrador_resp", "erro": str(_e_orc)})
             elif t == "mood":
                 await set_state(mood=m.get("mood"))
             elif t == "voice":
@@ -7350,6 +7386,11 @@ async def main():
     if dev is not None:
         _loop_dev = asyncio.get_running_loop()
         dev.iniciar(lambda ev: asyncio.run_coroutine_threadsafe(broadcast(dict(ev, type="dev", tipo_ev=ev.get("tipo"))), _loop_dev))
+    try:
+        import orchestrator
+        orchestrator.get_orquestrador(broadcast)
+    except Exception as e:
+        print("orquestrador inicialização:", e, flush=True)
     try:
         import cerebro as _cb0
         _cb0.SENTIDOS[0] = _sentidos

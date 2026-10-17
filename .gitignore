@@ -12,8 +12,11 @@ memory/remoto.json
 memory/voz_dono.json
 memory/pessoas.json
 memory/aprovacoes.json
+memory/objetivos_ativos.json
+memory/orchestrator_log.jsonl
 memory/*.bak
 memory/*.sqlite
+shell/telas_dinamicas/
 
 # Builds temporários Android / Windows
 android/build/

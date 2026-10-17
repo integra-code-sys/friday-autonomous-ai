@@ -31,15 +31,15 @@ Item {
     readonly property Item hit: armHit         // área que recebe mouse (o resto passa direto)
 
     // ---- paleta ----
-    readonly property color cBg: "#02070c"
-    readonly property color cCyan: "#36d6ff"
-    readonly property color cCyanDim: "#1b6f8a"
-    readonly property color cTxt: "#d8f6ff"
-    readonly property color cSub: "#6fb2c8"
-    readonly property color cOrange: "#ff8a1f"
-    readonly property color cRed: "#ff5a6e"
-    readonly property color cGreen: "#3dff9a"
-    readonly property color cGlass: Qt.rgba(0.03, 0.10, 0.16, 0.66)
+    readonly property color cBg: "#080503"
+    readonly property color cCyan: "#ff7700"
+    readonly property color cCyanDim: "#b34700"
+    readonly property color cTxt: "#ffeedb"
+    readonly property color cSub: "#d4a373"
+    readonly property color cOrange: "#ffa033"
+    readonly property color cRed: "#ff3d00"
+    readonly property color cGreen: "#00e676"
+    readonly property color cGlass: Qt.rgba(0.08, 0.04, 0.02, 0.75)
     readonly property real s: Math.min(width / 1920, height / 1080)
     readonly property int nQuadros: 144
     property real forcaHolo: 0.9            // 0 = câmera crua, 1 = holograma pleno
@@ -66,16 +66,16 @@ Item {
 
     // ================== FUNDO ==================
     Rectangle { anchors.fill: parent
-        gradient: Gradient { GradientStop { position: 0; color: "#071728" } GradientStop { position: 0.5; color: p.cBg } GradientStop { position: 1; color: "#010407" } } }
+        gradient: Gradient { GradientStop { position: 0; color: "#1a0b04" } GradientStop { position: 0.5; color: p.cBg } GradientStop { position: 1; color: "#050302" } } }
     Canvas {        // grade fina + hexágonos esparsos (pintado uma vez)
         anchors.fill: parent; opacity: 0.5
         onPaint: {
             const c = getContext("2d"); c.reset()
             const g = 48 * p.s
-            c.strokeStyle = "rgba(54,214,255,0.06)"; c.lineWidth = 1
+            c.strokeStyle = "rgba(255,119,0,0.06)"; c.lineWidth = 1
             for (let x = 0; x < width; x += g) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, height); c.stroke() }
             for (let y = 0; y < height; y += g) { c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke() }
-            c.strokeStyle = "rgba(54,214,255,0.10)"
+            c.strokeStyle = "rgba(255,160,51,0.10)"
             const r = 26 * p.s, hx = r * Math.sqrt(3)
             for (let j = 0; j * r * 1.5 < height; j++) for (let i = 0; i * hx < width; i++) {
                 if (((i * 7 + j * 13) % 11) > 1) continue
@@ -87,7 +87,7 @@ Item {
     }
     Rectangle {     // vinheta radial no centro
         anchors.centerIn: parent; width: parent.width * 0.9; height: width; radius: width / 2; opacity: 0.16
-        gradient: Gradient { GradientStop { position: 0; color: "#0f5b78" } GradientStop { position: 0.5; color: "transparent" } }
+        gradient: Gradient { GradientStop { position: 0; color: "#612705" } GradientStop { position: 0.5; color: "transparent" } }
     }
     Rectangle {     // varredura horizontal
         width: parent.width; height: 2; opacity: 0.25
@@ -348,7 +348,7 @@ Item {
                                 SequentialAnimation on opacity { running: index === agCol.idxNv - 1; loops: Animation.Infinite
                                     NumberAnimation { to: 0.4; duration: 800 } NumberAnimation { to: 1; duration: 800 } } } } }
                     Text { anchors.verticalCenter: parent.verticalCenter; color: agCol.nv.conflitos ? p.cRed : p.cSub; font.pixelSize: 10 * p.s; font.family: "monospace"
-                           text: (agCol.nv.feitos || 0) + "/" + (agCol.nv.total || 0) + " FEITOS" + (agCol.nv.conflitos ? " · ⚠ " + agCol.nv.conflitos : "")
+                           text: (agCol.nv.feitos || 0) + "/" + (agCol.nv.total || 0) + " FEITOS" + (agCol.nv.conflitos ? " · [!] " + agCol.nv.conflitos : "")
                                  + " · " + Math.floor((agCol.nv.livre_min || 0) / 60) + "h" + ("0" + (agCol.nv.livre_min || 0) % 60).slice(-2) + " LIVRES" }
                 }
                 // foco do dia (top 3 por prioridade)
@@ -358,7 +358,7 @@ Item {
                             color: modelData.prioridade === 1 ? Qt.rgba(1, 0.35, 0.43, 0.14) : Qt.rgba(0.21, 0.84, 1, 0.07)
                             border.color: modelData.prioridade === 1 ? p.cRed : Qt.rgba(0.21, 0.84, 1, 0.3)
                             Text { id: fl; anchors.centerIn: parent; width: Math.min(implicitWidth, agCol.width - 16 * p.s); elide: Text.ElideRight
-                                   text: (modelData.prioridade === 1 ? "★ " : "") + (modelData.hora ? modelData.hora + " " : "") + modelData.titulo
+                                   text: (modelData.prioridade === 1 ? "[!] " : "") + (modelData.hora ? modelData.hora + " " : "") + modelData.titulo
                                    color: p.cTxt; font.pixelSize: 11 * p.s; font.bold: modelData.prioridade === 1 } } } }
                 Text { visible: !(p.d.agenda || []).length; text: "Nada marcado. Diga \"Sexta-Feira, marca…\""; color: p.cSub; font.pixelSize: 13 * p.s }
                 Repeater {
@@ -367,7 +367,7 @@ Item {
                         readonly property color corP: modelData.feito ? p.cCyanDim : modelData.prioridade === 1 ? p.cRed : modelData.prioridade === 3 ? p.cCyanDim : p.cOrange
                         Rectangle { width: 3 * p.s; height: 30 * p.s; color: parent.corP }
                         Column { width: parent.width - 20 * p.s
-                            Text { text: (modelData.prioridade === 1 && !modelData.feito ? "★ " : "") + modelData.titulo; color: modelData.feito ? p.cSub : p.cTxt; font.pixelSize: 13 * p.s; elide: Text.ElideRight; width: parent.width; font.strikeout: modelData.feito }
+                            Text { text: (modelData.prioridade === 1 && !modelData.feito ? "[!] " : "") + modelData.titulo; color: modelData.feito ? p.cSub : p.cTxt; font.pixelSize: 13 * p.s; elide: Text.ElideRight; width: parent.width; font.strikeout: modelData.feito }
                             Text { text: modelData.hora + (modelData.tipo ? " · " + modelData.tipo : "") + (modelData.fonte === "google" ? " · GOOGLE" : "")
                                    color: p.cCyan; font.pixelSize: 11 * p.s; font.family: "monospace" } } }
                 }
@@ -499,7 +499,7 @@ Item {
             }
         }
         Card {
-            titulo: "TAREFAS ATIVAS"; icone: "☰"; extra: (p.d.tarefas || []).length + " ABERTAS"; width: parent.width; height: 150 * p.s
+            titulo: "TAREFAS ATIVAS"; icone: "≡"; extra: (p.d.tarefas || []).length + " ABERTAS"; width: parent.width; height: 150 * p.s
             Column { width: parent.width; spacing: 4 * p.s
                 Text { visible: !(p.d.tarefas || []).length; text: "Nenhuma tarefa pendente."; color: p.cSub; font.pixelSize: 13 * p.s }
                 Repeater { model: p.d.tarefas || []
@@ -529,7 +529,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter; x: 18 * p.s; spacing: 34 * p.s
             Repeater {
                 model: [["◈", "F.R.I.D.A.Y. OS", "local · " + (p.online ? "on-line" : "off-line")],
-                        ["☁", "CLIMA", p.d.clima ? p.d.clima.temp + "°C · umidade " + p.d.clima.umidade + "%" : "—"],
+                        ["◇", "CLIMA", p.d.clima ? p.d.clima.temp + "°C · umidade " + p.d.clima.umidade + "%" : "—"],
                         ["⇅", "REDE", p.d.rede || "—"],
                         ["▣", "DISCO /", (p.d.disco || "—") + " usado"],
                         ["◉", "MEMÓRIA", ((p.d.memoria || {}).kb || 0) + " KB comprimidos"],

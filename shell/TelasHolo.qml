@@ -141,8 +141,8 @@ Item {
         // título (com glitch de cor na entrada)
         Item {
             x: 20; y: 11; width: card.width - 40; height: 26
-            readonly property string txt: ({ plano: "◆ TAREFA · " + String(pn.dados.titulo || "").toUpperCase(), clima: "☀ CLIMA", agenda: "◷ AGENDA",
-                                            sistema: "◉ SISTEMA", midia: "♫ MÍDIA", transicao: String(pn.dados.titulo || "") })[pn.op] || pn.op.toUpperCase()
+            readonly property string txt: ({ plano: "◆ TAREFA · " + String(pn.dados.titulo || "").toUpperCase(), clima: "METEO · CLIMA", agenda: "AGENDA · CRONO",
+                                            sistema: "◉ SISTEMA", midia: "MÍDIA · AUDIO", transicao: String(pn.dados.titulo || "") })[pn.op] || pn.op.toUpperCase()
             Text { x: 3 * pn.glitch; text: parent.txt; color: "#ff3d6e"; opacity: pn.glitch * 0.8; font.pixelSize: 16; font.bold: true; font.letterSpacing: 5 }
             Text { x: -3 * pn.glitch; text: parent.txt; color: "#3df0ff"; opacity: pn.glitch * 0.8; font.pixelSize: 16; font.bold: true; font.letterSpacing: 5 }
             Text { text: parent.txt; color: "#ffffff"; font.pixelSize: 16; font.bold: true; font.letterSpacing: 5; elide: Text.ElideRight; width: parent.width - 170 }
@@ -250,7 +250,7 @@ Item {
                         Text {
                             visible: !!barraAg.nv.nivel
                             text: (barraAg.nv.feitos || 0) + "/" + (barraAg.nv.total || 0) + " FEITOS"
-                                  + (barraAg.nv.conflitos ? "  ·  ⚠ " + barraAg.nv.conflitos + " CONFLITO" + (barraAg.nv.conflitos > 1 ? "S" : "") : "")
+                                  + (barraAg.nv.conflitos ? "  ·  [!] " + barraAg.nv.conflitos + " CONFLITO" + (barraAg.nv.conflitos > 1 ? "S" : "") : "")
                                   + "  ·  " + Math.floor((barraAg.nv.livre_min || 0) / 60) + "H" + ("0" + (barraAg.nv.livre_min || 0) % 60).slice(-2) + " LIVRES"
                             color: barraAg.nv.conflitos ? "#f87171" : "#94a3b8"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.2
                             anchors.verticalCenter: parent.verticalCenter
@@ -269,7 +269,7 @@ Item {
                                 border.width: 1; border.color: modelData.prioridade === 1 ? "#f87171" : "#408fe9ff"
                                 Text {
                                     id: txF; anchors.centerIn: parent
-                                    text: (modelData.prioridade === 1 ? "★ " : "") + (modelData.hora ? modelData.hora + " " : "") + modelData.titulo
+                                    text: (modelData.prioridade === 1 ? "[!] " : "") + (modelData.hora ? modelData.hora + " " : "") + modelData.titulo
                                     color: "#ffffff"; font.pixelSize: 10; font.bold: modelData.prioridade === 1
                                 }
                             }
@@ -529,7 +529,7 @@ Item {
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: pn.dados.titulo || "NADA TOCANDO"; color: "#ffffff"; font.pixelSize: 24; elide: Text.ElideRight; width: Math.min(implicitWidth, 600) }
                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: pn.dados.artista || ""; color: pn.cHolo; font.pixelSize: 16 }
                 Text { anchors.horizontalCenter: parent.horizontalCenter; color: pn.cHot; font.pixelSize: 11; font.letterSpacing: 4
-                       text: midiaRaiz.tocando ? "▶ TOCANDO" : (/pause/i.test(String(pn.dados.status || "")) ? "❚❚ PAUSADO" : "■ PARADO") }
+                       text: midiaRaiz.tocando ? "▶ TOCANDO" : (/pause/i.test(String(pn.dados.status || "")) ? "|| PAUSADO" : "■ PARADO") }
             }
         }
     }

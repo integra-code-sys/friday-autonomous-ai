@@ -503,17 +503,28 @@ ShellRoot {
                 width: Math.max(160, glTxt.implicitWidth + 36)
                 height: 38
                 radius: 19
-                color: "#e6051525"
-                border.color: "#00d2ff"
+                color: "#e6120804"
+                border.color: "#ff7700"
                 border.width: 1.5
                 Row {
                     anchors.centerIn: parent
                     spacing: 8
-                    Text { text: "✋"; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
+                    Rectangle {
+                        width: 14; height: 14; radius: 3
+                        color: "transparent"
+                        border.color: "#ffa033"
+                        border.width: 1.5
+                        anchors.verticalCenter: parent.verticalCenter
+                        Rectangle {
+                            width: 4; height: 4; radius: 2
+                            color: "#ff7700"
+                            anchors.centerIn: parent
+                        }
+                    }
                     Text {
                         id: glTxt
                         text: root.gestureLabel.toUpperCase()
-                        color: "#d6f6ff"
+                        color: "#ffeedb"
                         font.pixelSize: 12
                         font.bold: true
                         font.letterSpacing: 1.5

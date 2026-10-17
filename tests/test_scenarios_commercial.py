@@ -264,6 +264,50 @@ class TestFridayCommercialScenarios(unittest.TestCase):
         achados = memoria.buscar("Commercial", 5)
         self.assertTrue(any("Friday Commercial" in s for _, _, s in achados))
 
+    def test_07_orquestrador_continuo_e_pensar_antes_de_agir(self):
+        """Valida o Orquestrador Contínuo, checkpoint atômico, pensar antes de agir e modificação rápida de telas."""
+        import orchestrator
+        orc = orchestrator.OrquestradorContinuo()
+
+        # 1. Pensar antes de agir
+        pensamento = orc.pensar_antes_de_agir(
+            "Reformulação de tela para Cyber Orange e orquestração contínua",
+            "Dispositivos Linux, Android e Windows",
+            "Autonomia Adaptativa"
+        )
+        self.assertTrue(pensamento["autorizado"])
+        self.assertEqual(pensamento["proximo_passo"], "Autonomia Adaptativa")
+        self.assertIn("Dispositivos Linux", pensamento["analise_situacional"])
+
+        # 2. Iniciar objetivo persistente
+        res_ini = orc.iniciar_ou_retomar_objetivo(
+            objetivo_id="obj_teste_comercial",
+            titulo="Orquestração Teste",
+            instrucao="Validar integridade dos componentes",
+            tipo="rapida",
+            intervalo_s=10.0
+        )
+        self.assertTrue(res_ini["ok"])
+        self.assertEqual(res_ini["id"], "obj_teste_comercial")
+
+        # 3. Listagem e checkpoints
+        objs = orc.listar_objetivos()
+        ids = [o["id"] for o in objs]
+        self.assertIn("obj_teste_comercial", ids)
+
+        # 4. Modificação dinâmica de tela interna
+        res_tela = orc.criar_ou_modificar_tela_interna(
+            nome_tela="TelaOrquestradorHUD",
+            codigo_conteudo="import QtQuick\nRectangle { color: '#070503' }",
+            tipo="qml"
+        )
+        self.assertTrue(res_tela["ok"])
+        self.assertTrue(os.path.exists(res_tela["caminho"]))
+
+        # Limpeza
+        orc.parar_objetivo("obj_teste_comercial")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

@@ -8,7 +8,8 @@ case "$1" in
   criacao) tipo=mode_criacao; nome="Modo Criação" ;;
   mao_livre|mouse) tipo=mode_mouse; nome="Modo Mão Livre" ;;
   seguranca) tipo=mode_seguranca; nome="Modo Segurança" ;;
-  *) echo "uso: prometheus-toggle camera|mic|friday|criacao|mao_livre|seguranca" >&2; exit 1 ;;
+  dev|ide) tipo=dev; nome="Modo Dev IDE" ;;
+  *) echo "uso: prometheus-toggle camera|mic|friday|criacao|mao_livre|seguranca|dev|ide" >&2; exit 1 ;;
 esac
 "$D/.venv/bin/python" -I - "$tipo" "$nome" <<'PY'
 import json, os, socket, subprocess, sys, time
@@ -33,6 +34,16 @@ if tipo.startswith("mode_"):
             atual = bool(m[m_key])
     novo = not (atual if atual is not None else False)
     msg = {"type": "mode", "mode": m_key, "on": novo}
+elif tipo == "dev":
+    for l in buf.decode(errors="ignore").splitlines():
+        try:
+            m = json.loads(l)
+        except Exception:
+            continue
+        if m.get("type") == "dev_modo" and "on" in m:
+            atual = bool(m["on"])
+    novo = not (atual if atual is not None else False)
+    msg = {"type": "dev", "op": "ligar" if novo else "desligar"}
 elif tipo == "friday":
     for l in buf.decode(errors="ignore").splitlines():
         try:

@@ -177,18 +177,23 @@ class CameraIP:
         self.hist = []                                       # [[t_liga, t_desliga|None, vx, vy]] já com a inversão: o ptz.py prevê o giro
         self.vel = (0.0, 0.0)                                # velocidade contínua em curso (modo mover)
         self.bind_ip = None
+        self._resolver_bind_ip()
+
+    def _resolver_bind_ip(self):
+        """Descobre dinamicamente a interface local correta para alcançar o IP da câmera (Wi-Fi/Ethernet)."""
         for _, loc_ip, _ in _ips_locais():
             s = socket.socket()
-            s.settimeout(0.25)
+            s.settimeout(0.35)
             try:
                 s.bind((loc_ip, 0))
-                if s.connect_ex((ip, 554)) == 0:
+                if s.connect_ex((self.ip, 554)) == 0 or s.connect_ex((self.ip, 5000)) == 0:
                     self.bind_ip = loc_ip
-                    break
+                    return self.bind_ip
             except Exception:
                 pass
             finally:
                 s.close()
+        return self.bind_ip
 
     # ---- SOAP cru (requests mandava cabeçalhos que esse gSOAP às vezes recusa)
     def _sec(self):
@@ -213,6 +218,8 @@ class CameraIP:
         req = (f"POST /onvif/ptz_service HTTP/1.1\r\nHost: {self.ip}:5000\r\nContent-Type: application/soap+xml; charset=utf-8\r\n"
                f"Content-Length: {len(env)}\r\nConnection: close\r\n\r\n").encode() + env
         self._ult_post = time.time()
+        if not self.bind_ip:
+            self._resolver_bind_ip()
         s = socket.socket()
         s.settimeout(t)
         if self.bind_ip:
@@ -220,7 +227,19 @@ class CameraIP:
                 s.bind((self.bind_ip, 0))
             except Exception:
                 pass
-        s.connect((self.ip, 5000))
+        try:
+            s.connect((self.ip, 5000))
+        except Exception:
+            # Em caso de falha de rota (ex: Wi-Fi reconectado), atualiza o bind_ip e tenta de novo
+            self._resolver_bind_ip()
+            s = socket.socket()
+            s.settimeout(t)
+            if self.bind_ip:
+                try:
+                    s.bind((self.bind_ip, 0))
+                except Exception:
+                    pass
+            s.connect((self.ip, 5000))
         try:
             s.sendall(req)
             d = b""
@@ -242,6 +261,7 @@ class CameraIP:
 
     def conectar(self):
         """vídeo (DESCRIBE 200) + motor (ContinuousMove 0,0 = parado, inofensivo)."""
+        self._resolver_bind_ip()
         st = rtsp_status(self.ip)
         if st != 200:
             self.ok = False
@@ -400,7 +420,7 @@ def status():
     return "câmera PTZ indisponível" + (f": {_ult_erro[0]}" if _ult_erro[0] else "")
 
 
-def obter(forcar=False, intervalo=20.0):
+def obter(forcar=False, intervalo=2.5):
     """CameraIP conectada ou None. Procura de novo no máximo a cada `intervalo` s (a busca roda fora do laço de vídeo)."""
     global _cam
     with _lock:
@@ -411,7 +431,7 @@ def obter(forcar=False, intervalo=20.0):
         _ult_busca[0] = time.time()
         c = ler_conf()
         for ip in candidatos():
-            cam = _cam if (_cam is not None and _cam.ip == ip) else CameraIP(ip, c.get("perfil"), c.get("usuario", "admin"), c.get("senha", ""))
+            cam = CameraIP(ip, c.get("perfil"), c.get("usuario", "admin"), c.get("senha", "")) if (_cam is None or _cam.ip != ip) else _cam
             if cam.conectar():
                 if _cam is not cam:
                     log(f"conectada em {ip} (motor {'ok' if cam.motor else 'NÃO'})")

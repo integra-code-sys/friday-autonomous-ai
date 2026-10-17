@@ -29,15 +29,17 @@ Item {
     property var diffs: ({})           // rel -> diff unified
     property int processados: 0        // eventos já varridos em busca de "edicao"
 
-    readonly property color cCiano: "#7fe6ff"
-    readonly property color cLaranja: "#ff8a1f"
-    readonly property color cTexto: "#dceefb"
-    readonly property color cSuave: "#9fb4c8"
-    readonly property color cFundo: "#e6050b12"
-    readonly property color cBorda: "#557fe6ff"
-    readonly property color cVerde: "#7fffb0"
-    readonly property color cVermelho: "#ff7f9f"
-    readonly property color cRoxo: "#c99bff"
+    readonly property color cLaranja: "#ff7700"
+    readonly property color cLaranjaBrilho: "#ffa033"
+    readonly property color cLaranjaNeon: "#ff9100"
+    readonly property color cCiano: "#ffa033"
+    readonly property color cTexto: "#ffeedb"
+    readonly property color cSuave: "#d4a373"
+    readonly property color cFundo: "#f4080503"
+    readonly property color cBorda: "#66ff7700"
+    readonly property color cVerde: "#00e676"
+    readonly property color cVermelho: "#ff3d00"
+    readonly property color cRoxo: "#ff9e80"
 
     ListModel { id: abas }             // rel, texto, linhas, truncado
 
@@ -182,7 +184,7 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
-            Text { text: "MODO DEV · Claude CLI"; color: ide.cLaranja; font.pixelSize: 17; font.bold: true; font.letterSpacing: 2 }
+            Text { text: "MODO DEV · IDE AUTÔNOMA"; color: ide.cLaranjaBrilho; font.pixelSize: 17; font.bold: true; font.letterSpacing: 2 }
             Rectangle { width: 9; height: 9; radius: 5; color: ide.online ? ide.cVerde : ide.cVermelho }
             ComboBox {
                 id: cbProjeto
@@ -479,10 +481,10 @@ Item {
                     Rectangle {
                         Layout.fillHeight: true
                         Layout.fillWidth: true
-                        color: "#66020810"; radius: 6; border.color: "#337fe6ff"
+                        color: "#77120804"; radius: 6; border.color: "#44ff7700"
                         ColumnLayout {
                             anchors.fill: parent; anchors.margins: 6; spacing: 6
-                            Text { text: "CONVERSA COM O CLAUDE"; color: ide.cCiano; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2 }
+                            Text { text: "ENGENHEIRA AUTÔNOMA · CLAUDE & ORQUESTRADOR"; color: ide.cLaranjaBrilho; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2 }
 
                             ListView {
                                 id: chat

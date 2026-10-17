@@ -1020,6 +1020,69 @@ def t_percepcao_situacional(**_):
     return "\n\n".join(partes)
 
 
+def t_orquestrar_tarefa_continua(id="", titulo="", instrucao="", tipo="continua", intervalo_s=60, **_):
+    """Inicia ou retoma uma tarefa contínua, longa ou intermitente com persistência e checkpoints."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    tid = id or re.sub(r"[^a-zA-Z0-9_\-]", "_", (titulo or "").lower())[:30] or f"obj_{int(time.time())}"
+    res = orc.iniciar_ou_retomar_objetivo(
+        objetivo_id=tid,
+        titulo=titulo or tid,
+        instrucao=instrucao or titulo,
+        tipo=tipo,
+        intervalo_s=float(intervalo_s or 60)
+    )
+    return f"Objetivo orquestrado: ID '{res['id']}', status '{res['status']}'. Executando continuamente com checkpoints persistidos."
+
+
+def t_consultar_objetivos_ativos(**_):
+    """Lista todos os objetivos e tarefas em execução contínua ou intermitente."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    objs = orc.listar_objetivos()
+    if not objs:
+        return "Nenhum objetivo contínuo ou intermitente ativo no momento."
+    linhas = [f"- [{o.get('id')}] {o.get('titulo')}: {str(o.get('status')).upper()} (tipo: {o.get('tipo')}, ciclos: {o.get('ciclos_executados')}, último: {str(o.get('ultimo_resultado'))[:100]})" for o in objs]
+    return "OBJETIVOS ORQUESTRADOS ATIVOS:\n" + "\n".join(linhas)
+
+
+def t_parar_objetivo(id="", **_):
+    """Pausa ou cancela um objetivo orquestrado pelo ID."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    res = orc.parar_objetivo(id)
+    return res.get("mensagem") or res.get("erro") or "Objetivo atualizado."
+
+
+def t_operar_outra_ia(ia="claude", prompt="", modelo=None, **_):
+    """Opera outras IAs (Claude CLI, Gemini, ChatGPT, Ollama, DeepSeek) para resolver subtarefas complexas."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    return orc.operar_outra_ia(ia=ia, prompt=prompt, modelo=modelo)
+
+
+def t_criar_ou_modificar_tela(nome="", tipo="qml", codigo="", titulo="", **_):
+    """Cria ou atualiza telas internas (QML para o Quickshell do Linux ou HTML5 HUD para Web/Android) dinamicamente."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    res = orc.criar_ou_modificar_tela_interna(nome=nome, tipo=tipo, codigo=codigo, titulo=titulo)
+    return res.get("mensagem") or res.get("erro") or "Tela processada."
+
+
+def t_pensar_estrategia(objetivo="", contexto="", **_):
+    """Executa reflexão deliberada de pré-ação avaliando contexto, tela, riscos e alternativas antes de agir."""
+    import orchestrator
+    orc = orchestrator.get_orquestrador()
+    ctx = {"detalhe": contexto}
+    try:
+        import tela
+        ctx["dificuldade_tela"] = tela.detectar_dificuldades().get("detalhes")
+    except Exception:
+        pass
+    p = orc.pensar_antes_de_agir(objetivo=objetivo, contexto=ctx, acao_planejada=objetivo)
+    return f"Estratégia formulada: {p['estrategia']}\nRiscos: {', '.join(p['riscos_detectados']) or 'nenhum'}\nAutorizado: {p['autorizado']}"
+
+
 def t_clicar_texto(texto="", **_):
     """clica (cursor real, movimento humano) no texto visível mais parecido com `texto`. Recusa ações sensíveis."""
     alvo = str(texto).strip()
@@ -1522,13 +1585,25 @@ TOOLS = {
                           "reconhece gestos manuais ativos (joinha, pare, polegar_baixo, paz, apontar, ok, rock, tres_dedos)"),
     "percepcao_situacional": (t_percepcao_situacional, "{}",
                              "diagnóstico 360° imediato: tela (erros/dificuldades), usuário (emoção/gestos) e saúde do sistema"),
+    "orquestrar_tarefa_continua": (t_orquestrar_tarefa_continua, '{"id":"","titulo":"nome da tarefa","instrucao":"o que fazer ou monitorar","tipo":"continua|intermitente|longa|rapida","intervalo_s":60}',
+                                  "orquestra tarefas gerais contínuas ou de longa duração com checkpoints persistidos em disco"),
+    "consultar_objetivos_ativos": (t_consultar_objetivos_ativos, "{}",
+                                  "lista os objetivos e tarefas em execução orquestrada contínua ou intermitente"),
+    "parar_objetivo": (t_parar_objetivo, '{"id":"id_do_objetivo"}',
+                      "pausa ou cancela um objetivo contínuo em execução"),
+    "operar_outra_ia": (t_operar_outra_ia, '{"ia":"claude|gemini|openai|ollama","prompt":"pedido","modelo":"opcional"}',
+                        "opera outras IAs locais ou em nuvem para resolver tarefas e sub-tarefas"),
+    "criar_ou_modificar_tela": (t_criar_ou_modificar_tela, '{"nome":"nome_tela","tipo":"qml|html","codigo":"conteúdo do código","titulo":"título"}',
+                               "cria ou modifica dinamicamente telas internas QML do sistema ou HTML5 HUD Web"),
+    "pensar_estrategia": (t_pensar_estrategia, '{"objetivo":"meta","contexto":"detalhes"}',
+                         "executa raciocínio tático de pré-ação avaliando contexto, tela, riscos e alternativas"),
     "acao": (t_acao, '{"t":"abrir_app|janela|sistema|agenda|email|holo|manual|programar","...":"parâmetros da ação"}',
              "executa uma ação no PC (abrir app, foco de janela, volume, agenda, e-mail, holograma, programar; NÃO use manual para documentos/planilhas)"),
 }
 
 # ------------------------------------------------------------------ F6: verificação do EFEITO REAL de cada ferramenta
 LEITURA = {"pesquisar_web", "navegar_web", "tarefa_adaptativa", "analisar_dificuldade_tela", "reconhecer_emocao", "reconhecer_gestos",
-           "percepcao_situacional", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
+           "percepcao_situacional", "consultar_objetivos_ativos", "pensar_estrategia", "operar_outra_ia", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
            "resumo_conversa", "cel_ver", "consultar_ia", "apontar", "camera_ver", "camera_em_volta", "camera_procurar", "camera_zoom", "camera_onde", "zap_ler"}           # só leem: o "final" delas é a própria resposta
 VISUAIS = {"clicar_texto", "clicar_elemento", "digitar", "tecla", "rolar", "abrir_site", "abrir_app", "acao", "pular_anuncio"}
 _NEG = re.compile(r"\b(n[ãa]o consegui|n[ãa]o deu|falhou|n[ãa]o achei|n[ãa]o encontrei|travei|n[ãa]o foi poss[íi]vel)\b", re.I)
