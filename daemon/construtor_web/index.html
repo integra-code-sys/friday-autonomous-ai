@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Construtor F.R.I.D.A.Y.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link id="gfont" rel="stylesheet" href="">
+<style>
+:root{--bg:#04070c;--pn:#08111bf0;--pn2:#0b1826;--ln:#1a3550;--ln2:#25496b;--ac:#38d6ff;--ac2:#ffb547;--tx:#d8ecf7;--tx2:#7f9bb0;--ok:#3fdc8a;--er:#ff5f6d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:radial-gradient(ellipse at 50% -10%,#0d2338 0,#04070c 65%);color:var(--tx);font:13px/1.4 Inter,system-ui,sans-serif;overflow:hidden}
+#app{display:grid;grid-template-columns:300px 1fr 300px;grid-template-rows:52px 1fr;height:100vh}
+header{grid-column:1/4;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--ln);background:linear-gradient(90deg,#061321,#0a1d30 50%,#061321)}
+header .logo{letter-spacing:.2em;color:var(--ac);font-weight:700;font-size:12px;margin-right:6px;white-space:nowrap}
+header .sep{width:1px;height:26px;background:var(--ln);margin:0 4px}
+header .sp{flex:1}
+button,select,input,textarea{font:inherit;color:var(--tx);background:#0c1f32;border:1px solid var(--ln);border-radius:8px;padding:6px 10px}
+textarea{resize:vertical;width:100%}
+button{cursor:pointer;white-space:nowrap}button:hover{border-color:var(--ac);box-shadow:0 0 10px #38d6ff3a}
+button.on{border-color:var(--ac);background:#0f3550;color:#fff}
+button.pri{background:linear-gradient(180deg,#0f4c6e,#0b3550);border-color:var(--ac)}
+button.ico{padding:6px 8px;min-width:32px}
+button:disabled{opacity:.4;cursor:default}
+aside{background:var(--pn);border-right:1px solid var(--ln);display:flex;flex-direction:column;min-height:0}
+aside.dir{border-right:0;border-left:1px solid var(--ln)}
+.tabs{display:flex;border-bottom:1px solid var(--ln)}
+.tabs button{flex:1;border:0;border-radius:0;background:transparent;padding:10px 4px;color:var(--tx2);border-bottom:2px solid transparent}
+.tabs button.on{color:var(--ac);border-bottom-color:var(--ac);box-shadow:none;background:transparent}
+.pane{flex:1;overflow:auto;padding:12px;display:none}.pane.on{display:block}
+h3{margin:14px 0 8px;font-size:10.5px;letter-spacing:.16em;color:var(--tx2);text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+h3:first-child{margin-top:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--ln);background:#0a1b2c;cursor:pointer;color:var(--tx2)}
+.chip:hover{color:var(--tx);border-color:var(--ac)}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.linha input,.linha select{width:100%}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.grid3 button{padding:6px 4px;overflow:hidden;text-overflow:ellipsis}
+.prim{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border:1px solid var(--ln);border-radius:10px;background:#0a1828;cursor:grab;font-size:11.5px;color:var(--tx2)}
+.prim:hover{border-color:var(--ac);color:var(--tx)}
+.prim svg{width:20px;height:20px;color:var(--ac)}
+.card{border:1px solid var(--ln);border-radius:10px;margin-bottom:8px;background:#071220;cursor:grab;overflow:hidden;position:relative}
+.card:hover{border-color:var(--ac)}
+.card .pv{height:86px;overflow:hidden;position:relative;pointer-events:none}
+.card .pv>div{transform-origin:0 0;position:absolute;left:8px;top:8px}
+.card .nm{padding:6px 8px;border-top:1px solid var(--ln);display:flex;justify-content:space-between;align-items:center;gap:6px}
+.card .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .nm small{color:var(--tx2)}
+.card .x{position:absolute;right:4px;top:4px;padding:0 6px;opacity:0}
+.card:hover .x{opacity:.9}
+.icones{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.icones div{aspect-ratio:1;display:grid;place-items:center;border:1px solid transparent;border-radius:8px;cursor:grab;color:var(--tx)}
+.icones div:hover{border-color:var(--ac);background:#0b2035}
+.icones svg{width:20px;height:20px}
+.camada{display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--ln);border-radius:8px;margin-bottom:5px;cursor:pointer;background:#0a1828}
+.camada.sel{border-color:var(--ac);background:#0d2a40}
+.camada span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.camada button{padding:1px 6px;font-size:11px}
+#centro{position:relative;overflow:hidden}
+#vista{position:absolute;inset:0;overflow:auto}
+#mesa{position:relative;min-width:100%;min-height:100%;display:flex;align-items:center;justify-content:center;padding:60px}
+#palcoWrap{position:relative;flex:none}
+#palco{position:absolute;left:0;top:0;transform-origin:0 0;box-shadow:0 0 0 1px var(--ac),0 0 50px #38d6ff2a;overflow:hidden}
+#palco.grade{background-image:linear-gradient(#ffffff09 1px,transparent 1px),linear-gradient(90deg,#ffffff09 1px,transparent 1px)!important;background-size:20px 20px!important}
+.dim{position:absolute;left:0;top:-24px;color:var(--tx2);font-size:11px;letter-spacing:.1em}
+.item{position:absolute;outline:1px dashed transparent;cursor:move}
+.item:hover{outline-color:#38d6ff88}
+.item.sel{outline:1.5px solid var(--ac)}
+.item.trava{cursor:default}
+.item .hd{position:absolute;width:12px;height:12px;border-radius:3px;background:var(--ac);border:2px solid #04121e;display:none;z-index:5}
+.item.sel:not(.trava) .hd{display:block}
+.hd.se{right:-7px;bottom:-7px;cursor:nwse-resize}.hd.e{right:-7px;top:calc(50% - 6px);cursor:ew-resize}.hd.s{bottom:-7px;left:calc(50% - 6px);cursor:ns-resize}
+.item .tag{position:absolute;left:-1px;top:-21px;font-size:10.5px;color:#04121e;background:var(--ac);padding:1px 6px;border-radius:4px 4px 0 0;display:none;white-space:nowrap}
+.item.sel .tag{display:block}
+.item>.host{width:100%;height:100%}
+.item:not(.edit)>.host{pointer-events:none}
+.item.edit{outline:1.5px solid var(--ac2);cursor:text}
+.guia{position:absolute;background:#ff4fd8;z-index:9999;pointer-events:none}
+.ghost{position:fixed;pointer-events:none;opacity:.85;z-index:99;border:1px solid var(--ac);border-radius:8px;background:#0b2035;padding:6px 10px;font-size:12px}
+.job{padding:6px 8px;border-left:3px solid var(--ac);background:#0a1828;margin-bottom:6px;border-radius:4px;font-size:12px}
+.job.pronto{border-color:var(--ok)}.job.erro{border-color:var(--er)}
+.job small{color:var(--tx2);display:block}
+.job .barra{height:2px;background:linear-gradient(90deg,transparent,var(--ac),transparent);background-size:200% 100%;animation:corre 1.2s linear infinite;margin-top:4px}
+@keyframes corre{from{background-position:200% 0}to{background-position:-200% 0}}
+.cor{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cor input[type=color]{width:30px;height:24px;padding:0;border-radius:6px}
+.cor span{flex:1;color:var(--tx2)}
+.cor code{font-size:11px;color:var(--tx2)}
+.linha{display:flex;gap:6px;margin-bottom:8px;align-items:center}.linha>*{flex:1;min-width:0}
+.linha label{flex:none;color:var(--tx2);width:18px}
+.dica{color:var(--tx2);font-size:12px}
+.vazio{color:var(--tx2);text-align:center;padding:18px 8px;border:1px dashed var(--ln);border-radius:10px;font-size:12px}
+.paletas{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.paleta{height:26px;border-radius:6px;cursor:pointer;border:1px solid var(--ln);display:flex;overflow:hidden}
+.paleta i{flex:1}
+input[type=range]{padding:0;accent-color:var(--ac)}
+#toasts{position:fixed;right:316px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:200}
+.toast{background:#0b2035;border:1px solid var(--ac);border-radius:10px;padding:10px 14px;box-shadow:0 8px 30px #000a;animation:entra .25s ease-out;max-width:360px}
+@keyframes entra{from{transform:translateY(10px);opacity:0}}
+#offline{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#3a0d14;border:1px solid var(--er);padding:8px 14px;border-radius:10px;display:none;z-index:300}
+#zoomtxt{width:52px;text-align:center;color:var(--tx2)}
+kbd{font:11px JetBrains Mono,monospace;border:1px solid var(--ln);border-radius:4px;padding:0 4px;color:var(--tx2)}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="logo">F.R.I.D.A.Y. · CONSTRUTOR</span>
+    <select id="selTela" title="telas"></select><button id="btNova" class="ico" title="nova tela">＋</button>
+    <span class="sep"></span>
+    <button data-disp="desktop" class="ico" title="desktop 1280×800">🖥</button>
+    <button data-disp="notebook" class="ico" title="notebook 1440×900">💻</button>
+    <button data-disp="tablet" class="ico" title="tablet 768×1024">▭</button>
+    <button data-disp="celular" class="ico" title="celular 390×844">📱</button>
+    <span class="sep"></span>
+    <button id="zMenos" class="ico">−</button><span id="zoomtxt">100%</span><button id="zMais" class="ico">＋</button><button id="zAjustar">ajustar</button>
+    <span class="sep"></span>
+    <button id="btGrade" class="on" title="grade (G)">grade</button>
+    <button id="btImã" class="on" title="encaixe e guias">ímã</button>
+    <button id="btPrevia" title="pré-visualização interativa (P)">▶ prévia</button>
+    <span class="sp"></span>
+    <button id="btDesfazer" class="ico" title="desfazer (Ctrl+Z)">↶</button><button id="btRefazer" class="ico" title="refazer (Ctrl+Shift+Z)">↷</button>
+    <button id="btExport" title="abrir HTML exportado">exportar</button>
+    <button id="btCodigo" title="copiar HTML">copiar código</button>
+    <button class="pri" id="btIntegrar">integrar ao projeto</button>
+  </header>
+
+  <aside>
+    <div class="tabs"><button data-tab="elem" class="on">Elementos</button><button data-tab="icon">Ícones</button><button data-tab="cam">Camadas</button></div>
+    <div class="pane on" id="tab-elem">
+      <h3>Criar com IA</h3>
+      <textarea id="pedido" rows="2" placeholder="descreva o elemento… (Enter cria)"></textarea>
+      <div class="chips" id="sugest" style="margin-top:8px"></div>
+      <h3>Básicos <span class="dica">clique ou arraste</span></h3>
+      <div class="grid3" id="prims"></div>
+      <h3>Biblioteca <span class="dica" id="nLib"></span></h3>
+      <div class="linha"><input id="busca" placeholder="buscar…"><select id="filtroCat"><option value="">todas</option></select></div>
+      <div id="lib"></div>
+    </div>
+    <div class="pane" id="tab-icon">
+      <div class="linha"><input id="buscaIco" placeholder="buscar ícone (ex.: mail, phone, user)"></div>
+      <div class="icones" id="icones"></div>
+      <div class="dica" id="icoInfo" style="margin-top:8px"></div>
+    </div>
+    <div class="pane" id="tab-cam"><div id="camadas"></div></div>
+  </aside>
+
+  <main id="centro"><div id="vista"><div id="mesa"><div id="palcoWrap"><div class="dim" id="dim"></div><div id="palco"></div></div></div></div></main>
+
+  <aside class="dir">
+    <div class="tabs"><button data-tab="prop" class="on">Propriedades</button><button data-tab="tema">Tema</button><button data-tab="proj">Projeto</button></div>
+    <div class="pane on" id="tab-prop"><div id="props"></div></div>
+    <div class="pane" id="tab-tema">
+      <h3>Paletas</h3><div class="paletas" id="paletas"></div>
+      <h3>Cores</h3><div id="cores"></div>
+      <h3>Tipografia</h3>
+      <div class="linha"><select id="fonteTit"></select></div>
+      <div class="linha"><select id="fonteCorpo"></select></div>
+      <h3>Forma</h3>
+      <div class="linha"><span class="dica" style="flex:none;width:70px">raio</span><input type="range" id="raio" min="0" max="28"><span id="raioV" class="dica" style="flex:none;width:36px"></span></div>
+      <div class="linha"><span class="dica" style="flex:none;width:70px">espaço</span><input type="range" id="espaco" min="4" max="40"><span id="espacoV" class="dica" style="flex:none;width:36px"></span></div>
+      <div class="linha"><span class="dica" style="flex:none;width:70px">sombra</span><select id="sombra">
+        <option value="none">nenhuma</option><option value="0 2px 8px rgba(0,0,0,.25)">leve</option><option value="0 6px 24px rgba(0,0,0,.35)">média</option><option value="0 18px 50px rgba(0,0,0,.5)">forte</option></select></div>
+      <h3>Pedir à IA</h3>
+      <div class="linha"><input id="pedTema" placeholder="ex.: tema verde, mais arredondado"><button id="btTema" style="flex:none">ok</button></div>
+    </div>
+    <div class="pane" id="tab-proj">
+      <h3>Projeto de destino</h3>
+      <select id="selProj" style="width:100%"></select>
+      <div class="dica" id="projCam" style="margin:6px 0 10px;word-break:break-all"></div>
+      <textarea id="instr" rows="3" placeholder="instruções para a integração (opcional): ex.: rota /contato, usar o layout principal"></textarea>
+      <button class="pri" id="btIntegrar2" style="width:100%;margin-top:8px">integrar esta tela</button>
+      <h3>Fila (Claude em segundo plano)</h3>
+      <div id="jobs"></div>
+      <h3>Gestos e voz</h3>
+      <div class="dica">Pinça de 3 dedos = cursor · fechar = clique · manter = arrastar · punho 0,4 s = clique direito · abrir/fechar o punho 2× = modo criação.<br><br>
+        Voz: “crie um…”, “coloque o … na tela”, “deixe o selecionado maior/vermelho…”, “duplique”, “centralize”, “apague o selecionado”, “tela de celular”, “o projeto é …”, “pode integrar”.</div>
+      <h3>Atalhos</h3>
+      <div class="dica"><kbd>Del</kbd> apagar · <kbd>Ctrl+D</kbd> duplicar · <kbd>Ctrl+C/V</kbd> copiar/colar · <kbd>setas</kbd> mover (<kbd>Shift</kbd> 10px) · <kbd>Ctrl+Z</kbd>/<kbd>Ctrl+Shift+Z</kbd> · <kbd>]</kbd>/<kbd>[</kbd> frente/trás · duplo clique = editar texto · <kbd>Esc</kbd> sair</div>
+    </div>
+  </aside>
+</div>
+<div id="toasts"></div>
+<div id="offline">⚠ sem conexão com a F.R.I.D.A.Y. — tentando de novo…</div>
+
+<script>
+const LOG = m => fetch("/api/log", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({m})}).catch(() => {});
+addEventListener("error", e => LOG("ERRO " + e.message + " @" + e.lineno));
+addEventListener("unhandledrejection", e => LOG("PROMISE " + (e.reason && (e.reason.stack || e.reason))));
+addEventListener("pointerdown", e => LOG("down " + e.clientX + "," + e.clientY + " " + (e.target.className || e.target.tagName)), true);
+addEventListener("pointerup", e => LOG("up " + e.clientX + "," + e.clientY), true);
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const LUCIDE = "https://unpkg.com/lucide-static@0.469.0";
+const FONTES = ["Inter","Poppins","Montserrat","Roboto","Open Sans","Lato","Nunito","Raleway","Playfair Display","Merriweather","Space Grotesk","DM Sans","Outfit","Manrope","Sora","Rubik","Work Sans","Oswald","Bebas Neue","JetBrains Mono"];
+const PALETAS = [
+  {nome:"Integra",cores:{primaria:"#1f6feb",secundaria:"#8957e5",fundo:"#0d1117",superficie:"#161b22",texto:"#e6edf3",texto_suave:"#8b949e"}},
+  {nome:"Stark",cores:{primaria:"#c8102e",secundaria:"#f2b134",fundo:"#0b0b0f",superficie:"#17171f",texto:"#f5f5f7",texto_suave:"#a1a1aa"}},
+  {nome:"Esmeralda",cores:{primaria:"#10b981",secundaria:"#0ea5e9",fundo:"#071512",superficie:"#0f2620",texto:"#ecfdf5",texto_suave:"#86b7a5"}},
+  {nome:"Claro",cores:{primaria:"#2563eb",secundaria:"#7c3aed",fundo:"#f8fafc",superficie:"#ffffff",texto:"#0f172a",texto_suave:"#64748b"}},
+  {nome:"Pôr do sol",cores:{primaria:"#f97316",secundaria:"#e11d48",fundo:"#1a0f0a",superficie:"#2a1810",texto:"#fff7ed",texto_suave:"#c2a28f"}},
+  {nome:"Lavanda",cores:{primaria:"#8b5cf6",secundaria:"#ec4899",fundo:"#faf5ff",superficie:"#ffffff",texto:"#1e1b4b",texto_suave:"#6b7280"}}];
+const SUGEST = ["botão de contato","cartão de preço","menu de navegação","rodapé com redes sociais","formulário de login","seção hero com chamada","depoimento de cliente","grade de recursos com ícones","FAQ em acordeão","barra de busca"];
+const PRIMS = [["titulo","Título","heading"],["texto","Texto","text"],["botao","Botão","mouse-pointer-click"],["caixa","Caixa","square"],["imagem","Imagem","image"],["campo","Campo","text-cursor-input"],["divisor","Divisor","minus"]];
+
+let S = null, sel = null, drag = null, sujo = false, assin = {}, hist = [], futuro = [], zoom = 0, previa = false, grade = true, ima = true, clip = null, edit = null, vistos = new Set(), icoNomes = [], icoCache = {};
+const api = (p, d) => fetch(p, d === undefined ? {cache:"no-store"} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(d)}).then(r => r.json());
+const toast = t => { const d = document.createElement("div"); d.className = "toast"; d.textContent = t; $("#toasts").appendChild(d); setTimeout(() => d.remove(), 4500); };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const uid = () => Math.random().toString(16).slice(2, 10);
+
+// ---------- tema ----------
+function cssVars(t){
+  const v=[]; for(const [k,c] of Object.entries(t.cores||{})) v.push(`--cor-${k.replace(/_/g,'-')}:${c}`);
+  for(const [k,c] of Object.entries(t.fontes||{})) v.push(`--fonte-${k}:${c}`);
+  v.push(`--raio:${t.raio}`,`--espaco:${t.espaco}`,`--sombra:${t.sombra}`);
+  return `:host{${v.join(';')};display:block;width:100%;height:100%;color:var(--cor-texto);font-family:var(--fonte-corpo)}`;
+}
+function carregaFontes(){
+  const fams = new Set(); for(const f of Object.values(S.tema.fontes||{})){ const n = f.split(",")[0].replace(/['"]/g,"").trim(); if(FONTES.includes(n)) fams.add(n); }
+  const href = fams.size ? "https://fonts.googleapis.com/css2?" + [...fams].map(f => "family=" + f.replace(/ /g,"+") + ":wght@400;500;600;700").join("&") + "&display=swap" : "";
+  if($("#gfont").getAttribute("href") !== href) $("#gfont").setAttribute("href", href);
+}
+function render(host, el, html){
+  const r = host.shadowRoot || host.attachShadow({mode:"open"});
+  r.innerHTML = `<style>${cssVars(S.tema)}${el.css||''}</style>${html ?? el.html}`;
+}
+const libById = id => S.biblioteca.find(e => e.id === id);
+const itemSel = () => S && S.tela.itens.find(i => i.uid === sel);
+
+// ---------- biblioteca ----------
+function iniciaDrag(ev, novo){ ev.preventDefault(); const g = document.createElement("div"); g.className = "ghost"; g.textContent = novo.nome; document.body.appendChild(g); drag = {tipo:"novo", novo, g, x0:ev.clientX, y0:ev.clientY}; moveGhost(ev); }
+function desenhaLib(){
+  const q = $("#busca").value.toLowerCase(), cat = $("#filtroCat").value;
+  const cats = [...new Set(S.biblioteca.map(e => e.categoria))].sort();
+  $("#filtroCat").innerHTML = `<option value="">todas</option>` + cats.map(c => `<option ${c===cat?"selected":""}>${esc(c)}</option>`).join("");
+  const lista = [...S.biblioteca].reverse().filter(e => (!q || (e.nome + " " + (e.pedido||"")).toLowerCase().includes(q)) && (!cat || e.categoria === cat) && e.categoria !== "icone" && e.categoria !== "basico");
+  $("#nLib").textContent = lista.length + " itens";
+  const L = $("#lib"); L.innerHTML = "";
+  if(!lista.length){ L.innerHTML = '<div class="vazio">Nada aqui ainda.<br>Peça à IA acima ou fale: “Sexta-Feira, crie um cartão de preço”.</div>'; return; }
+  for(const e of lista){
+    const c = document.createElement("div"); c.className = "card";
+    const sc = Math.min(1, 260 / e.largura, 70 / e.altura);
+    c.innerHTML = `<div class="pv" style="background:${S.tema.cores.fundo}"><div style="width:${e.largura}px;height:${e.altura}px;transform:scale(${sc})"></div></div>
+      <div class="nm"><span title="duplo clique renomeia">${esc(e.nome)}</span><small>${esc(e.categoria)}</small></div><button class="x" title="remover da biblioteca">×</button>`;
+    render(c.querySelector(".pv>div"), e);
+    c.querySelector(".x").onpointerdown = ev => ev.stopPropagation();
+    c.querySelector(".x").onclick = ev => { ev.stopPropagation(); api("/api/remover_elemento", {id:e.id}).then(() => atualiza(true)); };
+    c.querySelector(".nm span").ondblclick = ev => { ev.stopPropagation(); const n = prompt("Novo nome:", e.nome); if(n) api("/api/renomear_elemento", {id:e.id, nome:n}).then(() => atualiza(true)); };
+    c.onpointerdown = ev => iniciaDrag(ev, {el:e.id, nome:e.nome, w:e.largura, h:e.altura});
+    L.appendChild(c);
+  }
+}
+async function svgIcone(nome){
+  if(icoCache[nome]) return icoCache[nome];
+  const t = await fetch(`${LUCIDE}/icons/${nome}.svg`).then(r => r.ok ? r.text() : "").catch(() => "");
+  return icoCache[nome] = t.replace(/<!--[\s\S]*?-->/g, "").trim();
+}
+function desenhaPrims(){
+  $("#prims").innerHTML = "";
+  for(const [tipo, nome, ico] of PRIMS){
+    const d = document.createElement("div"); d.className = "prim"; d.innerHTML = `<span class="i"></span>${nome}`;
+    svgIcone(ico).then(s => d.querySelector(".i").innerHTML = s);
+    d.onpointerdown = ev => iniciaDrag(ev, {prim:tipo, nome});
+    $("#prims").appendChild(d);
+  }
+  $("#sugest").innerHTML = SUGEST.map(s => `<span class="chip">${s}</span>`).join("");
+  $$("#sugest .chip").forEach(c => c.onclick = () => pedir(c.textContent));
+}
+async function carregaIcones(){
+  try{ const tags = await fetch(`${LUCIDE}/tags.json`).then(r => r.json()); icoNomes = Object.entries(tags).map(([n, t]) => [n, n + " " + t.join(" ")]); }
+  catch(e){ icoNomes = ["mail","phone","user","home","search","menu","settings","heart","star","check","x","arrow-right","shopping-cart","calendar","map-pin","message-circle","instagram","facebook","linkedin","github","youtube","twitter"].map(n => [n, n]); }
+  desenhaIcones();
+}
+function desenhaIcones(){
+  const q = $("#buscaIco").value.toLowerCase().trim();
+  const lista = icoNomes.filter(([n, t]) => !q || t.includes(q)).slice(0, 96);
+  $("#icoInfo").textContent = `${lista.length} de ${icoNomes.length} ícones (Lucide) — clique ou arraste para o palco`;
+  $("#icones").innerHTML = "";
+  for(const [n] of lista){
+    const d = document.createElement("div"); d.title = n;
+    svgIcone(n).then(s => d.innerHTML = s);
+    d.onpointerdown = ev => iniciaDrag(ev, {ico:n, nome:n});
+    $("#icones").appendChild(d);
+  }
+}
+async function materializa(novo){
+  if(novo.el) return novo;
+  let e;
+  if(novo.prim) e = await api("/api/primitivo", {tipo:novo.prim});
+  else e = await api("/api/primitivo", {svg: await svgIcone(novo.ico), nome:"Ícone " + novo.ico});
+  S.biblioteca.push(e);
+  return {el:e.id, nome:e.nome, w:e.largura, h:e.altura};
+}
+async function adiciona(novo, x, y){
+  const n = await materializa(novo), T = S.tela; guarda();
+  if(x === undefined){ const fundo = Math.max(0, ...T.itens.map(i => i.y + i.h)); x = 40; y = Math.min(fundo + 24, T.altura - n.h); }
+  const it = {uid:uid(), el:n.el, w:n.w, h:n.h, z:Math.max(0, ...T.itens.map(i => i.z || 1)) + 1,
+    x:snap(Math.max(0, Math.min(T.largura - n.w, x))), y:snap(Math.max(0, Math.min(T.altura - n.h, y)))};
+  T.itens.push(it); seleciona(it.uid); desenhaPalco(); salva();
+}
+function pedir(t){ api("/api/elemento", {pedido:t}).then(() => { toast("Gerando “" + t + "”… aparece na biblioteca."); atualiza(); }); }
+$("#pedido").onkeydown = ev => { if(ev.key === "Enter" && !ev.shiftKey){ ev.preventDefault(); const v = ev.target.value.trim(); if(v){ pedir(v); ev.target.value = ""; } } };
+$("#busca").oninput = desenhaLib; $("#filtroCat").onchange = desenhaLib;
+let tIco; $("#buscaIco").oninput = () => { clearTimeout(tIco); tIco = setTimeout(desenhaIcones, 200); };
+
+// ---------- palco ----------
+const k = () => zoom || ajusteZoom();
+function ajusteZoom(){ const c = $("#centro").getBoundingClientRect(), T = S ? S.tela : {largura:1280, altura:800}; return Math.max(0.1, Math.min((c.width - 120) / T.largura, (c.height - 120) / T.altura, 1.5)); }
+function aplicaZoom(){
+  const T = S.tela, z = k();
+  $("#palco").style.width = T.largura + "px"; $("#palco").style.height = T.altura + "px"; $("#palco").style.transform = `scale(${z})`;
+  $("#palcoWrap").style.width = T.largura * z + "px"; $("#palcoWrap").style.height = T.altura * z + "px";
+  $("#zoomtxt").textContent = Math.round(z * 100) + "%";
+  $("#dim").textContent = `${(T.dispositivo || "desktop").toUpperCase()} · ${T.largura}×${T.altura}`;
+  $$("[data-disp]").forEach(b => b.classList.toggle("on", b.dataset.disp === (T.dispositivo || "desktop")));
+}
+function moveGhost(ev){ if(drag && drag.g){ drag.g.style.left = ev.clientX + 10 + "px"; drag.g.style.top = ev.clientY + 10 + "px"; } }
+function pontoPalco(ev){ const r = $("#palco").getBoundingClientRect(), z = k(); return {x:(ev.clientX - r.left) / z, y:(ev.clientY - r.top) / z}; }
+const snap = v => ima ? Math.round(v / 10) * 10 : Math.round(v);
+function seleciona(u){ sel = u; api("/api/selecao", {uid:u}); }
+function desenhaPalco(){
+  const P = $("#palco"), T = S.tela; P.innerHTML = "";
+  P.style.background = T.fundo || S.tema.cores.fundo; P.classList.toggle("grade", grade && !previa);
+  for(const it of [...T.itens].sort((a, b) => (a.z || 1) - (b.z || 1))){
+    const e = libById(it.el); if(!e || it.oculto) continue;
+    const d = document.createElement("div"); d.className = "item" + (sel === it.uid && !previa ? " sel" : "") + (it.trava ? " trava" : ""); d.dataset.uid = it.uid;
+    Object.assign(d.style, {left:it.x + "px", top:it.y + "px", width:it.w + "px", height:it.h + "px", zIndex:it.z || 1});
+    d.innerHTML = `<div class="host"></div><div class="hd se"></div><div class="hd e"></div><div class="hd s"></div><div class="tag">${esc(e.nome)} · ${it.w}×${it.h}</div>`;
+    render(d.querySelector(".host"), e, it.html);
+    if(previa){ d.querySelector(".host").style.pointerEvents = "auto"; d.style.outline = "none"; d.style.cursor = "auto"; P.appendChild(d); continue; }
+    d.onpointerdown = ev => {
+      if(edit === it.uid) return;
+      ev.preventDefault(); ev.stopPropagation(); seleciona(it.uid);
+      if(it.trava){ desenhaPalco(); desenhaLado(); return; }
+      const p = pontoPalco(ev), h = ev.target.classList.contains("hd") ? [...ev.target.classList].find(c => c !== "hd") : null;
+      guarda(); drag = {tipo:h ? "resize" : "mover", lado:h, it, ox:p.x - it.x, oy:p.y - it.y, w0:it.w, h0:it.h, p0:p, mexeu:false};
+      desenhaPalco(); desenhaLado();
+    };
+    d.ondblclick = ev => { ev.stopPropagation(); editaTexto(it, d); };
+    P.appendChild(d);
+  }
+  desenhaCamadas();
+}
+function editaTexto(it, d){
+  edit = it.uid; d.classList.add("edit");
+  const root = d.querySelector(".host").shadowRoot;
+  root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,span,a,button,li,label,small,strong,em,td,th,blockquote,figcaption").forEach(n => { if([...n.childNodes].some(c => c.nodeType === 3 && c.textContent.trim())) n.contentEditable = "true"; });
+  const alvo = root.querySelector("[contenteditable=true]"); if(alvo) alvo.focus();
+  toast("Editando texto — Esc ou clique fora para salvar.");
+}
+function terminaEdicao(){
+  if(!edit) return; const it = S.tela.itens.find(i => i.uid === edit), d = $(`.item[data-uid="${edit}"]`); edit = null;
+  if(it && d){ const root = d.querySelector(".host").shadowRoot; root.querySelectorAll("[contenteditable]").forEach(n => n.removeAttribute("contenteditable"));
+    const clone = root.cloneNode(true); const html = [...root.childNodes].filter(n => n.nodeName !== "STYLE").map(n => n.outerHTML ?? n.textContent).join("");
+    guarda(); it.html = html; salva(); }
+  desenhaPalco();
+}
+function guias(it){
+  $$(".guia").forEach(g => g.remove()); if(!ima) return;
+  const T = S.tela, P = $("#palco"), lim = 6;
+  const xs = [[0, "e"], [T.largura / 2, "c"], [T.largura, "d"]], ys = [[0, "t"], [T.altura / 2, "m"], [T.altura, "b"]];
+  for(const o of T.itens){ if(o.uid === it.uid) continue; xs.push([o.x], [o.x + o.w / 2], [o.x + o.w]); ys.push([o.y], [o.y + o.h / 2], [o.y + o.h]); }
+  const mx = [it.x, it.x + it.w / 2, it.x + it.w], my = [it.y, it.y + it.h / 2, it.y + it.h];
+  for(const [gx] of xs) for(let i = 0; i < 3; i++) if(Math.abs(mx[i] - gx) < lim){ it.x += gx - mx[i]; const g = document.createElement("div"); g.className = "guia"; Object.assign(g.style, {left:gx + "px", top:0, width:"1px", height:T.altura + "px"}); P.appendChild(g); i = 3; }
+  for(const [gy] of ys) for(let i = 0; i < 3; i++) if(Math.abs(my[i] - gy) < lim){ it.y += gy - my[i]; const g = document.createElement("div"); g.className = "guia"; Object.assign(g.style, {top:gy + "px", left:0, height:"1px", width:T.largura + "px"}); P.appendChild(g); i = 3; }
+}
+function guarda(){ hist.push(JSON.stringify(S.tela.itens)); hist = hist.slice(-60); futuro = []; }
+function salva(){ sujo = true; clearTimeout(salva.t); salva.t = setTimeout(() => api("/api/tela", {itens:S.tela.itens}).then(() => sujo = false), 250); }
+function upd(it){ const d = $(`.item[data-uid="${it.uid}"]`); if(!d) return;
+  Object.assign(d.style, {left:it.x + "px", top:it.y + "px", width:it.w + "px", height:it.h + "px"}); d.querySelector(".tag").textContent = `${libById(it.el).nome} · ${Math.round(it.w)}×${Math.round(it.h)}`; }
+addEventListener("pointermove", ev => {
+  if(!drag) return; moveGhost(ev);
+  const T = S.tela, p = pontoPalco(ev);
+  if(drag.tipo === "mover"){ drag.mexeu = true; drag.it.x = snap(Math.max(0, Math.min(T.largura - drag.it.w, p.x - drag.ox))); drag.it.y = snap(Math.max(0, Math.min(T.altura - drag.it.h, p.y - drag.oy))); guias(drag.it); upd(drag.it); propsVivo(); }
+  if(drag.tipo === "resize"){ drag.mexeu = true; const l = drag.lado;
+    if(l !== "s") drag.it.w = snap(Math.max(24, drag.w0 + p.x - drag.p0.x));
+    if(l !== "e") drag.it.h = snap(Math.max(16, drag.h0 + p.y - drag.p0.y));
+    upd(drag.it); propsVivo(); }
+});
+addEventListener("pointerup", async ev => {
+  if(!drag) return; const dr = drag; drag = null; $$(".guia").forEach(g => g.remove());
+  if(dr.tipo === "novo"){ dr.g.remove(); const r = $("#palco").getBoundingClientRect();
+    if(ev.clientX > r.left && ev.clientX < r.right && ev.clientY > r.top && ev.clientY < r.bottom){
+      const p = pontoPalco(ev); await adiciona(dr.novo, p.x - (dr.novo.w || 160) / 2, p.y - (dr.novo.h || 60) / 2); }
+    else if(Math.hypot(ev.clientX - dr.x0, ev.clientY - dr.y0) < 6) await adiciona(dr.novo);      // clique = adiciona embaixo do último
+  } else if(dr.mexeu) salva(); else hist.pop();
+});
+$("#palco").addEventListener("pointerdown", ev => { if(ev.target.id === "palco"){ terminaEdicao(); seleciona(null); desenhaPalco(); desenhaLado(); } });
+$("#mesa").addEventListener("pointerdown", ev => { if(ev.target.id === "mesa"){ terminaEdicao(); seleciona(null); desenhaPalco(); desenhaLado(); } });
+
+// ---------- camadas ----------
+function desenhaCamadas(){
+  const C = $("#camadas"); const its = [...S.tela.itens].sort((a, b) => (b.z || 1) - (a.z || 1));
+  if(!its.length){ C.innerHTML = '<div class="vazio">Tela vazia.</div>'; return; }
+  C.innerHTML = its.map(it => { const e = libById(it.el) || {nome:"?"}; return `<div class="camada ${it.uid === sel ? "sel" : ""}" data-u="${it.uid}"><span>${esc(e.nome)}</span>
+    <button data-a="oculto" title="mostrar/ocultar">${it.oculto ? "◌" : "◉"}</button><button data-a="trava" title="travar">${it.trava ? "🔒" : "🔓"}</button></div>`; }).join("");
+  $$(".camada").forEach(c => { c.onclick = ev => { const it = S.tela.itens.find(i => i.uid === c.dataset.u), a = ev.target.dataset.a;
+    if(a){ guarda(); it[a] = !it[a]; salva(); } seleciona(it.uid); desenhaPalco(); desenhaLado(); }; });
+}
+
+// ---------- propriedades ----------
+function alinha(m){ const it = itemSel(), T = S.tela; if(!it) return; guarda();
+  if(m === "e") it.x = 0; if(m === "c") it.x = Math.round((T.largura - it.w) / 2); if(m === "d") it.x = T.largura - it.w;
+  if(m === "t") it.y = 0; if(m === "m") it.y = Math.round((T.altura - it.h) / 2); if(m === "b") it.y = T.altura - it.h;
+  if(m === "cheia"){ it.x = 0; it.w = T.largura; }
+  desenhaPalco(); desenhaLado(); salva(); }
+function acao(a){ const it = itemSel(); if(!it) return; guarda(); const T = S.tela;
+  if(a === "apagar"){ T.itens = T.itens.filter(i => i.uid !== it.uid); seleciona(null); }
+  if(a === "duplicar"){ const n = {...it, uid:uid(), x:it.x + 20, y:it.y + 20, z:Math.max(...T.itens.map(i => i.z || 1)) + 1}; T.itens.push(n); seleciona(n.uid); }
+  if(a === "frente") it.z = Math.max(...T.itens.map(i => i.z || 1)) + 1;
+  if(a === "tras") it.z = Math.min(...T.itens.map(i => i.z || 1)) - 1;
+  if(a === "original"){ delete it.html; const e = libById(it.el); it.w = e.largura; it.h = e.altura; }
+  desenhaPalco(); desenhaLado(); salva(); }
+function propsVivo(){ const it = itemSel(); if(!it) return; for(const c of ["x","y","w","h"]){ const i = $("#p-" + c); if(i && document.activeElement !== i) i.value = Math.round(it[c]); } }
+function desenhaLado(){
+  const it = itemSel(), P = $("#props");
+  if(!it){ P.innerHTML = `<h3>Tela</h3><div class="linha"><span class="dica" style="flex:none;width:70px">fundo</span><input type="color" id="fundoTela" value="${S.tela.fundo || S.tema.cores.fundo}"><button id="fundoTema" style="flex:none">do tema</button></div>
+      <div class="dica">${S.tela.itens.length} elementos · clique num elemento para editar.<br>Duplo clique edita o texto direto no palco.</div>`;
+    $("#fundoTela").onchange = ev => { S.tela.fundo = ev.target.value; api("/api/tela", {itens:S.tela.itens, fundo:ev.target.value}); desenhaPalco(); };
+    $("#fundoTema").onclick = () => { S.tela.fundo = ""; api("/api/tela", {itens:S.tela.itens, fundo:""}); desenhaPalco(); desenhaLado(); };
+    return; }
+  const e = libById(it.el);
+  P.innerHTML = `<h3>${esc(e.nome)}</h3>
+    <div class="grid2"><div class="linha"><label>X</label><input id="p-x" type="number"></div><div class="linha"><label>Y</label><input id="p-y" type="number"></div>
+    <div class="linha"><label>L</label><input id="p-w" type="number"></div><div class="linha"><label>A</label><input id="p-h" type="number"></div></div>
+    <h3>Alinhar no palco</h3>
+    <div class="grid3"><button data-al="e">⇤ esq.</button><button data-al="c">↔ centro</button><button data-al="d">dir. ⇥</button>
+      <button data-al="t">⤒ topo</button><button data-al="m">↕ meio</button><button data-al="b">base ⤓</button></div>
+    <div style="margin-top:6px"><button data-al="cheia" style="width:100%">largura total</button></div>
+    <h3>Ações</h3>
+    <div class="grid3"><button data-ac="duplicar">duplicar</button><button data-ac="frente">frente</button><button data-ac="tras">trás</button>
+      <button data-ac="original">original</button><button data-ac="editar">editar texto</button><button data-ac="apagar" style="color:var(--er)">apagar</button></div>
+    <h3>Ajustar com IA</h3>
+    <textarea id="refino" rows="3" placeholder="ex.: deixe vermelho, maior e com ícone de telefone"></textarea>
+    <button class="pri" id="btRefino" style="width:100%;margin-top:6px">ajustar este elemento</button>
+    <div class="dica" style="margin-top:8px">Origem: ${esc(e.pedido || "—")}</div>`;
+  propsVivo();
+  for(const c of ["x","y","w","h"]) $("#p-" + c).onchange = ev => { guarda(); it[c] = Math.max(c === "w" || c === "h" ? 8 : 0, +ev.target.value || 0); upd(it); salva(); };
+  $$("[data-al]").forEach(b => b.onclick = () => alinha(b.dataset.al));
+  $$("[data-ac]").forEach(b => b.onclick = () => b.dataset.ac === "editar" ? editaTexto(it, $(`.item[data-uid="${it.uid}"]`)) : acao(b.dataset.ac));
+  $("#btRefino").onclick = () => { const v = $("#refino").value.trim(); if(!v) return; api("/api/refinar", {uid:it.uid, pedido:v}).then(r => { if(r.erro) toast(r.erro); else toast("Ajustando com IA…"); atualiza(); }); };
+}
+
+// ---------- tema / projeto ----------
+function salvaTema(){ api("/api/tema", {tema:S.tema}).then(() => atualiza(true)); }
+function desenhaTema(){
+  $("#paletas").innerHTML = PALETAS.map((p, i) => `<div class="paleta" title="${p.nome}" data-i="${i}">${["primaria","secundaria","fundo","superficie"].map(k => `<i style="background:${p.cores[k]}"></i>`).join("")}</div>`).join("");
+  $$(".paleta").forEach(d => d.onclick = () => { Object.assign(S.tema.cores, PALETAS[d.dataset.i].cores); salvaTema(); toast("Paleta " + PALETAS[d.dataset.i].nome); });
+  if(document.activeElement.type !== "color"){
+    $("#cores").innerHTML = Object.entries(S.tema.cores).map(([k, c]) => `<label class="cor"><input type="color" data-k="${k}" value="${c}"><span>${k.replace(/_/g, " ")}</span><code>${c}</code></label>`).join("");
+    $$("#cores input").forEach(i => i.onchange = () => { S.tema.cores[i.dataset.k] = i.value; salvaTema(); });
+  }
+  const opF = f => FONTES.map(n => `<option value="${n}, system-ui, sans-serif" ${f.startsWith(n) ? "selected" : ""}>${n}</option>`).join("");
+  $("#fonteTit").innerHTML = `<option disabled>— títulos —</option>` + opF(S.tema.fontes.titulo);
+  $("#fonteCorpo").innerHTML = `<option disabled>— corpo —</option>` + opF(S.tema.fontes.corpo);
+  const r = parseInt(S.tema.raio) || 0, e = parseInt(S.tema.espaco) || 16;
+  $("#raio").value = r; $("#raioV").textContent = r + "px"; $("#espaco").value = e; $("#espacoV").textContent = e + "px";
+  $("#sombra").value = [...$("#sombra").options].some(o => o.value === S.tema.sombra) ? S.tema.sombra : "0 6px 24px rgba(0,0,0,.35)";
+  carregaFontes();
+}
+$("#fonteTit").onchange = ev => { S.tema.fontes.titulo = ev.target.value; salvaTema(); };
+$("#fonteCorpo").onchange = ev => { S.tema.fontes.corpo = ev.target.value; salvaTema(); };
+$("#raio").oninput = ev => { S.tema.raio = ev.target.value + "px"; $("#raioV").textContent = S.tema.raio; desenhaPalco(); };
+$("#raio").onchange = salvaTema;
+$("#espaco").oninput = ev => { S.tema.espaco = ev.target.value + "px"; $("#espacoV").textContent = S.tema.espaco; desenhaPalco(); };
+$("#espaco").onchange = salvaTema;
+$("#sombra").onchange = ev => { S.tema.sombra = ev.target.value; salvaTema(); };
+$("#btTema").onclick = () => { const v = $("#pedTema").value.trim(); if(v){ api("/api/tema", {pedido:v}).then(() => { toast("Ajustando o tema com IA…"); atualiza(); }); $("#pedTema").value = ""; } };
+function desenhaProj(){
+  $("#selProj").innerHTML = `<option value="">— escolha o projeto —</option>` + S.projetos.map(p => `<option value="${esc(p.nome)}" ${p.caminho === S.config.projeto ? "selected" : ""}>${esc(p.nome)}</option>`).join("");
+  $("#projCam").textContent = S.config.projeto || "nenhum projeto escolhido";
+  $("#selTela").innerHTML = [...new Set([...(S.telas || []), S.tela.nome])].map(t => `<option ${t === S.tela.nome || t === S.config.tela ? "selected" : ""}>${esc(t)}</option>`).join("");
+}
+function desenhaJobs(){
+  $("#jobs").innerHTML = [...S.jobs].reverse().map(j => `<div class="job ${j.estado}"><b>${j.tipo}</b> · ${j.estado}${j.estado === "gerando" ? ` · ${Math.round(Date.now() / 1000 - j.inicio)} s` : ""}<small>${esc(j.texto)}</small>${j.msg && j.estado !== "gerando" ? `<small>${esc(j.msg)}</small>` : ""}${j.estado === "gerando" ? '<div class="barra"></div>' : ""}</div>`).join("") || '<div class="dica">nada na fila</div>';
+}
+$("#selProj").onchange = ev => api("/api/projeto", {nome:ev.target.value}).then(() => atualiza(true));
+$("#selTela").onchange = ev => api("/api/tela_nova", {nome:ev.target.value}).then(() => { seleciona(null); hist = []; atualiza(true); });
+$("#btNova").onclick = () => { const n = prompt("Nome da nova tela:"); if(n) api("/api/tela_nova", {nome:n}).then(() => { hist = []; atualiza(true); }); };
+const integra = () => api("/api/integrar", {instrucao:$("#instr").value}).then(r => { toast(r.erro || "Integrando ao projeto em segundo plano…"); atualiza(); });
+$("#btIntegrar").onclick = integra; $("#btIntegrar2").onclick = integra;
+$("#btExport").onclick = () => open("/api/export", "_blank");
+$("#btCodigo").onclick = async () => { const h = await fetch("/api/export").then(r => r.text()); try{ await navigator.clipboard.writeText(h); toast("HTML copiado."); }catch(e){ toast("Não consegui copiar (permissão do navegador)."); } };
+
+// ---------- barra ----------
+$$("[data-disp]").forEach(b => b.onclick = () => api("/api/tela", {itens:S.tela.itens, dispositivo:b.dataset.disp}).then(() => { zoom = 0; atualiza(true); }));
+$("#zMais").onclick = () => { zoom = Math.min(3, k() * 1.2); aplicaZoom(); };
+$("#zMenos").onclick = () => { zoom = Math.max(0.1, k() / 1.2); aplicaZoom(); };
+$("#zAjustar").onclick = () => { zoom = 0; aplicaZoom(); };
+$("#btGrade").onclick = () => { grade = !grade; $("#btGrade").classList.toggle("on", grade); desenhaPalco(); };
+$("#btImã").onclick = () => { ima = !ima; $("#btImã").classList.toggle("on", ima); };
+$("#btPrevia").onclick = () => { previa = !previa; $("#btPrevia").classList.toggle("on", previa); seleciona(null); desenhaPalco(); desenhaLado(); };
+function desfaz(){ if(!hist.length) return; futuro.push(JSON.stringify(S.tela.itens)); S.tela.itens = JSON.parse(hist.pop()); desenhaPalco(); desenhaLado(); salva(); }
+function refaz(){ if(!futuro.length) return; hist.push(JSON.stringify(S.tela.itens)); S.tela.itens = JSON.parse(futuro.pop()); desenhaPalco(); desenhaLado(); salva(); }
+$("#btDesfazer").onclick = desfaz; $("#btRefazer").onclick = refaz;
+$$(".tabs button").forEach(b => b.onclick = () => { const box = b.closest("aside"); box.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b)); box.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "tab-" + b.dataset.tab)); });
+addEventListener("keydown", ev => {
+  if(ev.key === "Escape"){ terminaEdicao(); if(previa) $("#btPrevia").click(); return; }
+  if(edit || ["INPUT","TEXTAREA","SELECT"].includes(ev.target.tagName)) return;
+  const it = itemSel();
+  if(ev.ctrlKey && ev.key.toLowerCase() === "z"){ ev.preventDefault(); ev.shiftKey ? refaz() : desfaz(); return; }
+  if(ev.ctrlKey && ev.key.toLowerCase() === "y"){ ev.preventDefault(); refaz(); return; }
+  if(ev.key.toLowerCase() === "g" && !ev.ctrlKey){ $("#btGrade").click(); return; }
+  if(ev.key.toLowerCase() === "p" && !ev.ctrlKey){ $("#btPrevia").click(); return; }
+  if(!it) return;
+  if(ev.key === "Delete" || ev.key === "Backspace"){ ev.preventDefault(); acao("apagar"); }
+  if(ev.ctrlKey && ev.key.toLowerCase() === "d"){ ev.preventDefault(); acao("duplicar"); }
+  if(ev.ctrlKey && ev.key.toLowerCase() === "c"){ clip = JSON.stringify(it); toast("Copiado."); }
+  if(ev.ctrlKey && ev.key.toLowerCase() === "v" && clip){ guarda(); const n = {...JSON.parse(clip), uid:uid()}; n.x += 20; n.y += 20; S.tela.itens.push(n); seleciona(n.uid); desenhaPalco(); desenhaLado(); salva(); }
+  if(ev.key === "]") acao("frente"); if(ev.key === "[") acao("tras");
+  if(ev.key.startsWith("Arrow")){ ev.preventDefault(); const p = ev.shiftKey ? 10 : 1; if(!ev.repeat) guarda();
+    if(ev.key === "ArrowLeft") it.x -= p; if(ev.key === "ArrowRight") it.x += p; if(ev.key === "ArrowUp") it.y -= p; if(ev.key === "ArrowDown") it.y += p;
+    upd(it); propsVivo(); salva(); }
+});
+document.addEventListener("pointerdown", ev => { if(edit && !ev.composedPath().some(n => n.dataset && n.dataset.uid === edit)) terminaEdicao(); }, true);
+
+// ---------- sincronização ----------
+async function atualiza(forcar){
+  let n; try{ n = await api("/api/estado"); $("#offline").style.display = "none"; } catch(e){ $("#offline").style.display = "block"; return; }
+  const a = {lib:JSON.stringify(n.biblioteca) + JSON.stringify(n.tema), tela:JSON.stringify(n.tela), proj:JSON.stringify([n.config, n.telas, n.projetos.length]), jobs:JSON.stringify(n.jobs), tema:JSON.stringify(n.tema)};
+  const velho = S; S = n;
+  if((drag || sujo || edit) && velho) S.tela = velho.tela;
+  for(const av of n.avisos || []) if(!vistos.has(av.t)){ vistos.add(av.t); if(velho) toast(av.texto); }
+  if(n.selecao !== undefined && n.selecao !== sel && !drag && velho) sel = n.selecao;
+  if(forcar || a.tema !== assin.tema) desenhaTema();
+  if(forcar || a.lib !== assin.lib) desenhaLib();
+  if((forcar || a.tela !== assin.tela || a.lib !== assin.lib) && !drag && !sujo && !edit){ aplicaZoom(); desenhaPalco(); desenhaLado(); }
+  if(forcar || a.proj !== assin.proj) desenhaProj();
+  if(forcar || a.jobs !== assin.jobs || n.jobs.some(j => j.estado === "gerando")) desenhaJobs();
+  assin = a;
+}
+addEventListener("resize", () => S && aplicaZoom());
+desenhaPrims(); carregaIcones();
+atualiza(true); setInterval(atualiza, 1000);
+</script>
+</body>
+</html>

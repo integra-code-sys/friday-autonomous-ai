@@ -2,8 +2,10 @@
 // ================= F.R.I.D.A.Y. — centro de comando remoto (celular) =================
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => Array.from(document.querySelectorAll(q));
-const ls = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-const cfg = { host: ls.get("host", "100.110.230.55:8790"), tok: ls.get("tok", "") };
+const defaultHost = (typeof window !== "undefined" && window.location && window.location.host && !window.location.protocol.startsWith("file"))
+  ? window.location.host
+  : "100.110.230.55:8790";
+const cfg = { host: ls.get("host", defaultHost), tok: ls.get("tok", "") };
 const http = () => "http://" + cfg.host;
 const st = { online: false, on: false, state: "idle", mouth: 0, pulse: 0, ws: null, voice: null, camera: null, modes: {}, stats: null,
              micOn: false, camOn: false, anexos: [], aba: "conversa", devAlvo: "auto", agendaDia: 0 };
@@ -1186,8 +1188,21 @@ if (cfg.tok) {
   conectar();
   setTimeout(() => { if (ls.get("mic", "1") === "1") micLigar(true); if (ls.get("celcam", "1") === "1") camLigar(true); }, 700);
 } else {
-  // Mesmo sem token do PC, se estiver no Android podemos usar Friday local imediatamente!
-  if (localOk()) {
+  // Se estiver no navegador do próprio PC (localhost), busca o token localmente de forma transparente
+  if (typeof window !== "undefined" && window.location && (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost")) {
+    fetch("/api/local_token").then(r => r.json()).then(d => {
+      if (d && d.token) {
+        cfg.tok = d.token;
+        ls.set("tok", d.token);
+        conectar();
+        bootFim();
+      } else {
+        abrirSetup();
+      }
+    }).catch(() => {
+      if (localOk()) { bootFim(); status(); } else abrirSetup();
+    });
+  } else if (localOk()) {
     bootFim();
     status();
   } else {

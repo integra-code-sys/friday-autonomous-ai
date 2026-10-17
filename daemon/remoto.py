@@ -71,10 +71,15 @@ def _ok(req):
 async def _auth(req, handler):
     if req.method == "OPTIONS":
         r = web.Response()
-    elif req.path == "/api/ping" or req.path == "/config" or req.path.startswith("/api/config/"):
+    elif req.path in ("/", "/index.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config") or req.path.startswith(("/api/config/", "/telas/")):
+        r = await handler(req)
+    elif req.path == "/api/local_token" and req.remote in ("127.0.0.1", "::1"):
         r = await handler(req)
     elif not _ok(req):
-        r = web.json_response({"erro": "token inválido"}, status=401)
+        if req.remote in ("127.0.0.1", "::1"):
+            r = await handler(req)
+        else:
+            r = web.json_response({"erro": "token inválido"}, status=401)
     else:
         try:
             rem = req.remote
@@ -673,13 +678,43 @@ async def ide_post(req):
                              headers={"Cache-Control": "no-store"})
 
 
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+
+
+async def web_index(req):
+    """Serve a interface principal da F.R.I.D.A.Y. no navegador (Windows/Linux)."""
+    p = os.path.join(WEB_DIR, "index.html")
+    if os.path.isfile(p):
+        return web.FileResponse(p)
+    return web.Response(text="<h1>F.R.I.D.A.Y. Backend Online</h1><p><a href='/config'>Configurações</a></p>", content_type="text/html")
+
+
+async def web_static(req):
+    """Serve arquivos estáticos da interface web (app.js, novnc.js, voz_dono.json)."""
+    arquivo = os.path.basename(req.match_info.get("arquivo", ""))
+    p = os.path.join(WEB_DIR, arquivo)
+    if os.path.isfile(p):
+        return web.FileResponse(p)
+    return web.Response(text="Arquivo não encontrado", status=404)
+
+
+async def local_token(req):
+    """Devolve o token de autenticação exclusivamente para o loopback local."""
+    if req.remote not in ("127.0.0.1", "::1"):
+        return web.json_response({"erro": "acesso negado"}, status=403)
+    return web.json_response({"ok": True, "token": config()["token"]})
+
+
 def criar_app(ctx):
     _ctx.update(ctx)
     config()
     import sync_mesh
     import config_center
     app = web.Application(middlewares=[_auth], client_max_size=200 << 20)
-    app.add_routes([web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
+    app.add_routes([web.get("/", web_index), web.get("/index.html", web_index),
+                    web.get("/api/local_token", local_token),
+                    web.get("/{arquivo:(?:app\\.js|novnc\\.js|voz_dono\\.json|favicon\\.ico)}", web_static),
+                    web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
                     web.get("/config", config_center.handle_config_page),
                     web.get("/api/config/status", config_center.handle_config_status),
                     web.post("/api/config/salvar", config_center.handle_config_salvar),

@@ -48,7 +48,8 @@ echo.
 echo ============================================================================
 echo   INSTALACAO INTEGRA CODE CONCLUIDA COM SUCESSO!
 echo   - Atalho criado na Area de Trabalho: F.R.I.D.A.Y.
-echo   - Central de Configuracao: Configurar F.R.I.D.A.Y. (http://127.0.0.1:8790/config)
+echo   - Interface Web HUD: http://127.0.0.1:8790/
+echo   - Central de Configuracao: http://127.0.0.1:8790/config
 echo ============================================================================
-start "" "%INSTALL_DIR%\Friday_Config.bat"
+start "" "%INSTALL_DIR%\Friday.bat"
 exit /b 0
