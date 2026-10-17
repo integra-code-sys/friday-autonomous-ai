@@ -41,10 +41,9 @@ A **Integra Code** apresenta o lançamento oficial da edição comercial da **F.
 * Níveis de ocupação diária inteligentes (`LIVRE`, `LEVE`, `MODERADO`, `INTENSO`, `CRÍTICO`), cálculo de horas livres em tempo real e timeline com status e prioridades.
 * Sincronização automática via malha P2P entre o computador e o aplicativo móvel.
 
-#### 3. 💻 Modo Dev — Engenheira de Software Autônoma
-* IDE integrada com loop de execução autônomo em 8 rounds: **Planejamento -> Codificação -> Execução de Testes -> Correção de Bugs**.
-* Disponível no PC (integração Claude Code CLI e analisadores locais) e no celular Android (integração Termux ou geração local GGUF).
-* Janela flutuante HUD para acompanhamento em tempo real das alterações e diffs de arquivos.
+#### 3. 💻 Modo Dev — IDE Autônoma de Engenharia de Software
+* **No PC (Linux / Windows):** Interface nativa `DevIDE` integrada diretamente ao Shell HUD (árvore de arquivos, editor com números de linha e diffs visuais, seletor de modelos, histórico e terminal do agente Claude CLI/local). Não abre mais apenas logs nem depende de janela externa.
+* **No Celular (Android):** IDE móvel integrada com execução em até 8 rounds autônomos (**Planejamento -> Codificação -> Testes -> Auto-correção**), gerando arquivos direto no dispositivo ou despachando para a IDE do PC via malha P2P.
 
 #### 4. ⚡ Tarefas Compostas Determinísticas
 * Capacidade de interpretar e encadear ações complexas em comando único, por exemplo:
@@ -52,17 +51,20 @@ A **Integra Code** apresenta o lançamento oficial da edição comercial da **F.
   * *"Pesquise sobre computação quântica e crie um arquivo resumo.md na pasta de documentos"*
   * *"Pesquise o clima para o fim de semana e anote na agenda"*
 
-#### 5. 🎨 Interface Holográfica e Fundo de Tela Unificado
-* Fundo de tela dinâmico Stark com piso holográfico em perspectiva, reator animado com pulsação de voz e partículas em tempo real.
-* Unificado entre **Linux (Wayland PainelStark e plugin Noctalia)** e **Windows (Wallpaper HUD interativo)**.
+#### 5. 🎨 Interface Futurista Stark — Zero Figurinhas/Emojis
+* Eliminação total de ícones infantis, figurinhas e emojis em todos os componentes visuais do Android APK e do PC.
+* Substituição por badges cyber e holográficos de alta precisão (`[ALTA]`, `[CRÍTICA]`, `[OK]`, `[AUTO]`, `[PC]`, `[PY]`, `[WEB]`, `[API]`, `[TOOL]`, `[STARK BIO]`, `>`).
+* Fundo de tela dinâmico Stark com piso holográfico em perspectiva, reator animado com pulsação de voz e partículas em tempo real (unificado entre Linux Wayland e Windows).
 
-#### 6. 🌐 Visão Multimodal Adaptativa (0 a 3+ Câmeras)
-* Funciona sem nenhuma câmera, com 1 webcam convencional ou com conjunto de câmeras simultâneas (Câmera Nativa, Câmera de Porta, Câmera PTZ com rastreamento ONVIF e câmera traseira/frontal do smartphone).
+#### 6. 🌐 Visão Multimodal Adaptativa (0 a 3+ Câmeras com Tolerância a Desconexão)
+* Opera perfeitamente sem nenhuma câmera (modo desktop puro), com webcam única ou com conjunto multi-câmera (Nativa, Porta e PTZ do quarto).
+* **Tratamento Inteligente de Desconexão PTZ:** Se a câmera PTZ for desligada ou desconectada da rede, o sistema limpa os caches imediatamente, não gera spam de logs, desabilita controles de pan/tilt com badge `[DESCONECTADA]` e promove dinamicamente a câmera conectada para a visualização principal.
 * Alternância dinâmica entre modelos de visão local (`YOLO-World`, `Moondream`, `Ollama`) e nuvem (`Gemini 2.5 Flash`, `Claude 3.5 Sonnet`, `GPT-4o`).
 
 #### 7. 🛡️ Garantia de Não-Retenção de Dados (Zero-Data-Retention)
 * A **Integra Code** garante formalmente que **nenhum dado pessoal, áudio, vídeo ou credencial é transmitido ou retido por nós**.
 * Todo o processamento é 100% local ou roteado diretamente da máquina do usuário para o provedor de nuvem de sua escolha ([Termos de Uso](TERMS_OF_USE.md) e [Política de Privacidade](PRIVACY_POLICY.md)).
+* Bateria de 19 testes automatizados de conformidade, segurança e regressão 100% aprovada.
 ```
 
 ---
