@@ -41,14 +41,14 @@ echo [5/6] Inicializando Banco de Dados Zero-State e Auditoria de Privacidade...
 ".venv\Scripts\python.exe" "daemon\privacy_guard.py"
 
 echo [6/6] Criando atalhos na Area de Trabalho...
-powershell -NoProfile -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\F.R.I.D.A.Y..lnk');$s.TargetPath='%INSTALL_DIR%\Friday.bat';$s.WorkingDirectory='%INSTALL_DIR%';$s.Save()"
-powershell -NoProfile -Command "$s=(New-Object -COM WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Configurar F.R.I.D.A.Y..lnk');$s.TargetPath='%INSTALL_DIR%\Friday_Config.bat';$s.WorkingDirectory='%INSTALL_DIR%';$s.Save()"
+powershell -NoProfile -Command "$ws=New-Object -COM WScript.Shell; $d=[Environment]::GetFolderPath('Desktop'); $s1=$ws.CreateShortcut($d+'\F.R.I.D.A.Y..lnk'); $s1.TargetPath='%INSTALL_DIR%\Friday.bat'; $s1.WorkingDirectory='%INSTALL_DIR%'; $s1.Save(); $s2=$ws.CreateShortcut($d+'\Configurar F.R.I.D.A.Y..lnk'); $s2.TargetPath='%INSTALL_DIR%\Friday_Config.bat'; $s2.WorkingDirectory='%INSTALL_DIR%'; $s2.Save(); if (Test-Path '%INSTALL_DIR%\Friday_WSL.bat') { $s3=$ws.CreateShortcut($d+'\F.R.I.D.A.Y. Nativo WSL.lnk'); $s3.TargetPath='%INSTALL_DIR%\Friday_WSL.bat'; $s3.WorkingDirectory='%INSTALL_DIR%'; $s3.Save(); }"
 
 echo.
 echo ============================================================================
 echo   INSTALACAO INTEGRA CODE CONCLUIDA COM SUCESSO!
-echo   - Atalho criado na Area de Trabalho: F.R.I.D.A.Y.
-echo   - Interface Web HUD: http://127.0.0.1:8790/
+echo   - Atalho Area de Trabalho: F.R.I.D.A.Y. (Centro de Comando Stark Mark 85)
+echo   - Atalho Alternativo: F.R.I.D.A.Y. Nativo WSL (1:1 com Linux Wayland)
+echo   - Interface Holografica: http://127.0.0.1:8790/stark
 echo   - Central de Configuracao: http://127.0.0.1:8790/config
 echo ============================================================================
 start "" "%INSTALL_DIR%\Friday.bat"

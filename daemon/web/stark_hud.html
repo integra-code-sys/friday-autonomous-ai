@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>F.R.I.D.A.Y. — Centro de Comando Stark (Mark 85)</title>
+<style>
+:root {
+  --bg: #080503;
+  --bg2: #140d07;
+  --panel: rgba(18, 11, 6, 0.82);
+  --panel-border: rgba(255, 119, 0, 0.28);
+  --panel-border-glow: rgba(255, 119, 0, 0.65);
+  --orange: #ff7700;
+  --orange-bright: #ffa033;
+  --orange-dim: #994400;
+  --orange-glow: rgba(255, 119, 0, 0.45);
+  --txt: #ffeedb;
+  --txt-dim: #b89174;
+  --ok: #00e676;
+  --err: #ff3d00;
+  --blue: #36d6ff;
+  --mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0; width: 100vw; height: 100vh;
+  background: var(--bg); color: var(--txt); font-family: var(--sans);
+  overflow: hidden; user-select: none;
+}
+body {
+  background: radial-gradient(120% 80% at 50% 20%, #2b1406 0%, #080503 65%);
+}
+
+/* Fundo Hexagonal e Grade Cyber */
+#bgCanvas {
+  position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;
+}
+
+/* Varredura Laser Horizontal Contínua */
+.laser-scan {
+  position: fixed; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--orange), transparent);
+  opacity: 0.35; z-index: 2; pointer-events: none;
+  animation: laserSweep 10s linear infinite;
+}
+@keyframes laserSweep {
+  0% { top: -2px; }
+  100% { top: 100vh; }
+}
+
+/* Scanlines CRT */
+.scanlines {
+  position: fixed; inset: 0; pointer-events: none; z-index: 99;
+  background: repeating-linear-gradient(0deg, rgba(255, 119, 0, 0.02) 0 1px, transparent 1px 3px);
+}
+
+/* Container Geral do HUD em Grid */
+#hudApp {
+  position: relative; z-index: 10; display: grid;
+  grid-template-rows: 64px 1fr 88px;
+  grid-template-columns: 360px 1fr 380px;
+  width: 100vw; height: 100vh;
+  padding: 12px 18px; gap: 14px;
+}
+
+/* ---------- TOPO (HEADER) ---------- */
+header {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px;
+  padding: 0 18px; backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  position: relative;
+}
+header::before, header::after {
+  content: ""; position: absolute; width: 12px; height: 12px; pointer-events: none;
+}
+header::before { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+header::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+
+.brand-area { display: flex; align-items: center; gap: 14px; }
+.arc-reactor {
+  width: 38px; height: 38px; position: relative; border-radius: 50%;
+  border: 2px dashed var(--orange); animation: spinClockwise 12s linear infinite;
+}
+.arc-inner {
+  position: absolute; inset: 6px; border-radius: 50%;
+  background: radial-gradient(circle, var(--orange-bright) 0%, rgba(255,119,0,0.2) 70%);
+  box-shadow: 0 0 14px var(--orange); animation: pulseArc 1.8s ease-in-out infinite alternate;
+}
+@keyframes spinClockwise { to { transform: rotate(360deg); } }
+@keyframes spinCounterClockwise { to { transform: rotate(-360deg); } }
+@keyframes pulseArc { 0% { transform: scale(0.85); opacity: 0.7; } 100% { transform: scale(1.15); opacity: 1; } }
+
+.brand-title { display: flex; flex-direction: column; }
+.brand-name {
+  font-family: var(--mono); font-size: 20px; font-weight: 800; letter-spacing: 0.25em;
+  color: var(--orange-bright); text-shadow: 0 0 10px var(--orange-glow);
+}
+.brand-sub {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.28em; color: var(--txt-dim);
+}
+
+.status-badges { display: flex; align-items: center; gap: 10px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 4px; font-family: var(--mono);
+  font-size: 10px; letter-spacing: 0.08em; font-weight: 700;
+  border: 1px solid var(--panel-border); background: rgba(0,0,0,0.45);
+}
+.badge.ok { border-color: rgba(0, 230, 118, 0.4); color: var(--ok); }
+.badge.orange { border-color: rgba(255, 119, 0, 0.5); color: var(--orange-bright); }
+.badge.blue { border-color: rgba(54, 214, 255, 0.5); color: var(--blue); }
+.dot-ind { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+
+.header-clock-area { display: flex; align-items: center; gap: 16px; }
+.clock-text {
+  font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--txt);
+  text-shadow: 0 0 8px rgba(255,255,255,0.2);
+}
+.date-text { font-family: var(--mono); font-size: 10.5px; color: var(--txt-dim); }
+
+.top-btns { display: flex; gap: 8px; }
+.btn-top {
+  background: rgba(255,119,0,0.12); border: 1px solid var(--orange);
+  color: var(--orange-bright); border-radius: 4px; padding: 6px 12px;
+  font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-top:hover { background: var(--orange); color: #000; box-shadow: 0 0 12px var(--orange); }
+
+/* ---------- CARDS GENÉRICOS ---------- */
+.card {
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px;
+  padding: 14px; backdrop-filter: blur(10px); position: relative;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+}
+.card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid rgba(255,119,0,0.15);
+}
+.card-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.22em;
+  color: var(--orange-bright); display: flex; align-items: center; gap: 6px;
+}
+.card-title-icon { color: var(--orange); }
+
+/* ---------- COLUNA ESQUERDA (TELEMETRIA E AGENDA) ---------- */
+#colLeft { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+#colLeft::-webkit-scrollbar { width: 0; height: 0; }
+
+.gauges-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 10px;
+}
+.gauge-box {
+  background: rgba(0,0,0,0.4); border: 1px solid rgba(255,119,0,0.2);
+  border-radius: 6px; padding: 8px; display: flex; flex-direction: column;
+  align-items: center; position: relative;
+}
+.gauge-svg { width: 78px; height: 78px; transform: rotate(-90deg); }
+.gauge-bg { fill: none; stroke: rgba(255,119,0,0.15); stroke-width: 6; }
+.gauge-fill {
+  fill: none; stroke: var(--orange); stroke-width: 6;
+  stroke-dasharray: 220; stroke-dashoffset: 220; transition: stroke-dashoffset 0.6s ease;
+  stroke-linecap: round; filter: drop-shadow(0 0 4px var(--orange));
+}
+.gauge-val {
+  position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  font-family: var(--mono); font-size: 13px; font-weight: 800; color: var(--txt);
+}
+.gauge-label {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--txt-dim); margin-top: 4px;
+}
+
+.health-bar-container {
+  display: flex; flex-direction: column; gap: 4px;
+  background: rgba(0,0,0,0.35); padding: 8px 10px; border-radius: 4px;
+  border: 1px solid rgba(255,119,0,0.18);
+}
+.health-title-row {
+  display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px;
+}
+.health-track {
+  width: 100%; height: 6px; background: rgba(255,119,0,0.15); border-radius: 3px; overflow: hidden;
+}
+.health-progress {
+  width: 98%; height: 100%; background: linear-gradient(90deg, var(--orange), var(--ok));
+  box-shadow: 0 0 8px var(--ok); transition: width 0.5s ease;
+}
+
+.diag-item {
+  display: flex; justify-content: space-between; padding: 6px 0;
+  border-bottom: 1px solid rgba(255,119,0,0.08); font-family: var(--mono); font-size: 10.5px;
+}
+.diag-item:last-child { border-bottom: none; }
+.diag-k { color: var(--txt-dim); }
+.diag-v { color: var(--orange-bright); font-weight: 700; }
+
+.agenda-list { display: flex; flex-direction: column; gap: 8px; }
+.agenda-item {
+  display: flex; gap: 10px; padding: 7px 10px; background: rgba(0,0,0,0.35);
+  border-left: 3px solid var(--orange); border-radius: 0 4px 4px 0;
+  font-size: 12px;
+}
+.agenda-time { font-family: var(--mono); font-size: 10.5px; color: var(--orange-bright); font-weight: 700; }
+.agenda-text { color: var(--txt); }
+
+/* ---------- PALCO CENTRAL: MARK 85 3D HOLOGRAM ---------- */
+#colCenter {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: 8px; background: rgba(10,6,3,0.45);
+  border: 1px solid var(--panel-border);
+}
+#colCenter::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(255,119,0,0.12) 0%, transparent 70%);
+}
+
+/* Anéis Holográficos Rotativos ao Fundo */
+.holo-rings {
+  position: absolute; width: 560px; height: 560px; pointer-events: none;
+  display: flex; align-items: center; justify-content: center; opacity: 0.45;
+}
+.ring-outer {
+  position: absolute; width: 100%; height: 100%; border-radius: 50%;
+  border: 1.5px dashed var(--orange); animation: spinClockwise 45s linear infinite;
+}
+.ring-mid {
+  position: absolute; width: 80%; height: 80%; border-radius: 50%;
+  border: 2px solid rgba(255, 160, 51, 0.4); border-top-color: transparent; border-bottom-color: transparent;
+  animation: spinCounterClockwise 30s linear infinite;
+}
+.ring-inner {
+  position: absolute; width: 60%; height: 60%; border-radius: 50%;
+  border: 1px dotted var(--orange-bright); animation: spinClockwise 20s linear infinite;
+}
+
+/* Piso Holográfico em Perspectiva */
+.holo-floor {
+  position: absolute; bottom: 8%; width: 440px; height: 110px; border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255,119,0,0.3) 0%, transparent 75%);
+  border: 1.5px solid rgba(255,119,0,0.5); pointer-events: none;
+  animation: pulseFloor 3s ease-in-out infinite alternate;
+}
+@keyframes pulseFloor { 0% { transform: scale(0.95); opacity: 0.5; } 100% { transform: scale(1.08); opacity: 0.9; } }
+
+/* Contêiner da Armadura Mark 85 */
+#mark85Stage {
+  position: relative; width: 420px; height: 660px; z-index: 5;
+  cursor: grab; display: flex; align-items: center; justify-content: center;
+}
+#mark85Stage:active { cursor: grabbing; }
+
+.armor-frame {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; pointer-events: none;
+  filter: drop-shadow(0 0 16px rgba(255,119,0,0.38));
+}
+#frame0 { z-index: 2; opacity: 1; }
+#frame1 { z-index: 3; opacity: 0; }
+
+/* Feixe Laser Vertical de Diagnóstico da Armadura */
+.armor-laser {
+  position: absolute; left: 10%; right: 10%; height: 3px; z-index: 10; pointer-events: none;
+  background: linear-gradient(90deg, transparent, #ffeedb, var(--orange), transparent);
+  box-shadow: 0 0 10px var(--orange); opacity: 0.75;
+  animation: sweepArmor 4.5s ease-in-out infinite alternate;
+}
+@keyframes sweepArmor {
+  0% { top: 12%; }
+  100% { top: 88%; }
+}
+
+/* Callouts Diagnósticos Flutuantes ao Redor de Mark 85 */
+.callout {
+  position: absolute; z-index: 8; pointer-events: none;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  background: rgba(0,0,0,0.7); border: 1px solid var(--panel-border);
+  padding: 5px 9px; border-radius: 4px; color: var(--txt);
+  box-shadow: 0 0 12px rgba(255,119,0,0.18);
+}
+.callout-left { left: 24px; }
+.callout-right { right: 24px; }
+.callout-title { color: var(--orange-bright); font-weight: 700; }
+.callout-line {
+  position: absolute; height: 1px; background: var(--orange); opacity: 0.6;
+}
+
+/* ---------- COLUNA DIREITA (CÂMERAS E EXECUTOR) ---------- */
+#colRight { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+#colRight::-webkit-scrollbar { width: 0; height: 0; }
+
+.cams-stack { display: flex; flex-direction: column; gap: 10px; }
+.cam-card {
+  position: relative; height: 130px; border-radius: 4px; overflow: hidden;
+  background: #000; border: 1px solid var(--panel-border);
+}
+.cam-card.active { border-color: var(--orange); }
+.cam-img {
+  width: 100%; height: 100%; object-fit: cover; opacity: 0.85;
+}
+.cam-overlay {
+  position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 119, 0, 0.04) 0 1px, transparent 1px 3px);
+}
+.cam-bracket {
+  position: absolute; width: 12px; height: 12px; pointer-events: none;
+}
+.cam-bracket.tl { top: 4px; left: 4px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+.cam-bracket.tr { top: 4px; right: 4px; border-top: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+.cam-bracket.bl { bottom: 4px; left: 4px; border-bottom: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+.cam-bracket.br { bottom: 4px; right: 4px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+
+.cam-meta {
+  position: absolute; bottom: 6px; left: 8px; z-index: 2;
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  background: rgba(0,0,0,0.7); padding: 2px 6px; border-radius: 3px; color: var(--txt);
+}
+.cam-rec {
+  position: absolute; top: 6px; right: 8px; z-index: 2;
+  display: flex; align-items: center; gap: 5px; font-family: var(--mono);
+  font-size: 9px; font-weight: 700; color: var(--err);
+  background: rgba(0,0,0,0.75); padding: 2px 6px; border-radius: 3px;
+}
+.rec-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--err);
+  animation: pulseRec 1s infinite alternate;
+}
+@keyframes pulseRec { 0% { opacity: 0.2; } 100% { opacity: 1; } }
+
+.term-output {
+  background: rgba(0,0,0,0.65); border: 1px solid rgba(255,119,0,0.18);
+  border-radius: 4px; padding: 8px; font-family: var(--mono); font-size: 10.5px;
+  color: var(--txt); height: 140px; overflow-y: auto; line-height: 1.4;
+}
+.term-line { margin: 2px 0; }
+.term-line.ok { color: var(--ok); }
+.term-line.action { color: var(--orange-bright); }
+.term-line.dim { color: var(--txt-dim); }
+
+/* ---------- BARRA INFERIOR (COMANDOS E VOZ) ---------- */
+footer {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 14px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px;
+  padding: 0 16px; backdrop-filter: blur(12px); box-shadow: 0 -4px 20px rgba(0,0,0,0.6);
+  position: relative;
+}
+footer::before, footer::after {
+  content: ""; position: absolute; width: 12px; height: 12px; pointer-events: none;
+}
+footer::before { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+footer::after { bottom: -1px; right: -1px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+
+/* Visualizador de Ondas de Áudio */
+.wave-box {
+  width: 130px; height: 44px; display: flex; align-items: center; justify-content: center; gap: 3px;
+  background: rgba(0,0,0,0.45); border: 1px solid rgba(255,119,0,0.22); border-radius: 4px; padding: 0 8px;
+}
+.wave-bar {
+  width: 3px; height: 12px; background: var(--orange); border-radius: 2px;
+  transition: height 0.1s ease;
+}
+
+.input-area {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+}
+.cmd-input {
+  flex: 1; height: 46px; background: rgba(0,0,0,0.7); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 0 16px; color: var(--txt); font-family: var(--mono);
+  font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.cmd-input:focus {
+  border-color: var(--orange); box-shadow: 0 0 12px var(--orange-glow);
+}
+
+.btn-send {
+  height: 46px; padding: 0 20px; border-radius: 6px; border: none;
+  background: var(--orange); color: #000; font-family: var(--mono);
+  font-size: 12px; font-weight: 800; letter-spacing: 0.12em; cursor: pointer;
+  box-shadow: 0 0 14px var(--orange-glow); transition: all 0.2s;
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-send:hover {
+  background: var(--orange-bright); transform: translateY(-1px);
+  box-shadow: 0 0 18px var(--orange);
+}
+.btn-send:active { transform: translateY(1px); }
+
+.btn-mic {
+  width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--orange);
+  background: radial-gradient(circle, rgba(255,119,0,0.3) 0%, rgba(0,0,0,0.6) 80%);
+  color: var(--orange-bright); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.2s; position: relative;
+}
+.btn-mic.active {
+  background: var(--orange); color: #000; box-shadow: 0 0 20px var(--orange);
+}
+
+.quick-pills {
+  display: flex; gap: 8px; overflow-x: auto;
+}
+.pill {
+  padding: 6px 12px; border-radius: 999px; background: rgba(0,0,0,0.5);
+  border: 1px solid var(--panel-border); color: var(--txt); font-family: var(--mono);
+  font-size: 10.5px; font-weight: 700; white-space: nowrap; cursor: pointer;
+  transition: all 0.2s;
+}
+.pill:hover {
+  border-color: var(--orange); color: var(--orange-bright);
+  background: rgba(255,119,0,0.12);
+}
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+<div class="laser-scan"></div>
+<div class="scanlines"></div>
+
+<div id="hudApp">
+  <!-- TOPO -->
+  <header>
+    <div class="brand-area">
+      <div class="arc-reactor">
+        <div class="arc-inner"></div>
+      </div>
+      <div class="brand-title">
+        <div class="brand-name">F.R.I.D.A.Y.</div>
+        <div class="brand-sub">CENTRO DE COMANDO STARK · MARK 85</div>
+      </div>
+    </div>
+
+    <div class="status-badges">
+      <div class="badge ok">
+        <span class="dot-ind"></span>
+        <span id="badgeMesh">MESH NÓ WINDOWS ONLINE</span>
+      </div>
+      <div class="badge orange">
+        <span>🔒 BIOMETRIA VOCAL: SÓ VOZ DO DONO</span>
+      </div>
+      <div class="badge blue">
+        <span>AUTONOMIA NÍVEL 5 (ADAPTATIVA)</span>
+      </div>
+    </div>
+
+    <div class="header-clock-area">
+      <div style="text-align: right;">
+        <div class="clock-text" id="liveClock">--:--:--</div>
+        <div class="date-text" id="liveDate">--/--/----</div>
+      </div>
+      <div class="top-btns">
+        <button class="btn-top" onclick="window.location.href='/config'">CONFIG</button>
+        <button class="btn-top" onclick="window.location.href='/'">ABAS</button>
+        <button class="btn-top" onclick="toggleFullscreen()">TELA CHEIA</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- COLUNA ESQUERDA: TELEMETRIA E DIAGNÓSTICO -->
+  <aside id="colLeft">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="card-title-icon">▲</span> TELEMETRIA DO SISTEMA</div>
+        <span id="saudeBadge" style="font-family:var(--mono); font-size:10px; color:var(--ok); font-weight:700;">SAÚDE: 98%</span>
+      </div>
+      <div class="gauges-grid">
+        <div class="gauge-box">
+          <svg class="gauge-svg" viewBox="0 0 80 80">
+            <circle class="gauge-bg" cx="40" cy="40" r="34"></circle>
+            <circle class="gauge-fill" id="gaugeCpu" cx="40" cy="40" r="34"></circle>
+          </svg>
+          <div class="gauge-val" id="valCpu">0%</div>
+          <div class="gauge-label">CPU</div>
+        </div>
+        <div class="gauge-box">
+          <svg class="gauge-svg" viewBox="0 0 80 80">
+            <circle class="gauge-bg" cx="40" cy="40" r="34"></circle>
+            <circle class="gauge-fill" id="gaugeRam" cx="40" cy="40" r="34"></circle>
+          </svg>
+          <div class="gauge-val" id="valRam">0%</div>
+          <div class="gauge-label">RAM</div>
+        </div>
+        <div class="gauge-box">
+          <svg class="gauge-svg" viewBox="0 0 80 80">
+            <circle class="gauge-bg" cx="40" cy="40" r="34"></circle>
+            <circle class="gauge-fill" id="gaugeGpu" cx="40" cy="40" r="34"></circle>
+          </svg>
+          <div class="gauge-val" id="valGpu">0%</div>
+          <div class="gauge-label">GPU</div>
+        </div>
+        <div class="gauge-box">
+          <svg class="gauge-svg" viewBox="0 0 80 80">
+            <circle class="gauge-bg" cx="40" cy="40" r="34"></circle>
+            <circle class="gauge-fill" id="gaugeTemp" cx="40" cy="40" r="34"></circle>
+          </svg>
+          <div class="gauge-val" id="valTemp">42°C</div>
+          <div class="gauge-label">TEMP</div>
+        </div>
+      </div>
+      <div class="health-bar-container">
+        <div class="health-title-row">
+          <span style="color:var(--txt-dim);">ÍNDICE DE ESTABILIDADE</span>
+          <span id="healthScore" style="color:var(--ok); font-weight:700;">100% NOMINAL</span>
+        </div>
+        <div class="health-track">
+          <div class="health-progress" id="healthProgress"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="card-title-icon">▲</span> NÚCLEO DE INTELIGÊNCIA</div>
+      </div>
+      <div class="diag-item"><span class="diag-k">MOTOR IA:</span><span class="diag-v">Qwen3-VL 4B GPU</span></div>
+      <div class="diag-item"><span class="diag-k">BIOMETRIA VOCAL:</span><span class="diag-v">TitaNet / WeSpeaker</span></div>
+      <div class="diag-item"><span class="diag-k">REDE MESH:</span><span class="diag-v" id="diagMesh">3 Nós Sincronizados</span></div>
+      <div class="diag-item"><span class="diag-k">VISÃO COMPUTACIONAL:</span><span class="diag-v">YuNet + Face + Mãos</span></div>
+      <div class="diag-item"><span class="diag-k">ORQUESTRAÇÃO:</span><span class="diag-v">Autonomia Contínua</span></div>
+    </div>
+
+    <div class="card" style="flex: 1;">
+      <div class="card-header">
+        <div class="card-title"><span class="card-title-icon">▲</span> AGENDA & COMPROMISSOS</div>
+        <button onclick="carregarAgenda()" style="background:none; border:none; color:var(--orange); cursor:pointer; font-family:var(--mono); font-size:10px;">ATUALIZAR</button>
+      </div>
+      <div class="agenda-list" id="agendaItems">
+        <div class="agenda-item">
+          <div class="agenda-time">09:00</div>
+          <div class="agenda-text">Revisão de Operações Autônomas</div>
+        </div>
+        <div class="agenda-item">
+          <div class="agenda-time">14:30</div>
+          <div class="agenda-text">Sincronização do Cluster Mesh</div>
+        </div>
+        <div class="agenda-item">
+          <div class="agenda-time">18:00</div>
+          <div class="agenda-text">Backup do Banco Zero-State</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- PALCO CENTRAL: MARK 85 3D HOLOGRAM -->
+  <main id="colCenter">
+    <div class="holo-rings">
+      <div class="ring-outer"></div>
+      <div class="ring-mid"></div>
+      <div class="ring-inner"></div>
+    </div>
+    <div class="holo-floor"></div>
+
+    <!-- Callouts Diagnósticos Flutuantes -->
+    <div class="callout callout-left" style="top: 18%;">
+      <div class="callout-title">ARMADURA MARK 85</div>
+      <div>NANOTECNOLOGIA ATIVA</div>
+    </div>
+    <div class="callout callout-left" style="top: 54%;">
+      <div class="callout-title">ARC REACTOR CENTRAL</div>
+      <div>FLUXO ENERGÉTICO 100%</div>
+    </div>
+    <div class="callout callout-right" style="top: 22%;">
+      <div class="callout-title">SISTEMA NEURAL</div>
+      <div>HEURÍSTICA ADAPTATIVA</div>
+    </div>
+    <div class="callout callout-right" style="top: 60%;">
+      <div class="callout-title">DEFESA AUTÔNOMA</div>
+      <div>RECONHECIMENTO FACIAL</div>
+    </div>
+
+    <!-- Stage da Armadura com 144 Quadros 3D -->
+    <div id="mark85Stage" title="Arraste para girar a armadura em 360°">
+      <img id="frame0" class="armor-frame" src="/mark85/f000.png" alt="Mark 85">
+      <img id="frame1" class="armor-frame" src="/mark85/f001.png" alt="Mark 85">
+      <div class="armor-laser"></div>
+    </div>
+  </main>
+
+  <!-- COLUNA DIREITA: CÂMERAS E EXECUTOR DEV -->
+  <aside id="colRight">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title"><span class="card-title-icon">▲</span> CÂMERAS & VISÃO AO VIVO</div>
+        <span style="font-family:var(--mono); font-size:10px; color:var(--ok);">3 FEEDS</span>
+      </div>
+      <div class="cams-stack">
+        <!-- Câmera 1: Nativa -->
+        <div class="cam-card active">
+          <div class="cam-bracket tl"></div><div class="cam-bracket tr"></div>
+          <div class="cam-bracket bl"></div><div class="cam-bracket br"></div>
+          <img class="cam-img" id="camNativa" src="/api/cam/nativa" alt="Webcam Nativa">
+          <div class="cam-overlay"></div>
+          <div class="cam-rec"><span class="rec-dot"></span>AO VIVO</div>
+          <div class="cam-meta">WEBCAM NATIVA</div>
+        </div>
+        <!-- Câmera 2: Porta -->
+        <div class="cam-card">
+          <div class="cam-bracket tl"></div><div class="cam-bracket tr"></div>
+          <div class="cam-bracket bl"></div><div class="cam-bracket br"></div>
+          <img class="cam-img" id="camPorta" src="/api/cam/porta" alt="Câmera Porta">
+          <div class="cam-overlay"></div>
+          <div class="cam-rec"><span class="rec-dot"></span>AO VIVO</div>
+          <div class="cam-meta">CÂMERA PORTA</div>
+        </div>
+        <!-- Câmera 3: PTZ -->
+        <div class="cam-card">
+          <div class="cam-bracket tl"></div><div class="cam-bracket tr"></div>
+          <div class="cam-bracket bl"></div><div class="cam-bracket br"></div>
+          <img class="cam-img" id="camPtz" src="/api/cam/ptz" alt="Câmera PTZ">
+          <div class="cam-overlay"></div>
+          <div class="cam-rec"><span class="rec-dot"></span>AO VIVO</div>
+          <div class="cam-meta">CÂMERA PTZ 360°</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="flex: 1;">
+      <div class="card-header">
+        <div class="card-title"><span class="card-title-icon">▲</span> TERMINAL & EXECUTOR DEV</div>
+        <span id="execState" style="font-family:var(--mono); font-size:10px; color:var(--orange-bright);">OCIOSA</span>
+      </div>
+      <div class="term-output" id="termOutput">
+        <div class="term-line ok">[F.R.I.D.A.Y.] Motor Local Inicializado com Sucesso.</div>
+        <div class="term-line action">[CLUSTER] Conexão com Workstation Linux Estabelecida.</div>
+        <div class="term-line dim">[AUTONOMIA] Modo Adaptativo Ativo — Monitorando Comandos e Percepção.</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- BARRA INFERIOR DE COMANDOS -->
+  <footer>
+    <div class="wave-box" id="waveBox">
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+    </div>
+
+    <div class="input-area">
+      <input type="text" id="cmdInput" class="cmd-input" placeholder="Comande a F.R.I.D.A.Y. (ex: pesquise sobre IA e crie um documento em PDF)...">
+      <button class="btn-send" onclick="enviarComando()">
+        <span>EXECUTAR</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </button>
+      <button class="btn-mic" id="btnMic" onclick="toggleMic()" title="Voz do Dono">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+    </div>
+
+    <div class="quick-pills">
+      <div class="pill" onclick="preencherCmd('abra minha agenda')">📅 Agenda</div>
+      <div class="pill" onclick="preencherCmd('pesquise na web sobre inteligência artificial e monte um documento em pdf')">📄 Pesquisa & Doc</div>
+      <div class="pill" onclick="preencherCmd('manda um zap pro Carlos dizendo que o relatório está pronto')">💬 WhatsApp</div>
+      <div class="pill" onclick="preencherCmd('modo dev iniciar projeto')">⚡ Modo Dev</div>
+      <div class="pill" onclick="preencherCmd('diagnóstico completo do sistema')">🔍 Diagnóstico</div>
+    </div>
+  </footer>
+</div>
+
+<script>
+// ---------------- 1. ANIMAÇÃO DE FUNDO CANVAS (GRADE HEXAGONAL) ----------------
+const bgCv = document.getElementById("bgCanvas");
+const bgCtx = bgCv.getContext("2d");
+function resizeBg() {
+  bgCv.width = window.innerWidth;
+  bgCv.height = window.innerHeight;
+  drawHexGrid();
+}
+window.addEventListener("resize", resizeBg);
+
+function drawHexGrid() {
+  const w = bgCv.width, h = bgCv.height;
+  bgCtx.clearRect(0, 0, w, h);
+  const r = 32, hx = r * Math.sqrt(3);
+  bgCtx.strokeStyle = "rgba(255, 119, 0, 0.05)";
+  bgCtx.lineWidth = 1;
+  for (let j = 0; j * r * 1.5 < h; j++) {
+    for (let i = 0; i * hx < w; i++) {
+      if (((i * 7 + j * 13) % 11) > 1) continue;
+      const cx = i * hx + (j % 2 ? hx / 2 : 0), cy = j * r * 1.5;
+      bgCtx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 3 * k + Math.PI / 6;
+        bgCtx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      bgCtx.closePath();
+      bgCtx.stroke();
+    }
+  }
+}
+resizeBg();
+
+// ---------------- 2. MARK 85 3D HOLOGRAM (144 QUADROS COM CROSSFADE) ----------------
+const stage = document.getElementById("mark85Stage");
+const img0 = document.getElementById("frame0");
+const img1 = document.getElementById("frame1");
+const N_FRAMES = 144;
+let angle = 0;
+let isDragging = false;
+let startX = 0;
+let startAngle = 0;
+
+function framePath(idx) {
+  const num = ("00" + ((idx % N_FRAMES + N_FRAMES) % N_FRAMES)).slice(-3);
+  return "/mark85/f" + num + ".png";
+}
+
+// Rotação contínua e renderização dos 144 quadros
+let lastTime = performance.now();
+function renderArmor(now) {
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  if (!isDragging) {
+    angle = (angle + dt * 12) % 360; // 30s por volta completa
+  }
+  const fq = ((angle / 360 * N_FRAMES) % N_FRAMES + N_FRAMES) % N_FRAMES;
+  const q0 = Math.floor(fq) % N_FRAMES;
+  const q1 = (q0 + 1) % N_FRAMES;
+  const frac = fq - Math.floor(fq);
+
+  img0.src = framePath(q0);
+  img1.src = framePath(q1);
+  img1.style.opacity = frac;
+
+  requestAnimationFrame(renderArmor);
+}
+requestAnimationFrame(renderArmor);
+
+// Interação de Arrasto com Mouse / Touch para Girar a Armadura à Vontade
+stage.addEventListener("pointerdown", (e) => {
+  isDragging = true;
+  startX = e.clientX;
+  startAngle = angle;
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener("pointermove", (e) => {
+  if (!isDragging) return;
+  const dx = e.clientX - startX;
+  angle = ((startAngle - dx * 0.6) % 360 + 360) % 360;
+});
+stage.addEventListener("pointerup", (e) => {
+  isDragging = false;
+  try { stage.releasePointerCapture(e.pointerId); } catch(err){}
+});
+
+// ---------------- 3. RELÓGIO & DATA ----------------
+function updateClock() {
+  const now = new Date();
+  document.getElementById("liveClock").textContent = now.toLocaleTimeString("pt-BR");
+  document.getElementById("liveDate").textContent = now.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ---------------- 4. WEBSOCKET & TELEMETRIA REAL DA FRIDAY (PORTA 8790) ----------------
+let wsToken = "";
+async function obterToken() {
+  try {
+    const r = await fetch("/api/local_token");
+    if (r.ok) {
+      const j = await r.json();
+      wsToken = j.token || "";
+    }
+  } catch (e) {}
+  conectarWS();
+}
+
+let ws = null;
+function conectarWS() {
+  const host = window.location.host || "127.0.0.1:8790";
+  const url = "ws://" + host + "/ws?t=" + encodeURIComponent(wsToken);
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    logTerm("[REDE] Conectado ao Daemon Local da Friday (Porta 8790)", "ok");
+    document.getElementById("badgeMesh").textContent = "CLUSTER MESH ONLINE";
+  };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      tratarMensagem(msg);
+    } catch(err){}
+  };
+  ws.onclose = () => {
+    setTimeout(conectarWS, 3000);
+  };
+}
+obterToken();
+
+function setGauge(id, val, max = 100) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const p = Math.max(0, Math.min(100, (val / max) * 100));
+  const offset = 220 - (220 * (p / 100));
+  el.style.strokeDashoffset = offset;
+}
+
+function tratarMensagem(m) {
+  if (m.type === "state") {
+    document.getElementById("execState").textContent = m.state ? m.state.toUpperCase() : "OCIOSA";
+  }
+  if (m.type === "telemetria" || m.cpu !== undefined) {
+    if (m.cpu !== undefined) {
+      document.getElementById("valCpu").textContent = Math.round(m.cpu) + "%";
+      setGauge("gaugeCpu", m.cpu);
+    }
+    if (m.ram !== undefined) {
+      document.getElementById("valRam").textContent = Math.round(m.ram) + "%";
+      setGauge("gaugeRam", m.ram);
+    }
+    if (m.gpu !== undefined) {
+      document.getElementById("valGpu").textContent = Math.round(m.gpu) + "%";
+      setGauge("gaugeGpu", m.gpu);
+    }
+    if (m.temp !== undefined) {
+      document.getElementById("valTemp").textContent = Math.round(m.temp) + "°C";
+      setGauge("gaugeTemp", m.temp, 90);
+    }
+  }
+  if (m.type === "say" || m.type === "fala") {
+    logTerm("F.R.I.D.A.Y.: " + (m.text || m.texto), "action");
+    animarOndas();
+  }
+}
+
+// Polling de telemetria periódico
+async function pollTelemetria() {
+  try {
+    const r = await fetch("/api/status");
+    if (r.ok) {
+      const d = await r.json();
+      tratarMensagem(d);
+    }
+  } catch(e){}
+}
+setInterval(pollTelemetria, 2500);
+
+// ---------------- 5. LOG DE TERMINAL ----------------
+function logTerm(txt, cls = "") {
+  const term = document.getElementById("termOutput");
+  const div = document.createElement("div");
+  div.className = "term-line " + cls;
+  div.textContent = txt;
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
+}
+
+// ---------------- 6. ENVIO DE COMANDOS ----------------
+async function enviarComando() {
+  const inp = document.getElementById("cmdInput");
+  const cmd = inp.value.trim();
+  if (!cmd) return;
+  inp.value = "";
+  logTerm("> " + cmd, "dim");
+
+  try {
+    const r = await fetch("/api/pedido", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Token": wsToken },
+      body: JSON.stringify({ pedido: cmd, origem: "windows" })
+    });
+    const res = await r.json();
+    if (res.ok) {
+      logTerm("[SUCESSO] " + (res.fala || res.resultado || "Comando executado."), "ok");
+    } else {
+      logTerm("[RESPOSTA] " + (res.fala || res.erro || "Processado."), "action");
+    }
+  } catch(err) {
+    logTerm("[ERRO] Falha ao enviar pedido ao daemon: " + err, "err");
+  }
+}
+
+document.getElementById("cmdInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") enviarComando();
+});
+
+function preencherCmd(t) {
+  document.getElementById("cmdInput").value = t;
+  document.getElementById("cmdInput").focus();
+}
+
+// ---------------- 7. VISUALIZADOR DE ONDAS DE ÁUDIO ----------------
+const bars = document.querySelectorAll(".wave-bar");
+let animOndasTimer = null;
+function animarOndas() {
+  clearInterval(animOndasTimer);
+  let t = 0;
+  animOndasTimer = setInterval(() => {
+    t += 0.2;
+    bars.forEach((b, i) => {
+      const h = 8 + Math.abs(Math.sin(t + i * 0.7)) * 26;
+      b.style.height = h + "px";
+    });
+    if (t > 20) {
+      clearInterval(animOndasTimer);
+      bars.forEach(b => b.style.height = "12px");
+    }
+  }, 60);
+}
+
+// ---------------- 8. TELA CHEIA ----------------
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen().catch(()=>{});
+  }
+}
+
+// Atualização periódica dos feeds de câmera
+setInterval(() => {
+  const t = Date.now();
+  document.getElementById("camNativa").src = "/api/cam/nativa?t=" + t;
+  document.getElementById("camPorta").src = "/api/cam/porta?t=" + t;
+  document.getElementById("camPtz").src = "/api/cam/ptz?t=" + t;
+}, 1500);
+</script>
+</body>
+</html>

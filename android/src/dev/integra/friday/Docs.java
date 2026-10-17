@@ -19,7 +19,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -99,34 +101,160 @@ final class Docs {
 
     private static byte[] pdf(String titulo, String corpo) throws Exception {
         PdfDocument doc = new PdfDocument();
-        int W = 595, H = 842, M = 50;                       // A4 em pontos
-        TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG); tp.setColor(Color.BLACK); tp.setTextSize(11.5f);
-        TextPaint tt = new TextPaint(tp); tt.setTextSize(18f); tt.setTypeface(Typeface.DEFAULT_BOLD);
-        StaticLayout lt = StaticLayout.Builder.obtain(titulo, 0, titulo.length(), tt, W - 2 * M).build();
-        String texto = corpo == null ? "" : corpo.replace("\r", "");
-        StaticLayout lc = StaticLayout.Builder.obtain(texto, 0, texto.length(), tp, W - 2 * M)
-            .setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(2f, 1.15f).build();
-        int linha = 0, pagina = 1;
-        while (linha < lc.getLineCount() || pagina == 1) {
+        int W = 595, H = 842, M = 44;                       // A4 em pontos (595x842)
+        int contentW = W - 2 * M;
+
+        // Tintas do design Stark / Cyber
+        Paint pOrange = new Paint(Paint.ANTI_ALIAS_FLAG);
+        pOrange.setColor(Color.rgb(255, 119, 0)); // #ff7700
+
+        Paint pCinza = new Paint(Paint.ANTI_ALIAS_FLAG);
+        pCinza.setColor(Color.rgb(220, 224, 230));
+
+        TextPaint tEye = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tEye.setColor(Color.rgb(230, 100, 0));
+        tEye.setTextSize(9f);
+        tEye.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+
+        TextPaint tTit = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tTit.setColor(Color.rgb(15, 23, 42)); // Slate escuro
+        tTit.setTextSize(20f);
+        tTit.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+
+        TextPaint tMeta = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tMeta.setColor(Color.rgb(100, 116, 139));
+        tMeta.setTextSize(9.5f);
+
+        TextPaint tH1 = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tH1.setColor(Color.rgb(15, 23, 42));
+        tH1.setTextSize(14f);
+        tH1.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+
+        TextPaint tH2 = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tH2.setColor(Color.rgb(30, 41, 59));
+        tH2.setTextSize(12f);
+        tH2.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+
+        TextPaint tCorpo = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tCorpo.setColor(Color.rgb(51, 65, 85));
+        tCorpo.setTextSize(10.5f);
+
+        TextPaint tFoot = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        tFoot.setColor(Color.rgb(148, 163, 184));
+        tFoot.setTextSize(8.5f);
+
+        // Prepara blocos de parágrafos
+        String dataStr = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date());
+        String metaStr = "GERADO EM: " + dataStr + "  |  AUTONOMIA: NÍVEL 5  |  PROJETO PROMETHEUS";
+
+        List<LayoutItem> itens = new ArrayList<>();
+        String[] linhas = (corpo == null ? "" : corpo.replace("\r", "")).split("\n\n");
+        for (String bloco : linhas) {
+            bloco = bloco.trim();
+            if (bloco.isEmpty()) continue;
+            if (bloco.startsWith("# ")) {
+                String txt = bloco.substring(2).trim();
+                StaticLayout sl = StaticLayout.Builder.obtain(txt, 0, txt.length(), tH1, contentW - 14).build();
+                itens.add(new LayoutItem(sl, true, 1));
+            } else if (bloco.startsWith("## ")) {
+                String txt = bloco.substring(3).trim();
+                StaticLayout sl = StaticLayout.Builder.obtain(txt, 0, txt.length(), tH2, contentW).build();
+                itens.add(new LayoutItem(sl, true, 2));
+            } else {
+                StaticLayout sl = StaticLayout.Builder.obtain(bloco, 0, bloco.length(), tCorpo, contentW)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(2f, 1.18f).build();
+                itens.add(new LayoutItem(sl, false, 0));
+            }
+        }
+
+        StaticLayout ltTitulo = StaticLayout.Builder.obtain(titulo, 0, titulo.length(), tTit, contentW).build();
+
+        int itemIdx = 0;
+        int pagina = 1;
+        while (itemIdx < itens.size() || pagina == 1) {
             PdfDocument.Page p = doc.startPage(new PdfDocument.PageInfo.Builder(W, H, pagina).create());
             Canvas cv = p.getCanvas();
             int y = M;
-            if (pagina == 1) { cv.save(); cv.translate(M, y); lt.draw(cv); cv.restore(); y += lt.getHeight() + 18; }
-            int topo = linha < lc.getLineCount() ? lc.getLineTop(linha) : 0, ate = linha;
-            while (ate < lc.getLineCount() && lc.getLineBottom(ate) - topo <= H - M - y) ate++;
-            if (ate > linha) {
-                cv.save(); cv.translate(M, y - topo);
-                cv.clipRect(0, topo, W - 2 * M, lc.getLineBottom(ate - 1));
-                lc.draw(cv); cv.restore();
+
+            // Barra topo Cyber Orange
+            cv.drawRect(M, y, W - M, y + 3, pOrange);
+            y += 12;
+
+            if (pagina == 1) {
+                // Eyebrow Stark
+                cv.drawText("F.R.I.D.A.Y. INTEL REPORT  ·  SISTEMA AUTÔNOMO", M, y + 8, tEye);
+                y += 16;
+
+                // Título
+                cv.save();
+                cv.translate(M, y);
+                ltTitulo.draw(cv);
+                cv.restore();
+                y += ltTitulo.getHeight() + 8;
+
+                // Metadata
+                cv.drawText(metaStr, M, y + 8, tMeta);
+                y += 16;
+
+                // Linha divisória
+                cv.drawRect(M, y, W - M, y + 1, pCinza);
+                y += 14;
             }
+
+            int limiteY = H - M - 24; // Deixa espaço para rodapé
+            while (itemIdx < itens.size()) {
+                LayoutItem item = itens.get(itemIdx);
+                int espacoExtra = item.ehH1 ? 16 : item.ehH2 ? 10 : 8;
+                if (y + item.layout.getHeight() + espacoExtra > limiteY) {
+                    break; // Passa para a próxima página
+                }
+
+                y += (item.ehH1 ? 10 : 4);
+                if (item.ehH1) {
+                    // Marcador laranja lateral para H1
+                    cv.drawRect(M, y, M + 4, y + item.layout.getHeight(), pOrange);
+                    cv.save();
+                    cv.translate(M + 10, y);
+                    item.layout.draw(cv);
+                    cv.restore();
+                } else {
+                    cv.save();
+                    cv.translate(M, y);
+                    item.layout.draw(cv);
+                    cv.restore();
+                }
+                y += item.layout.getHeight() + (item.ehH1 ? 10 : 6);
+                itemIdx++;
+            }
+
+            // Rodapé da página
+            int footY = H - M;
+            cv.drawRect(M, footY - 14, W - M, footY - 13, pCinza);
+            cv.drawText("F.R.I.D.A.Y. Commercial Edition  ·  Integra Code", M, footY, tFoot);
+            String pStr = "Página " + pagina;
+            float pw = tFoot.measureText(pStr);
+            cv.drawText(pStr, W - M - pw, footY, tFoot);
+
             doc.finishPage(p);
-            if (ate == linha && linha < lc.getLineCount()) break;   // nada coube (não deve acontecer)
-            linha = ate; pagina++;
-            if (linha >= lc.getLineCount()) break;
+            pagina++;
+            if (itemIdx >= itens.size()) break;
         }
+
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        doc.writeTo(bo); doc.close();
+        doc.writeTo(bo);
+        doc.close();
         return bo.toByteArray();
+    }
+
+    private static class LayoutItem {
+        final StaticLayout layout;
+        final boolean ehH1;
+        final boolean ehH2;
+        LayoutItem(StaticLayout l, boolean h, int nivel) {
+            this.layout = l;
+            this.ehH1 = h && nivel == 1;
+            this.ehH2 = h && nivel == 2;
+        }
     }
 
     private static String x(String s) {
@@ -136,12 +264,46 @@ final class Docs {
     private static byte[] docx(String titulo, String corpo) throws Exception {
         StringBuilder b = new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
             + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>");
-        b.append("<w:p><w:r><w:rPr><w:b/><w:sz w:val=\"36\"/></w:rPr><w:t xml:space=\"preserve\">").append(x(titulo)).append("</w:t></w:r></w:p>");
+        
+        // Título estilizado em Cyber Orange
+        b.append("<w:p><w:pPr><w:jc w:val=\"left\"/><w:spacing w:after=\"120\"/></w:pPr>")
+         .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:b/><w:color w:val=\"FF7700\"/><w:sz w:val=\"40\"/></w:rPr>")
+         .append("<w:t xml:space=\"preserve\">").append(x(titulo)).append("</w:t></w:r></w:p>");
+
+        // Subtítulo / Metadados
+        String dataStr = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(new Date());
+        b.append("<w:p><w:pPr><w:spacing w:after=\"280\"/></w:pPr>")
+         .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:color w:val=\"64748B\"/><w:sz w:val=\"20\"/></w:rPr>")
+         .append("<w:t xml:space=\"preserve\">F.R.I.D.A.Y. Intel Report  ·  ").append(dataStr).append("  ·  Projeto Prometheus</w:t></w:r></w:p>");
+
         for (String l : (corpo == null ? "" : corpo.replace("\r", "")).split("\n", -1)) {
-            boolean tit = l.startsWith("#");
-            String t = tit ? l.replaceFirst("^#+\\s*", "") : l.replaceFirst("^[-*]\\s+", "• ");
-            b.append("<w:p><w:r>").append(tit ? "<w:rPr><w:b/><w:sz w:val=\"28\"/></w:rPr>" : "")
-             .append("<w:t xml:space=\"preserve\">").append(x(t)).append("</w:t></w:r></w:p>");
+            l = l.trim();
+            if (l.isEmpty()) continue;
+            boolean h1 = l.startsWith("# ");
+            boolean h2 = l.startsWith("## ");
+            boolean item = l.startsWith("- ") || l.startsWith("• ") || l.startsWith("* ");
+
+            if (h1) {
+                String t = l.substring(2).trim();
+                b.append("<w:p><w:pPr><w:spacing w:before=\"240\" w:after=\"120\"/></w:pPr>")
+                 .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:b/><w:color w:val=\"0F172A\"/><w:sz w:val=\"28\"/></w:rPr>")
+                 .append("<w:t xml:space=\"preserve\">").append(x(t)).append("</w:t></w:r></w:p>");
+            } else if (h2) {
+                String t = l.substring(3).trim();
+                b.append("<w:p><w:pPr><w:spacing w:before=\"180\" w:after=\"80\"/></w:pPr>")
+                 .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:b/><w:color w:val=\"1E293B\"/><w:sz w:val=\"24\"/></w:rPr>")
+                 .append("<w:t xml:space=\"preserve\">").append(x(t)).append("</w:t></w:r></w:p>");
+            } else if (item) {
+                String t = l.replaceFirst("^[-*•]\\s+", "");
+                b.append("<w:p><w:pPr><w:ind w:left=\"360\"/><w:spacing w:after=\"80\"/></w:pPr>")
+                 .append("<w:r><w:rPr><w:color w:val=\"FF7700\"/><w:b/></w:rPr><w:t>• </w:t></w:r>")
+                 .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:color w:val=\"334155\"/><w:sz w:val=\"21\"/></w:rPr>")
+                 .append("<w:t xml:space=\"preserve\">").append(x(t)).append("</w:t></w:r></w:p>");
+            } else {
+                b.append("<w:p><w:pPr><w:spacing w:after=\"140\" w:line=\"276\" w:lineRule=\"auto\"/></w:pPr>")
+                 .append("<w:r><w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:color w:val=\"334155\"/><w:sz w:val=\"21\"/></w:rPr>")
+                 .append("<w:t xml:space=\"preserve\">").append(x(l)).append("</w:t></w:r></w:p>");
+            }
         }
         b.append("<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1134\" w:right=\"1134\" w:bottom=\"1134\" w:left=\"1134\"/></w:sectPr></w:body></w:document>");
         ByteArrayOutputStream bo = new ByteArrayOutputStream();

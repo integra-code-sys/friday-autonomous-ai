@@ -96,12 +96,18 @@ final class Zap {
 
     private static String preparar(Context c, Ferramentas ferr, String contato, String msg, String pkg) {
         if (contato == null || contato.trim().isEmpty()) return "Para quem eu mando a mensagem?";
+        contato = contato.trim();
+        String digContato = contato.replaceAll("[^0-9]", "");
+        if (Ferramentas.ehNumeroFalso(digContato) && contato.matches("^[0-9+() -]+$")) {
+            return "Para quem você quer enviar a mensagem? Me diga o nome do contato.";
+        }
         if (msg == null || msg.trim().isEmpty()) return "O que eu escrevo para " + contato + "?";
         if (Acesso.inst == null) return "falhou: preciso do Serviço de Acessibilidade da Friday ligado para mexer no WhatsApp";
         if (pkg == null) return "falhou: o WhatsApp não está instalado";
-        contato = contato.trim(); msg = msg.trim();
+        msg = msg.trim();
         pendente = null;
         String num = ferr.resolverContato(contato);
+        if (Ferramentas.ehNumeroFalso(num)) num = "";
         try {
             if (num.length() >= 8) {                                  // número conhecido: abre a conversa já com o texto
                 c.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=" + num + "&text=" + URLEncoder.encode(msg, "UTF-8")))
@@ -123,6 +129,9 @@ final class Zap {
                 AccessibilityNodeInfo r = raiz(pkg);
                 List<AccessibilityNodeInfo> nomes = new ArrayList<>();
                 coletarTextos(r, pkg + ":id/conversations_row_contact_name", nomes);
+                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/contact_name", nomes);
+                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/conversations_row_title", nomes);
+                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/title", nomes);
                 String alvo = Agenda.norm(contato);
                 Map<String, AccessibilityNodeInfo> achados = new LinkedHashMap<>();
                 AccessibilityNodeInfo exato = null;

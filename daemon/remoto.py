@@ -71,7 +71,7 @@ def _ok(req):
 async def _auth(req, handler):
     if req.method == "OPTIONS":
         r = web.Response()
-    elif req.path in ("/", "/index.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config") or req.path.startswith(("/api/config/", "/telas/")):
+    elif req.path in ("/", "/index.html", "/stark", "/stark_hud.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config") or req.path.startswith(("/api/config/", "/telas/", "/mark85/")):
         r = await handler(req)
     elif req.path == "/api/local_token" and req.remote in ("127.0.0.1", "::1"):
         r = await handler(req)
@@ -683,10 +683,29 @@ WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 
 async def web_index(req):
     """Serve a interface principal da F.R.I.D.A.Y. no navegador (Windows/Linux)."""
-    p = os.path.join(WEB_DIR, "index.html")
+    p = os.path.join(WEB_DIR, "stark_hud.html")
+    if not os.path.isfile(p):
+        p = os.path.join(WEB_DIR, "index.html")
     if os.path.isfile(p):
         return web.FileResponse(p)
     return web.Response(text="<h1>F.R.I.D.A.Y. Backend Online</h1><p><a href='/config'>Configurações</a></p>", content_type="text/html")
+
+
+async def web_stark(req):
+    """Serve o Centro de Comando Stark holográfico Mark 85."""
+    p = os.path.join(WEB_DIR, "stark_hud.html")
+    if os.path.isfile(p):
+        return web.FileResponse(p)
+    return await web_index(req)
+
+
+async def web_mark85(req):
+    """Serve os 144 quadros da armadura Mark 85 pré-renderizados."""
+    arquivo = os.path.basename(req.match_info.get("arquivo", ""))
+    p = os.path.join(WEB_DIR, "mark85", arquivo)
+    if os.path.isfile(p):
+        return web.FileResponse(p, headers={"Cache-Control": "public, max-age=86400"})
+    return web.Response(text="Quadro não encontrado", status=404)
 
 
 async def web_static(req):
@@ -712,6 +731,8 @@ def criar_app(ctx):
     import config_center
     app = web.Application(middlewares=[_auth], client_max_size=200 << 20)
     app.add_routes([web.get("/", web_index), web.get("/index.html", web_index),
+                    web.get("/stark", web_stark), web.get("/stark_hud.html", web_stark),
+                    web.get("/mark85/{arquivo:.*}", web_mark85),
                     web.get("/api/local_token", local_token),
                     web.get("/{arquivo:(?:app\\.js|novnc\\.js|voz_dono\\.json|favicon\\.ico)}", web_static),
                     web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),

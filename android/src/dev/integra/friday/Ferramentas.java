@@ -111,7 +111,10 @@ final class Ferramentas {
                     return iniciar(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + num)), "discador aberto" + (num.isEmpty() ? "" : " para " + num));
                 }
                 case "whatsapp": {
-                    String alvo = a.optString("contato", a.optString("para", a.optString("numero", "")));
+                    String cto = a.optString("contato", a.optString("para", ""));
+                    String num = a.optString("numero", "");
+                    if (ehNumeroFalso(num.replaceAll("[^0-9]", ""))) num = "";
+                    String alvo = !cto.trim().isEmpty() ? cto : (!num.trim().isEmpty() ? num : "");
                     String txt = a.optString("texto", a.optString("mensagem", ""));
                     return Zap.preparar(c, this, alvo, txt);                 // abre a conversa e escreve; envia só com o "sim" do dono
                 }
@@ -392,21 +395,40 @@ final class Ferramentas {
         return pesquisarLinks(q);
     }
 
+    static boolean ehNumeroFalso(String dig) {
+        if (dig == null || dig.length() < 8) return false;
+        // Padrões de teste e placeholders comuns de modelos de IA
+        if (dig.startsWith("12345") || dig.equals("12345678") || dig.equals("123456789") || dig.equals("1234567890") || dig.equals("0123456789")) return true;
+        if (dig.equals("55123456789") || dig.equals("551234567890") || dig.equals("550123456789")) return true;
+        if (dig.matches("^(\\d)\\1{7,}$")) return true; // números repetidos: 00000000, 11111111, 99999999
+        return false;
+    }
+
     String resolverContato(String alvo) {
         if (alvo == null) return "";
-        String dig = alvo.replaceAll("[^0-9]", "");
-        if (dig.length() >= 8) return dig;
-        String n = Agenda.norm(alvo).trim();
-        if (n.isEmpty()) return "";
+        alvo = alvo.trim();
+        // Remove artigos e preposições que o usuário fala ("pro Carlos", "para a Maria", "o Carlos")
+        String limpo = alvo.replaceFirst("(?iu)^(o|a|os|as|meu|minha|meus|minhas|amig[oa]|contato|pro|pra|para\\s+[oa]?|ao|à)\\s+", "").trim();
+        String dig = limpo.replaceAll("[^0-9]", "");
+
+        // Se o alvo for EXCLUSIVAMENTE um número válido (sem letras de nome) e não for número falso:
+        if (limpo.matches("^[0-9+() -]+$") && dig.length() >= 8 && !ehNumeroFalso(dig)) {
+            return dig;
+        }
+
+        String n = Agenda.norm(limpo.isEmpty() ? alvo : limpo).trim();
+        if (n.isEmpty() || ehNumeroFalso(n.replaceAll("[^0-9]", ""))) return "";
+
         // 1) Procura na memória local da Friday
         for (Map.Entry<String, ?> e : prefs().getAll().entrySet()) {
             if (!e.getKey().startsWith("m:")) continue;
             String k = Agenda.norm(e.getKey().substring(2)), v = String.valueOf(e.getValue());
-            if (k.contains(n) || Agenda.norm(v).contains(n)) {
+            if (k.contains(n) || n.contains(k) || Agenda.norm(v).contains(n)) {
                 String d = v.replaceAll("[^0-9]", "");
-                if (d.length() >= 8) return d;
+                if (d.length() >= 8 && !ehNumeroFalso(d)) return d;
             }
         }
+
         // 2) Procura nos contatos do Android se tiver permissão
         try {
             if (c.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -416,10 +438,12 @@ final class Ferramentas {
                                      android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER},
                         null, null, null)) {
                     while (cur != null && cur.moveToNext()) {
-                        String nome = Agenda.norm(cur.getString(0));
-                        if (nome.contains(n)) {
+                        String nome = Agenda.norm(cur.getString(0) == null ? "" : cur.getString(0));
+                        if (nome.contains(n) || (n.length() >= 3 && n.contains(nome))) {
                             String d = (cur.getString(1) == null ? "" : cur.getString(1)).replaceAll("[^0-9]", "");
-                            if (d.length() >= 8) return d.startsWith("55") || d.length() > 11 ? d : "55" + d;
+                            if (d.length() >= 8 && !ehNumeroFalso(d)) {
+                                return d.startsWith("55") || d.length() > 11 ? d : "55" + d;
+                            }
                         }
                     }
                 }
