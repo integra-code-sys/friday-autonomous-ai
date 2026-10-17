@@ -3,7 +3,7 @@
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => Array.from(document.querySelectorAll(q));
 const ls = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-const cfg = { host: ls.get("host", "100.110.230.55:8790"), tok: ls.get("tok", "") };
+const cfg = { host: ls.get("host", ""), tok: ls.get("tok", "") };
 const http = () => "http://" + cfg.host;
 const st = { online: false, on: false, state: "idle", mouth: 0, pulse: 0, ws: null, voice: null, camera: null, modes: {}, stats: null,
              micOn: false, camOn: false, anexos: [], aba: "conversa", devAlvo: "auto", agendaDia: 0 };
@@ -269,8 +269,6 @@ window.fridayLocal = (tipo, t) => {
     const e = msg("t", "[SEGURANÇA] " + t); const b = document.createElement("button");
     b.textContent = "FUI EU"; b.className = "fuiEu";
     b.onclick = () => { try { Nativo.fuiEu(); } catch {} b.disabled = true; b.textContent = "CONFIRMADO"; carregarVozStatus(); };
-    e.appendChild(document.createTextNode(" ")); e.appendChild(b);
-  }
     e.appendChild(document.createTextNode(" ")); e.appendChild(b);
   }
   else if (tipo === "dev") {

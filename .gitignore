@@ -30,3 +30,7 @@ media/*.mp4
 models/*.onnx
 models/*.gguf
 
+
+# Perfil de voz do dono: cada cliente cadastra o seu (botão MINHA VOZ). Nunca publicar biometria.
+android/assets/voz_dono.json
+memory/aprende/

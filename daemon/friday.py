@@ -691,10 +691,14 @@ def _ampliar(w):
 
 
 def fechar_paineis():
-    """painel do Noctalia (launcher/central) aberto prende o teclado (exclusive) e impede o foco das janelas: fecha com Esc."""
+    """painel do Noctalia (launcher/central) ou conversa aberta prende o teclado (exclusive) e impede o foco das janelas."""
     try:
         for _ in range(3):
             ly = subprocess.run(["niri", "msg", "layers"], capture_output=True, text=True, timeout=3).stdout
+            if re.search(r'Namespace: "friday-conversa"\s+Keyboard interactivity: exclusive', ly):
+                from prom_ops import _daemon_send
+                _daemon_send({"type": "nano", "op": "agente", "on": True})
+                time.sleep(0.15)
             if not re.search(r'Namespace: "noctalia-panel"\s+Keyboard interactivity: exclusive', ly):
                 return
             _pc("key", "esc"); time.sleep(0.5)
