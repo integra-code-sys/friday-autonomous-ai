@@ -137,12 +137,14 @@ final class Cerebro {
         return true;
     }
 
-    private static final String NOMES = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria|pc";
+    private static final String NOMES_LOCAL = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria";
+    private static final String NOMES_PC = NOMES_LOCAL + "|pc";
     private String ultimaBusca = "";
 
-    private static String gramatica() {
+    private static String gramatica(boolean permitePc) {
         StringBuilder alt = new StringBuilder();
-        for (String n : NOMES.split("\\|")) alt.append(alt.length() == 0 ? "" : " | ").append("\"\\\"").append(n).append("\\\"\"");
+        String lista = permitePc ? NOMES_PC : NOMES_LOCAL;
+        for (String n : lista.split("\\|")) alt.append(alt.length() == 0 ? "" : " | ").append("\"\\\"").append(n).append("\\\"\"");
         return "root ::= \"{\" ws \"\\\"acao\\\":\" ws nome ws \",\" ws \"\\\"args\\\":\" ws object ws \"}\"\n"
             + "nome ::= " + alt + "\n"
             + "value ::= object | array | string | number | (\"true\" | \"false\" | \"null\") ws\n"
@@ -153,17 +155,23 @@ final class Cerebro {
             + "ws ::= [ \\t\\n]{0,8}\n";
     }
 
-    private String sistema() {
+    private static String gramatica() { return gramatica(false); }
+
+    private String sistema() { return sistema(false); }
+
+    private String sistema(boolean permitePc) {
         return "<|im_start|>system\n"
             + (modelo().startsWith("smollm3") ? "/no_think\n" : "")
             + "Você é a F.R.I.D.A.Y. (Sexta-Feira), assistente pessoal do Iann, rodando LOCALMENTE no celular Android dele. "
             + "Fale português do Brasil, curto, natural e simpático. Você controla o celular com ferramentas.\n"
             + "Responda SEMPRE só com JSON: {\"acao\": \"ferramenta\", \"args\": {...}}. Um passo por vez; depois do resultado decida o próximo. "
             + "Para encerrar use {\"acao\": \"responder\", \"args\": {\"texto\": \"...\"}} dizendo o que fez de verdade. NUNCA escreva placeholders como [links].\n"
+            + (permitePc
+                ? "O dono pediu explicitamente para rodar no PC: use 'pc' para enviar o comando ao computador.\n"
+                : "REGRA CRÍTICA DE EXECUÇÃO: Você está em modelo 100% LOCAL no celular. Execute tudo no aparelho usando as ferramentas do celular. NUNCA delegue nada ao PC a menos que o dono fale expressamente para fazer no computador.\n")
             + "Regras: conversa simples -> responder direto. Pesquisa no navegador/Google/eBay/Amazon -> pesquisar. Navegar num app: abrir_app, depois ler_tela, tocar/digitar, conferir com ler_tela. "
             + "Não invente resultado: se uma ferramenta falhar, diga. Documento: escreva o conteúdo completo e bem organizado em criar_documento. "
-            + "Mensagem para alguém: whatsapp (o dono confirma). Coisas do COMPUTADOR (abrir programa no PC, arquivos do PC, tarefas pesadas) -> pc, "
-            + "só se o PC estiver ligado.\n"
+            + "Mensagem para alguém: whatsapp (o dono confirma).\n"
             + "Nunca mexa nas Configurações de acessibilidade nem em você mesma. A data e a hora estão entre [ ] no pedido.\n"
             + "Responda SEMPRE ao pedido ATUAL: nunca copie uma resposta anterior. Perguntas sobre fatos, pessoas, preços ou notícias -> pesquisar_links e responda "
             + "com a informação encontrada (não só 'pesquisei'). Nunca diga que enviou/fez algo que a ferramenta não confirmou.\n"
@@ -177,7 +185,7 @@ final class Cerebro {
             + "pedido: pesquisa receita de bolo -> {\"acao\": \"pesquisar\", \"args\": {\"consulta\": \"receita de bolo\", \"onde\": \"google\"}}\n"
             + "pedido: procure no ebay Wella shampoo -> {\"acao\": \"pesquisar\", \"args\": {\"consulta\": \"Wella shampoo\", \"onde\": \"ebay\"}}\n"
             + "pedido: quanto é 15 x 23? -> {\"acao\": \"calcular\", \"args\": {\"expressao\": \"15*23\"}}\n"
-            + "pedido: pede pro PC abrir o Chromium -> {\"acao\": \"pc\", \"args\": {\"pedido\": \"abrir o Chromium\"}}\n"
+            + (permitePc ? "pedido: pede pro PC abrir o Chromium -> {\"acao\": \"pc\", \"args\": {\"pedido\": \"abrir o Chromium\"}}\n" : "")
             + "pedido: toca Yellow no YouTube -> {\"acao\": \"pesquisar\", \"args\": {\"consulta\": \"Yellow Coldplay\", \"onde\": \"youtube\"}}\n"
             + "depois de uma ferramenta dar certo -> {\"acao\": \"responder\", \"args\": {\"texto\": \"Pronto, abri o Instagram.\"}}\n"
             + "O que você sabe do Iann:\n" + ferr.fatos(30)
@@ -185,9 +193,23 @@ final class Cerebro {
     }
 
 
-    // "pede/manda/pergunta pro PC ..." = sem dúvida é para a Friday do PC: vai direto (o modelo pequeno tocava no atalho "controle pelo PC")
-    private static final java.util.regex.Pattern PRO_PC = java.util.regex.Pattern.compile(
-        "(?iu)^\\s*(?:sexta[- ]?feira,?\\s*)?(?:pe[çc]a|pede|manda|fala|diz|pergunta|avisa)\\s+(?:pro|pra|para\\s+o|ao|à|a)\\s+(?:pc|computador|friday\\s+do\\s+pc)\\s*(?:que\\s+|pra\\s+|para\\s+)?(.+)$");
+    // Verifica se o usuário pediu explicitamente para executar no PC
+    private static final java.util.regex.Pattern PEDIU_PC_EXPLICITO = java.util.regex.Pattern.compile(
+        "(?iu)^\\s*(?:sexta[- ]?feira,?\\s*)?(?:pe[çc]a|pede|manda|fala|diz|pergunta|avisa|roda|rodar|faz|fazer|executa|executar)\\s+(?:pro|pra|para\\s+o|ao|à|a|no|na)\\s+(?:pc|computador|friday\\s+do\\s+pc)\\s*(?:que\\s+|pra\\s+|para\\s+)?(.+)$");
+
+    static boolean pediuParaOPc(String pedido) {
+        if (pedido == null) return false;
+        String p = pedido.toLowerCase(Locale.ROOT);
+        return PEDIU_PC_EXPLICITO.matcher(pedido).matches()
+            || p.matches("(?s).*\\b(no pc|pro pc|pra pc|no computador|pro computador|na friday do pc|roda no pc|rodar no pc|faz no pc|fazer no pc|executa no pc|executar no pc)\\b.*");
+    }
+
+    static String extrairPedidoPc(String pedido) {
+        if (pedido == null) return "";
+        java.util.regex.Matcher m = PEDIU_PC_EXPLICITO.matcher(pedido);
+        if (m.matches()) return m.group(1).trim();
+        return pedido.replaceAll("(?iu)\\b(?:roda|rodar|faz|fazer|executa|executar)?\\s*(?:no|pro|pra|para\\s+o|ao|na\\s+friday\\s+do)\\s*(?:pc|computador|friday\\s+do\\s+pc)\\b", "").trim();
+    }
 
     private static final java.util.regex.Pattern PRO_CLAUDE = java.util.regex.Pattern.compile(
         "(?iu)^\\s*(?:sexta[- ]?feira,?\\s*)?(?:pe[çc]a|pede|manda|fala|diz)\\s+(?:pro|pra|para\\s+o|ao)\\s+claude\\s*(?:que\\s+|pra\\s+|para\\s+)?(.+)$");
@@ -439,12 +461,14 @@ final class Cerebro {
             avisar("fim", fala);
             return fala;
         }
-        java.util.regex.Matcher mpc = PRO_PC.matcher(pedido);
-        if (mpc.matches() && !"pc".equals(origem)) {
-            avisar("passo", "pc " + mpc.group(1));
+        final boolean querPc = !"pc".equals(origem) && pediuParaOPc(pedido);
+        if (querPc) {
+            String comandoPc = extrairPedidoPc(pedido);
+            if (comandoPc.isEmpty()) comandoPc = pedido.trim();
+            avisar("passo", "pc " + comandoPc);
             String r;
-            try { r = ferr.executar("pc", new JSONObject().put("pedido", mpc.group(1))); } catch (Exception e) { r = "falhou: " + e.getMessage(); }
-            String fala = r.startsWith("a Friday do PC recebeu") ? "Mandei para a Friday do PC: " + mpc.group(1) + "." : r;
+            try { r = ferr.executar("pc", new JSONObject().put("pedido", comandoPc)); } catch (Exception e) { r = "falhou: " + e.getMessage(); }
+            String fala = r.startsWith("a Friday do PC recebeu") ? "Mandei para a Friday do PC: " + comandoPc + "." : r;
             avisar("fim", fala);
             return fala;
         }
@@ -468,13 +492,14 @@ final class Cerebro {
                 }
                 boolean pc = Link.pcOnline(c);
                 String agora = new SimpleDateFormat("EEEE, dd/MM/yyyy HH:mm", new Locale("pt", "BR")).format(new Date());
-                StringBuilder p = new StringBuilder(sistema());
+                StringBuilder p = new StringBuilder(sistema(querPc));
                 for (String[] h : historico) {
                     p.append("<|im_start|>user\n").append(h[0]).append("<|im_end|>\n").append(assist())
                      .append(new JSONObject().put("acao", "responder").put("args", new JSONObject().put("texto", h[1]))).append("<|im_end|>\n");
                 }
                 String aprendi = Aprende.contexto(c, pedido);          // o que já deu certo / errado em pedidos parecidos
-                p.append("<|im_start|>user\n[").append(agora).append(" · PC ").append(pc ? "LIGADO" : "desligado")
+                p.append("<|im_start|>user\n[").append(agora)
+                 .append(querPc ? (pc ? " · PC LIGADO" : " · PC offline") : " · CÉREBRO LOCAL NO CELULAR")
                  .append(origem.equals("pc") ? " · pedido vindo da Friday do PC" : "").append("]\n")
                  .append(aprendi.isEmpty() ? "" : "[aprendizado]\n" + aprendi).append(pedido.trim()).append("<|im_end|>\n");
                 String fala = null;
@@ -487,7 +512,7 @@ final class Cerebro {
                     String out = Llm.gerar(p.toString(), 900, 0.3f, "", null).trim();
                     JSONObject j = json(out);
                     if (j == null) {
-                        out = Llm.gerar(p.toString(), 900, 0.2f, gramatica(), null).trim();
+                        out = Llm.gerar(p.toString(), 900, 0.2f, gramatica(querPc), null).trim();
                         j = json(out);
                     }
                     if (j == null) { fala = out.isEmpty() ? "Me perdi no raciocínio. Pode repetir?" : out; break; }

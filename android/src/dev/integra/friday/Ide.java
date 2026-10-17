@@ -136,13 +136,14 @@ final class Ide {
         synchronized (trava) { linhas.clear(); }
         if (Acesso.inst != null) Flutuante.ide(Acesso.inst, true);
         final boolean temTermux = Dev.termuxInstalado(c) && Dev.permitido(c);
+        final boolean pediuPc = Cerebro.pediuParaOPc(obj);
         laco = new Thread(() -> {
-            if (temTermux) executar(ctx);
-            else if (Link.pcOnline(ctx)) executarNoPc(ctx);
+            if (pediuPc && Link.pcOnline(ctx)) executarNoPc(ctx);
+            else if (temTermux) executar(ctx);
             else executarLocal(ctx);
         }, "friday-ide");
         laco.start();
-        String modo = temTermux ? "Termux Claude" : Link.pcOnline(c) ? "IDE do PC" : "Cérebro Local";
+        String modo = (pediuPc && Link.pcOnline(c)) ? "IDE do PC" : temTermux ? "Termux Claude" : "Cérebro Local";
         return "comecei a trabalhar no MODO DEV (" + modo + "): " + objetivo;
     }
 

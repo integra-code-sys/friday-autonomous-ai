@@ -377,7 +377,9 @@ function iniciarGravacao() {
     if (!rec._enviar || !chunks.length) return;
     ouvi("transcrevendo…");
     try {
-      const r = await (await api("/api/audio", { method: "POST", body: new Blob(chunks, { type: "audio/webm" }) })).json();
+      const modoLocal = cerebro() === "local";
+      const endpoint = modoLocal ? "/api/audio?so_transcrever=1" : "/api/audio";
+      const r = await (await api(endpoint, { method: "POST", body: new Blob(chunks, { type: "audio/webm" }) })).json();
       if (r.recusada) {
         ouvi("");
         toast("[BIO] " + (r.msg || "Apenas a voz do dono é autorizada"), 4000);
@@ -389,7 +391,16 @@ function iniciarGravacao() {
         return;
       }
       ouvi(r.texto || "");
-      if (!r.texto) toast("Não entendi o áudio");
+      if (r.texto) {
+        if (modoLocal) {
+          msg("u", r.texto);
+          st.state = "thinking";
+          try { Nativo.local(r.texto); } catch (e) { toast("Erro no cérebro local: " + e.message); }
+          vibrar();
+        }
+      } else {
+        toast("Não entendi o áudio");
+      }
     } catch { ouvi(""); }
   };
   rec.start();

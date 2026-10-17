@@ -140,9 +140,13 @@ final class Ferramentas {
                     Sincronizador.notificarFatoLocal(c, ch, vl);
                     return "guardado: " + ch;
                 }
-                case "memoria": return memoria(a.optString("busca"));
-                case "pc": return Link.pedirAoPc(c, a.optString("pedido"));
-                case "dev": return Ide.iniciar(c, a.optString("pedido"), a.optString("pasta", null));
+                case "pc": {
+                    String p = a.optString("pedido");
+                    if (!Cerebro.pediuParaOPc(p)) {
+                        return "Aviso: Modelo local ativo. O usuário não pediu para rodar no PC; execute no celular.";
+                    }
+                    return Link.pedirAoPc(c, p);
+                }
                 case "terminal": return Dev.rodar(c, a.optString("comando"), 120);
                 default: return "ferramenta desconhecida: " + acao;
             }

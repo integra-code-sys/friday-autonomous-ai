@@ -24,7 +24,7 @@ final class Link {
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("ponte", Context.MODE_PRIVATE); }
     static String host(Context c) {
         String h = hostAtivo;
-        return h != null && !h.isEmpty() ? h : prefs(c).getString("host", "");
+        return h != null && !h.isEmpty() ? h : prefs(c).getString("host", "100.110.230.55:8790");
     }
     static String token(Context c) { return prefs(c).getString("tok", ""); }
 
@@ -32,8 +32,8 @@ final class Link {
     static boolean pcOnline(Context c) {
         if (System.currentTimeMillis() - ultimoTeste < 15000) return online;
         ultimoTeste = System.currentTimeMillis();
-        String salvo = prefs(c).getString("host", "");
-        String[] candidatos = new String[]{salvo};
+        String salvo = prefs(c).getString("host", "100.110.230.55:8790");
+        String[] candidatos = new String[]{salvo, "192.168.15.11:8790", "192.168.15.8:8790", "100.110.230.55:8790"};
         for (String cand : candidatos) {
             if (cand == null || cand.isEmpty()) continue;
             try {

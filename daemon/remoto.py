@@ -194,6 +194,7 @@ async def audio(req):
     dados = await req.read()
     if len(dados) < 2000:
         return web.json_response({"texto": ""})
+    so_transcrever = req.query.get("so_transcrever") == "1" or req.query.get("executar") == "0"
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
         f.write(dados)
     try:
@@ -203,10 +204,10 @@ async def audio(req):
     if isinstance(txt, str) and txt.startswith("__RECUSADA__:"):
         sc = txt.split(":", 1)[1]
         return web.json_response({"texto": "", "recusada": True, "score": sc, "msg": f"Voz não reconhecida como dono ({sc})"})
-    if txt:
+    if txt and not so_transcrever:
         await publicar({"type": "remote_heard", "text": txt})
         asyncio.create_task(_ctx["fala"](txt))
-    return web.json_response({"texto": txt})
+    return web.json_response({"texto": txt or ""})
 
 
 async def foto(req):
@@ -415,7 +416,9 @@ async def pedido(req):
     t = str(d.get("texto") or "").strip()[:2000]
     if not t:
         return web.json_response({"ok": False, "erro": "pedido vazio"}, status=400)
-    asyncio.create_task(_ctx["texto"]("[pedido da Friday do celular] " + t, []))
+    import re
+    t = re.sub(r"^\[pedido da Friday do celular\]\s*", "", t).strip()
+    asyncio.create_task(_ctx["texto"](t, []))
     return web.json_response({"ok": True})
 
 
@@ -450,6 +453,37 @@ async def stt(req):
         except Exception as e:
             return web.json_response({"texto": "", "erro": repr(e)[:120]}, status=500)
     return web.json_response({"texto": txt or "", "ms": int((time.time() - t0) * 1000)})
+
+
+async def llm(req):
+    """POST {"prompt": texto ChatML cru, "max": n, "temp": t, "json": bool} -> o cérebro do CELULAR pensa com o modelo do PC
+    (GPU, ~50 tok/s, prefixo em cache) em vez do modelo pequeno do aparelho. Mesmos num_ctx/num_gpu do daemon: não recarrega."""
+    try:
+        d = await req.json()
+    except Exception:
+        return web.json_response({"ok": False, "erro": "JSON inválido"}, status=400)
+    p = str(d.get("prompt") or "")
+    if not p or len(p) > 60000:
+        return web.json_response({"ok": False, "erro": "prompt vazio ou grande demais"}, status=400)
+    import friday as F
+    body = {"model": F.MODEL, "prompt": p, "raw": True, "stream": False,      # sem keep_alive: vale o do serviço (sem recarga)
+            "options": {"temperature": float(d.get("temp", 0.3)), "num_predict": max(1, min(1200, int(d.get("max", 400)))),
+                        "num_ctx": F.NUM_CTX, "num_gpu": F.NUM_GPU, "stop": ["<|im_end|>", "<|im_start|>"]}}
+    if d.get("json"):
+        body["format"] = "json"
+
+    def _chamar():
+        import urllib.request
+        rq = urllib.request.Request(F.OLLAMA + "/api/generate", json.dumps(body).encode(), {"Content-Type": "application/json"})
+        with urllib.request.urlopen(rq, timeout=120) as r:
+            return json.loads(r.read())
+    t0 = time.time()
+    try:
+        r = await asyncio.to_thread(_chamar)
+    except Exception as e:
+        return web.json_response({"ok": False, "erro": repr(e)[:160]}, status=502)
+    return web.json_response({"ok": True, "texto": r.get("response", ""), "ms": int((time.time() - t0) * 1000),
+                              "prompt_tok": r.get("prompt_eval_count"), "modelo": F.MODEL})
 
 
 async def aprimorar(req):
@@ -657,6 +691,7 @@ def criar_app(ctx):
                     web.get("/api/cam/{nome}", cam), web.get("/api/painel", painel),
                     web.get("/api/agenda", agenda_get), web.post("/api/agenda/sync", agenda_sync), web.post("/api/agenda/add", agenda_add), web.post("/api/stt", stt),
                     web.post("/api/aprimorar", aprimorar),
+                    web.post("/api/llm", llm),
                     web.get("/api/dev", dev_get), web.post("/api/ide", ide_post),
                     web.get("/api/mesh/info", sync_mesh.handle_mesh_info),
                     web.get("/api/mesh/peers", sync_mesh.handle_mesh_peers),
