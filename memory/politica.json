@@ -1,0 +1,12 @@
+{
+  "confirmar": [
+    "email.send",
+    "wa.send",
+    "sms.send",
+    "file.delete",
+    "pkg.install",
+    "remote.connect",
+    "shell.write"
+  ],
+  "bloquear": []
+}

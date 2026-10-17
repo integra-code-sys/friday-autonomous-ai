@@ -1,0 +1,328 @@
+#version 440
+// Passo 1 (robô HUMANOID articulado): ray marching em volumes de distância assados do modelo.
+// Saída: R=sombra, G=material/4 (1=olhos/LED), B=profundidade, A=cobertura
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+layout(std140, binding = 0) uniform buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+    float time;
+    float aspect;
+    float mouth;
+    float smile;
+    float browL;
+    float browR;
+    float blink;
+    float cheek;
+    float lookX;
+    float lookY;
+    float brist;
+    float yaw;
+    float pitch;
+    float roll;
+    float lipW;
+    float armLs;   // braço esquerdo: elevação à frente
+    float armLa;   // abdução (para fora)
+    float armLe;   // flexão do cotovelo
+    float armRs;
+    float armRa;
+    float armRe;
+    float lean;    // tronco inclina à frente
+    float sway;    // tronco inclina de lado
+    float twist;   // tronco gira
+};
+layout(binding = 1) uniform sampler2D tHead;
+layout(binding = 2) uniform sampler2D tNeck;
+layout(binding = 3) uniform sampler2D tBust;
+layout(binding = 4) uniform sampler2D tWeave;
+layout(binding = 5) uniform sampler2D tPlates;
+layout(binding = 6) uniform sampler2D tArmLu;
+layout(binding = 7) uniform sampler2D tArmLf;
+layout(binding = 8) uniform sampler2D tArmRu;
+layout(binding = 9) uniform sampler2D tArmRf;
+
+const vec3 H_O = vec3(-0.93000, 14.48000, -0.62000);
+const vec3 H_S = vec3(1.86000, 2.46000, 2.37000);
+const vec3 H_D = vec3(149.00000, 197.00000, 190.00000);
+const vec2 H_G = vec2(16.0, 12.0);
+const vec2 H_A = vec2(2384.0, 2364.0);
+const float H_DM = 0.22;
+const vec3 N_O = vec3(-0.85000, 13.85000, -0.40000);
+const vec3 N_S = vec3(1.70000, 1.60000, 1.45000);
+const vec3 N_D = vec3(136.00000, 128.00000, 117.00000);
+const vec2 N_G = vec2(11.0, 11.0);
+const vec2 N_A = vec2(1496.0, 1408.0);
+const float N_DM = 0.22;
+const vec3 B_O = vec3(-2.85000, 9.40000, -1.05000);
+const vec3 B_S = vec3(5.70000, 5.25000, 2.45000);
+const vec3 B_D = vec3(190.00000, 175.00000, 82.00000);
+const vec2 B_G = vec2(9.0, 10.0);
+const vec2 B_A = vec2(1710.0, 1750.0);
+const float B_DM = 0.45;
+const vec3 LU_O = vec3(-4.05000, 11.00000, -0.75000);
+const vec3 LU_S = vec3(3.00000, 2.95000, 1.70000);
+const vec3 LU_D = vec3(137.00000, 135.00000, 78.00000);
+const vec2 LU_G = vec2(9.0, 9.0);
+const vec2 LU_A = vec2(1233.0, 1215.0);
+const float LU_DM = 0.3;
+const vec3 LF_O = vec3(-5.85000, 8.85000, -0.30000);
+const vec3 LF_S = vec3(3.00000, 3.25000, 4.20000);
+const vec3 LF_D = vec3(116.00000, 125.00000, 162.00000);
+const vec2 LF_G = vec2(14.0, 12.0);
+const vec2 LF_A = vec2(1624.0, 1500.0);
+const float LF_DM = 0.3;
+const vec3 RU_O = vec3(1.05000, 11.00000, -0.75000);
+const vec3 RU_S = vec3(3.00000, 2.95000, 1.70000);
+const vec3 RU_D = vec3(137.00000, 135.00000, 78.00000);
+const vec2 RU_G = vec2(9.0, 9.0);
+const vec2 RU_A = vec2(1233.0, 1215.0);
+const float RU_DM = 0.3;
+const vec3 RF_O = vec3(2.85000, 8.85000, -0.30000);
+const vec3 RF_S = vec3(3.00000, 3.25000, 4.20000);
+const vec3 RF_D = vec3(116.00000, 125.00000, 162.00000);
+const vec2 RF_G = vec2(14.0, 12.0);
+const vec2 RF_A = vec2(1624.0, 1500.0);
+const float RF_DM = 0.3;
+
+const vec3 PIVH = vec3(0.0, 14.80, 0.35);     // articulação cabeça-pescoço
+const vec3 PIVT = vec3(0.0, 9.60, 0.15);      // quadril: pivô do tronco
+const vec3 SHL = vec3(-1.91, 13.60, 0.05);    // ombros
+const vec3 SHR = vec3( 1.91, 13.60, 0.05);
+const vec3 ELL = vec3(-3.39, 11.49, -0.05);   // cotovelos
+const vec3 ELR = vec3( 3.39, 11.49, -0.05);
+const float VIEW_H = 6.4;                     // altura da tela em unidades do modelo
+const float VIEW_CY = 14.2;                   // y do modelo no centro da tela
+const vec3 EYE_C = vec3(0.30, 15.805, 1.30);
+
+vec3 rX(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(p.x, c * p.y - s * p.z, s * p.y + c * p.z); }
+vec3 rY(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z); }
+vec3 rZ(vec3 p, float a) { float c = cos(a), s = sin(a); return vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z); }
+
+vec3 torsoInv(vec3 w) { return PIVT + rZ(rX(rY(w - PIVT, -twist), -lean), -sway); }
+vec3 torsoFwdN(vec3 n) { return rY(rX(rZ(n, sway), lean), twist); }
+
+vec4 fetchVol(sampler2D t, vec3 pl, vec3 o, vec3 sz, vec3 dims, vec2 grid, vec2 atlas) {
+    vec3 g = (pl - o) / sz * dims;
+    float z = clamp(g.z - 0.5, 0.0, dims.z - 1.0);
+    float z0 = floor(z), f = z - z0, z1 = min(z0 + 1.0, dims.z - 1.0);
+    vec2 xy = clamp(g.xy, vec2(0.5), dims.xy - 0.5);
+    vec2 t0 = vec2(mod(z0, grid.x), floor(z0 / grid.x));
+    vec2 t1 = vec2(mod(z1, grid.x), floor(z1 / grid.x));
+    vec4 a = texture(t, (t0 * dims.xy + xy) / atlas);
+    vec4 b = texture(t, (t1 * dims.xy + xy) / atlas);
+    return mix(a, b, f);
+}
+vec3 decN(vec4 v) { vec2 xy = v.rg * 2.0 - 1.0; return vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy)))); }
+float boxDist(vec3 p, vec3 o, vec3 sz) {
+    vec3 q = abs(p - (o + sz * 0.5)) - sz * 0.5;
+    return length(max(q, 0.0));
+}
+
+// ---- peças (todas recebem o ponto já em coordenadas do tronco) ----
+float dHead(vec3 w, out vec3 nl, out vec3 lp) {
+    vec3 l = rY(rX(rZ(w - PIVH, roll * 1.1), pitch * 0.40), -yaw * 0.60) + PIVH;
+    lp = l;
+    float bd = boxDist(l, H_O, H_S);
+    nl = vec3(0.0, 0.0, 1.0);
+    if (bd > 0.0) return bd + 0.02;
+    vec4 v = fetchVol(tHead, l, H_O, H_S, H_D, H_G, H_A);
+    nl = decN(v);
+    return v.b * H_DM - 0.0105;
+}
+float dNeck(vec3 w, out vec3 nl, out vec3 lp) {
+    vec3 l = rY(rX(rZ(w - PIVH, roll * 0.55), pitch * 0.22), -yaw * 0.30) + PIVH;
+    lp = l;
+    float bd = boxDist(l, N_O, N_S);
+    nl = vec3(0.0, 0.0, 1.0);
+    if (bd > 0.0) return bd + 0.02;
+    vec4 v = fetchVol(tNeck, l, N_O, N_S, N_D, N_G, N_A);
+    nl = decN(v);
+    return v.b * N_DM - 0.0105;
+}
+float dBust(vec3 w, out vec3 nl, out vec3 lp) {
+    lp = w;
+    float bd = boxDist(w, B_O, B_S);
+    nl = vec3(0.0, 0.0, 1.0);
+    if (bd > 0.0) return bd + 0.03;
+    vec4 v = fetchVol(tBust, w, B_O, B_S, B_D, B_G, B_A);
+    nl = decN(v);
+    return v.b * B_DM - 0.026;
+}
+// cadeia do braço: ombro (swing/abd) -> cotovelo (flex)
+vec3 armUpperInv(vec3 w, vec3 S, float sw, float ab, float side) {
+    return S + rZ(rX(w - S, sw), -(ab * side));
+}
+vec3 armUpperFwdN(vec3 n, float sw, float ab, float side) { return rX(rZ(n, ab * side), -sw); }
+
+float dArmU(sampler2D t, vec3 w, vec3 S, float sw, float ab, float side, vec3 O, vec3 SZ, vec3 D, vec2 G, vec2 A, float DM, out vec3 nl, out vec3 lp) {
+    vec3 l = armUpperInv(w, S, sw, ab, side);
+    lp = l;
+    float bd = boxDist(l, O, SZ);
+    nl = vec3(0.0, 0.0, 1.0);
+    if (bd > 0.0) return bd + 0.03;
+    vec4 v = fetchVol(t, l, O, SZ, D, G, A);
+    nl = decN(v);
+    return v.b * DM - 0.02;
+}
+float dArmF(sampler2D t, vec3 w, vec3 S, vec3 E, float sw, float ab, float fl, float side, vec3 O, vec3 SZ, vec3 D, vec2 G, vec2 A, float DM, out vec3 nl, out vec3 lp) {
+    vec3 u = armUpperInv(w, S, sw, ab, side);
+    vec3 l = E + rX(u - E, fl);
+    lp = l;
+    float bd = boxDist(l, O, SZ);
+    nl = vec3(0.0, 0.0, 1.0);
+    if (bd > 0.0) return bd + 0.03;
+    vec4 v = fetchVol(t, l, O, SZ, D, G, A);
+    nl = decN(v);
+    return v.b * DM - 0.02;
+}
+
+vec3 triNormal(sampler2D t, vec3 p, vec3 n, float scale, float strength) {
+    vec3 tx = texture(t, p.zy * scale).xyz * 2.0 - 1.0;
+    vec3 ty = texture(t, p.xz * scale).xyz * 2.0 - 1.0;
+    vec3 tz = texture(t, p.xy * scale).xyz * 2.0 - 1.0;
+    tx.xy *= strength; ty.xy *= strength; tz.xy *= strength;
+    tx = vec3(tx.xy + n.zy, abs(tx.z) * n.x);
+    ty = vec3(ty.xy + n.xz, abs(ty.z) * n.y);
+    tz = vec3(tz.xy + n.xy, abs(tz.z) * n.z);
+    vec3 w = pow(abs(n), vec3(4.0)); w /= (w.x + w.y + w.z + 1e-5);
+    return normalize(tx.zyx * w.x + ty.xzy * w.y + tz.xyz * w.z);
+}
+float hash3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float vnoise(vec3 p) {
+    vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+
+// d = mínimo entre peças. which: 0 cabeça, 1 pescoço, 2 tronco, 4 braço E sup, 5 antebraço E, 6 braço D sup, 7 antebraço D
+float mapAll(vec3 world, out vec3 nl, out vec3 lp, out int which) {
+    vec3 w = torsoInv(world);
+    vec3 n, l;
+    float d = dHead(w, nl, lp); which = 0;
+    float v = dNeck(w, n, l);           if (v < d) { d = v; nl = n; lp = l; which = 1; }
+    v = dBust(w, n, l);                 if (v < d) { d = v; nl = n; lp = l; which = 2; }
+    v = dArmU(tArmLu, w, SHL, armLs, armLa, -1.0, LU_O, LU_S, LU_D, LU_G, LU_A, LU_DM, n, l);
+    if (v < d) { d = v; nl = n; lp = l; which = 4; }
+    v = dArmF(tArmLf, w, SHL, ELL, armLs, armLa, armLe, -1.0, LF_O, LF_S, LF_D, LF_G, LF_A, LF_DM, n, l);
+    if (v < d) { d = v; nl = n; lp = l; which = 5; }
+    v = dArmU(tArmRu, w, SHR, armRs, armRa, 1.0, RU_O, RU_S, RU_D, RU_G, RU_A, RU_DM, n, l);
+    if (v < d) { d = v; nl = n; lp = l; which = 6; }
+    v = dArmF(tArmRf, w, SHR, ELR, armRs, armRa, armRe, 1.0, RF_O, RF_S, RF_D, RF_G, RF_A, RF_DM, n, l);
+    if (v < d) { d = v; nl = n; lp = l; which = 7; }
+    return d;
+}
+
+void main() {
+    vec2 uv = qt_TexCoord0;
+    vec2 s = vec2((uv.x - 0.5) * aspect, 0.5 - uv.y);
+    vec2 wxy = vec2(s.x * VIEW_H, VIEW_CY + s.y * VIEW_H);
+    vec3 ro = vec3(wxy, 5.0);
+    float t = 0.0, d = 1.0;
+    int which = 0; vec3 nl = vec3(0.0, 0.0, 1.0), lp = vec3(0.0);
+    bool hit = false;
+    for (int i = 0; i < 70; i++) {
+        d = mapAll(ro + vec3(0.0, 0.0, -t), nl, lp, which);
+        if (d < 0.0025) { hit = true; break; }
+        t += max(d * 0.85, 0.004);
+        if (t > 9.0) break;
+    }
+    if (!hit) { fragColor = vec4(0.0); return; }
+    vec3 hp0 = ro + vec3(0.0, 0.0, -t);
+    vec3 pT = torsoInv(hp0);
+
+    // normal em coords do tronco (gira de volta cada peça), depois para o mundo
+    vec3 n = nl;
+    if (which == 0) { n = rZ(rX(rY(nl, yaw * 0.60), -pitch * 0.40), -roll * 1.1); }
+    else if (which == 1) { n = rZ(rX(rY(nl, yaw * 0.30), -pitch * 0.22), -roll * 0.55); }
+    else if (which == 4) { n = armUpperFwdN(nl, armLs, armLa, -1.0); }
+    else if (which == 6) { n = armUpperFwdN(nl, armRs, armRa, 1.0); }
+    else if (which == 5) { n = armUpperFwdN(rX(nl, -armLe), armLs, armLa, -1.0); }
+    else if (which == 7) { n = armUpperFwdN(rX(nl, -armRe), armRs, armRa, 1.0); }
+    n = normalize(n);
+    float spec_k = 1.0;
+    if (which == 2 || which >= 4) {                       // corpo: placas + trama
+        vec3 np = triNormal(tPlates, lp, n, 0.55, 0.9);
+        vec3 nw = triNormal(tWeave, lp, n, 5.0, 0.55);
+        float reg = (which == 2) ? smoothstep(13.1, 13.4, lp.y) : 0.0;
+        n = normalize(mix(nw, np, reg * 0.7 + 0.15));
+        spec_k = 1.4;
+    } else if (which == 1) {
+        n = triNormal(tWeave, lp, n, 9.0, 0.7);
+        spec_k = 1.2;
+    } else {
+        vec3 q = (lp - PIVH) * 85.0;
+        float e = 0.8;
+        float b0 = vnoise(q);
+        vec3 g = vec3(vnoise(q + vec3(e, 0, 0)) - b0, vnoise(q + vec3(0, e, 0)) - b0, vnoise(q + vec3(0, 0, e)) - b0);
+        g += 0.5 * vec3(vnoise(q * 2.7 + 3.1) - 0.5);
+        n = normalize(n - 0.35 * g);
+        spec_k = 0.8;
+    }
+    n = normalize(torsoFwdN(n));                          // mundo
+
+    vec3 dummyN, dummyL; int dummyW;
+    float aod = mapAll(hp0 + n * 0.07, dummyN, dummyL, dummyW);
+    float ao = clamp(0.40 + 0.60 * clamp(aod / 0.07, 0.0, 1.0), 0.35, 1.0);
+
+    vec3 L1 = normalize(vec3(-0.45 + yaw * 0.25, 0.55, 0.70));
+    vec3 L2 = normalize(vec3(0.60, -0.20, 0.45));
+    float d1 = clamp(dot(n, L1) * 0.85 + 0.15, 0.0, 1.0);
+    float d2 = clamp(dot(n, L2), 0.0, 1.0);
+    float rim = pow(1.0 - clamp(n.z, 0.0, 1.0), 2.2);
+    vec3 H = normalize(L1 + vec3(0.0, 0.0, 1.0));
+    float spec = pow(clamp(dot(n, H), 0.0, 1.0), 48.0);
+    float lum = (0.08 + 0.85 * pow(d1, 1.2) + 0.30 * d2) * ao + 0.55 * rim + 0.40 * spec * spec_k;
+    if (which == 1) lum += 0.30 * mouth * (0.5 + 0.5 * sin(time * 20.0));
+    float mat = 0.0;
+    float zc = clamp((5.0 - t) / 9.0, 0.0, 1.0);
+
+    // ---- expressão como emissão projetada no rosto (olhos, sobrancelhas de LED, boca) ----
+    if (which == 0) {
+        vec3 l = lp;
+        if (l.z > 0.75 && l.y > 14.95) {
+            float eg = 0.0, bg2 = 0.0;
+            for (int sg = -1; sg <= 1; sg += 2) {
+                float S = float(sg);
+                float b = (sg < 0) ? browL : browR;
+                vec2 c = vec2(S * EYE_C.x + lookX * 0.11, EYE_C.y + lookY * 0.07);
+                vec2 q = l.xy - c;
+                float ang = (b * -0.20 + brist * 0.50) * S;
+                float ca = cos(ang), sa = sin(ang);
+                q = vec2(ca * q.x - sa * q.y, sa * q.x + ca * q.y);
+                float open = clamp((1.0 - blink) * (0.9 + 0.25 * b) + 0.05, 0.05, 1.3);
+                float rx = 0.150 * (1.0 + 0.12 * max(smile, 0.0)), ry = 0.092 * open * (1.0 - 0.2 * max(-smile, 0.0));
+                float e = length(vec2(q.x / rx, q.y / ry));
+                float arc = length(vec2(q.x / (rx * 1.2), (q.y + 0.085 * smile) / (ry * 1.25)));
+                float cut = clamp(smile * 2.0 - 0.3, 0.0, 1.0);
+                float inside = 1.0 - smoothstep(0.85, 1.05, e);
+                inside *= 1.0 - cut * (1.0 - smoothstep(0.85, 1.05, arc));
+                eg = max(eg, inside);
+                float byy = c.y + 0.20 + b * 0.09;
+                float tilt2 = brist * 0.10 * S * -1.0;
+                vec2 bq = vec2(l.x - S * EYE_C.x, l.y - byy - tilt2 * (l.x - S * EYE_C.x) * 4.0 - 0.05 * (1.0 - pow((l.x - S * EYE_C.x) / 0.20, 2.0)));
+                float bm = (1.0 - smoothstep(0.012, 0.024, abs(bq.y))) * (1.0 - smoothstep(0.17, 0.22, abs(bq.x)));
+                bg2 = max(bg2, bm * 0.55);
+            }
+            float halfW = 0.215 * (1.0 + 0.22 * lipW) + 0.035 * max(smile, 0.0);
+            float u = clamp(l.x / halfW, -1.0, 1.0);
+            float yy = l.y - 15.078;
+            float curve = smile * 0.040 * u * u - smile * 0.012;
+            float openH = mouth * 0.15 * (1.0 - 0.45 * max(lipW, 0.0));
+            float shp = pow(max(1.0 - u * u, 0.0), 0.8);
+            float yU = curve + 0.004 + openH * 0.40 * shp;
+            float yL = curve - 0.004 - openH * 0.60 * shp;
+            float edge = (1.0 - smoothstep(0.85, 1.0, abs(u)));
+            float lipU = (1.0 - smoothstep(0.007, 0.015, abs(yy - yU)));
+            float lipL = (1.0 - smoothstep(0.008, 0.017, abs(yy - yL)));
+            float mouthOn = clamp(0.35 + mouth * 1.2 + max(smile, 0.0) * 0.4, 0.0, 1.0);
+            float cavity = step(yL, yy) * step(yy, yU) * edge * step(0.012, openH);
+            float mg = max(lipU, lipL) * edge * mouthOn;
+            float zf = smoothstep(0.75, 1.0, l.z);
+            if (eg > 0.01) { lum = mix(lum, 1.35, eg * zf); mat = 1.0; }
+            lum = max(lum, bg2 * zf * 1.1);
+            lum = max(lum, mg * zf * 1.25);
+            lum = mix(lum, 0.05, cavity * zf);
+        }
+    }
+    fragColor = vec4(clamp(lum, 0.0, 1.4) / 1.4, mat / 4.0, zc, 1.0);
+}

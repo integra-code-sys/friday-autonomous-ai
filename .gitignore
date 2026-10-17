@@ -1,0 +1,29 @@
+# Python & Virtual Env
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Dados Pessoais e Chaves em Memória (Privacidade 100% Zero-Data-Retention)
+memory/historico.jsonl
+memory/remoto.json
+memory/voz_dono.json
+memory/pessoas.json
+memory/aprovacoes.json
+memory/*.bak
+memory/*.sqlite
+
+# Builds temporários Android / Windows
+android/build/
+android/.gradle/
+android/friday.keystore
+*.tmp
+*.log
+/tmp/
+
+# Binários pesados instalados via auto_deps.py ou hospedados como Assets de Release (>50MB)
+*.exe
+models/*.onnx
+models/*.gguf

@@ -1,0 +1,485 @@
+import QtQuick
+import QtQuick.Effects
+
+// Palco holográfico do Prometheus: espelho de e-mail, figuras 3D em wireframe, gráficos, "softwares" holográficos e cenas livres.
+// Controlado por spec JSON (vindo do daemon): { kind, titulo, ... }. Tudo desenhado em Canvas, animado a ~30 fps.
+Item {
+    id: st
+    property var spec: null
+    property double t0: 0
+    property real clock: 0
+    property color cA: "#7fe6ff"      // traço principal
+    property color cB: "#a6dcff"
+    property color cGlass: "#220a3a5c"
+    visible: (spec !== null) || (opacity > 0.01)
+    opacity: spec ? 1 : 0
+    Behavior on opacity { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
+
+    property string imgSrc: ""
+    function show(s) { if (s && s.kind === "imagem" && s.src) { if (imgSrc && imgSrc !== s.src) cv.unloadImage(imgSrc); imgSrc = s.src; cv.loadImage(s.src) } spec = s; t0 = Date.now(); clock = 0; if (s && s.ttl) ttl.interval = s.ttl * 1000; else ttl.interval = 90000; ttl.restart(); entra.restart(); cv.requestPaint() }
+    // entrada: inclina e "acende" com uma varredura de luz; brilho holográfico por GPU no desenho inteiro
+    property real ent: 1
+    property real tilt: 0
+    ParallelAnimation {
+        id: entra
+        NumberAnimation { target: st; property: "ent"; from: 0; to: 1; duration: 560; easing.type: Easing.OutCubic }
+        NumberAnimation { target: st; property: "tilt"; from: 16; to: 0; duration: 780; easing.type: Easing.OutBack }
+        NumberAnimation { target: varreStage; property: "y"; from: 0; to: st.height; duration: 700; easing.type: Easing.InOutQuad }
+    }
+    transform: [
+        Scale { origin.x: st.width / 2; origin.y: st.height / 2; xScale: 0.94 + 0.06 * st.ent; yScale: 0.94 + 0.06 * st.ent },
+        Rotation { origin.x: st.width / 2; origin.y: st.height / 2; axis { x: 0.2; y: 1; z: 0 } angle: st.tilt }
+    ]
+    function update(s) { if (!spec) { show(s); return } spec = s; if (s && s.ttl) ttl.interval = s.ttl * 1000; ttl.restart(); cv.requestPaint() }
+    function clear() { spec = null; ttl.stop() }
+    Timer { id: ttl; interval: 90000; onTriggered: st.clear() }
+    Timer { running: st.visible; interval: 33; repeat: true; onTriggered: { st.clock = (Date.now() - st.t0) / 1000; cv.requestPaint() } }
+
+    // ---------- utilidades ----------
+    function drawEllipse(c, cx, cy, rx, ry) {
+        c.save(); c.translate(cx, cy); c.scale(rx, ry); c.beginPath(); c.arc(0, 0, 1, 0, 6.2832); c.restore()
+    }
+    function rr(c, x, y, w, h, r) {
+        c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r)
+        c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h); c.lineTo(x + r, y + h)
+        c.quadraticCurveTo(x, y + h, x, y + h - r); c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath()
+    }
+    function glowLine(c, x1, y1, x2, y2, w, a) {
+        c.strokeStyle = "rgba(127,230,255," + (0.25 * a) + ")"; c.lineWidth = w * 3.2
+        c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke()
+        c.strokeStyle = "rgba(190,245,255," + a + ")"; c.lineWidth = w
+        c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke()
+    }
+    function wrap(c, text, maxW) {
+        const out = []
+        for (const para of String(text || "").split("\n")) {
+            let line = ""
+            for (const word of para.split(" ")) {
+                const t = line ? line + " " + word : word
+                if (c.measureText(t).width > maxW && line) { out.push(line); line = word } else line = t
+            }
+            out.push(line)
+        }
+        return out
+    }
+    function ease(x) { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x) }
+    function frame(c, W, H, titulo, subt) {
+        // vidro do espelho
+        let g = c.createLinearGradient(0, 0, W, H)
+        g.addColorStop(0, "rgba(7,20,27,0.90)"); g.addColorStop(0.5, "rgba(3,10,14,0.92)"); g.addColorStop(1, "rgba(6,13,18,0.92)")
+        c.fillStyle = g; rr(c, 2, 2, W - 4, H - 4, 14); c.fill()
+        // reflexo que varre o espelho
+        const sx = ((st.clock * 0.18) % 1.6 - 0.3) * W
+        let sg = c.createLinearGradient(sx - 90, 0, sx + 90, H)
+        sg.addColorStop(0, "rgba(180,235,255,0)"); sg.addColorStop(0.5, "rgba(180,235,255,0.09)"); sg.addColorStop(1, "rgba(180,235,255,0)")
+        c.fillStyle = sg; rr(c, 2, 2, W - 4, H - 4, 14); c.fill()
+        // borda
+        c.strokeStyle = "rgba(127,230,255,0.85)"; c.lineWidth = 1.6; rr(c, 2, 2, W - 4, H - 4, 14); c.stroke()
+        c.strokeStyle = "rgba(127,230,255,0.25)"; c.lineWidth = 6; rr(c, 2, 2, W - 4, H - 4, 14); c.stroke()
+        // cantos
+        c.strokeStyle = "rgba(220,250,255,0.95)"; c.lineWidth = 2.4
+        for (const p of [[8, 8, 1, 1], [W - 8, 8, -1, 1], [8, H - 8, 1, -1], [W - 8, H - 8, -1, -1]]) {
+            c.beginPath(); c.moveTo(p[0], p[1] + 22 * p[3]); c.lineTo(p[0], p[1]); c.lineTo(p[0] + 22 * p[2], p[1]); c.stroke()
+        }
+        // cabeçalho
+        c.font = "bold 12px sans-serif"; c.fillStyle = "rgba(127,230,255,0.95)"
+        c.fillText("◈ " + (subt || "ESPELHO HOLOGRÁFICO") + "  ·  F.R.I.D.A.Y.", 22, 28)
+        if (titulo) { c.font = "bold 18px sans-serif"; c.fillStyle = "#eaf8ff"; c.fillText(String(titulo).slice(0, 60), 22, 54) }
+        c.strokeStyle = "rgba(127,230,255,0.35)"; c.lineWidth = 1; c.beginPath(); c.moveTo(20, titulo ? 64 : 38); c.lineTo(W - 20, titulo ? 64 : 38); c.stroke()
+        // linhas de varredura
+        c.strokeStyle = "rgba(127,230,255,0.05)"; c.lineWidth = 1
+        for (let y = (st.clock * 20) % 6; y < H; y += 6) { c.beginPath(); c.moveTo(4, y); c.lineTo(W - 4, y); c.stroke() }
+    }
+
+    // ---------- formas 3D ----------
+    function shape(nome) {
+        const P = [], E = []
+        if (nome === "cubo") {
+            for (let i = 0; i < 8; i++) P.push([(i & 1) ? 1 : -1, (i & 2) ? 1 : -1, (i & 4) ? 1 : -1])
+            for (let i = 0; i < 8; i++) for (const b of [1, 2, 4]) if (!(i & b)) E.push([i, i | b])
+        } else if (nome === "piramide") {
+            P.push([-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1], [0, -1.2, 0])
+            E.push([0, 1], [1, 2], [2, 3], [3, 0], [0, 4], [1, 4], [2, 4], [3, 4])
+        } else if (nome === "toro") {
+            const U = 24, V = 12
+            for (let u = 0; u < U; u++) for (let v = 0; v < V; v++) {
+                const a = u / U * 6.2832, b = v / V * 6.2832
+                P.push([(1 + 0.42 * Math.cos(b)) * Math.cos(a), 0.42 * Math.sin(b), (1 + 0.42 * Math.cos(b)) * Math.sin(a)])
+                E.push([u * V + v, u * V + (v + 1) % V]); E.push([u * V + v, ((u + 1) % U) * V + v])
+            }
+        } else if (nome === "helice") {
+            const N = 30
+            for (let i = 0; i < N; i++) {
+                const a = i / N * 12.566, y = i / N * 2.6 - 1.3
+                P.push([0.7 * Math.cos(a), y, 0.7 * Math.sin(a)]); P.push([0.7 * Math.cos(a + 3.1416), y, 0.7 * Math.sin(a + 3.1416)])
+                if (i > 0) { E.push([2 * i, 2 * (i - 1)]); E.push([2 * i + 1, 2 * (i - 1) + 1]) }
+                if (i % 2 === 0) E.push([2 * i, 2 * i + 1])
+            }
+        } else if (nome === "galaxia") {
+            for (let i = 0; i < 260; i++) {
+                const r = Math.sqrt(i / 260) * 1.5, a = i * 0.23 + r * 2.4
+                P.push([r * Math.cos(a), (Math.sin(i * 12.9) * 0.08), r * Math.sin(a)])
+            }
+        } else if (nome === "rede") {
+            let s = 7; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647 }
+            for (let i = 0; i < 22; i++) P.push([rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1])
+            for (let i = 0; i < 22; i++) for (let j = i + 1; j < 22; j++) {
+                const d = Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1], P[i][2] - P[j][2]); if (d < 0.85) E.push([i, j])
+            }
+        } else {   // esfera (padrão)
+            const LA = 9, LO = 18
+            for (let i = 1; i < LA; i++) for (let j = 0; j < LO; j++) {
+                const th = i / LA * 3.1416, ph = j / LO * 6.2832
+                P.push([Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)])
+                const k = (i - 1) * LO + j
+                E.push([k, (i - 1) * LO + (j + 1) % LO]); if (i > 1) E.push([k, (i - 2) * LO + j])
+            }
+        }
+        return { P: P, E: E }
+    }
+    function drawShape(c, nome, cx, cy, R, t, a) {
+        const sh = shape(nome), ay = t * 0.8, ax = 0.45, pts = []
+        for (const p of sh.P) {
+            let x = p[0] * Math.cos(ay) + p[2] * Math.sin(ay), z = -p[0] * Math.sin(ay) + p[2] * Math.cos(ay), y = p[1]
+            const y2 = y * Math.cos(ax) - z * Math.sin(ax), z2 = y * Math.sin(ax) + z * Math.cos(ax)
+            const f = 3.2 / (3.2 + z2)
+            pts.push([cx + x * R * f, cy + y2 * R * f, z2])
+        }
+        if (sh.E.length) {
+            for (const e of sh.E) {
+                const p = pts[e[0]], q = pts[e[1]], depth = 0.55 + 0.45 * (1 - (p[2] + q[2] + 2) / 4)
+                st.glowLine(c, p[0], p[1], q[0], q[1], 1.2, a * depth)
+            }
+        }
+        for (const p of pts) {
+            const r = sh.E.length ? 2.2 : 1.6
+            c.fillStyle = "rgba(220,250,255," + (a * (0.55 + 0.4 * (1 - (p[2] + 1.6) / 3.2))) + ")"
+            c.beginPath(); c.arc(p[0], p[1], r, 0, 6.2832); c.fill()
+        }
+    }
+
+    // ---------- projeção holográfica 3D Stark ----------
+    function drawProjecao3D(c, W, H, s, t) {
+        const cx = W / 2, cy = H / 2 + 10, top = s.titulo ? 76 : 48
+        const R = Math.min(W, H - top) * 0.38
+        const ay = t * (s.rot_speed || 0.8)
+        const ax = 0.32 + Math.sin(t * 0.25) * 0.06
+        const corBase = s.cor || "#00d2ff"
+        const exp = s.explodir || (s.modo === "explodido" ? 0.5 : 0)
+
+        // Pedestal holográfico (anéis concêntricos na base)
+        const base_y = cy + R * 0.72
+        c.strokeStyle = "rgba(127,230,255,0.22)"; c.lineWidth = 1
+        drawEllipse(c, cx, base_y, R * 0.95, R * 0.28); c.stroke()
+        c.strokeStyle = "rgba(127,230,255,0.12)"; c.lineWidth = 1
+        drawEllipse(c, cx, base_y, R * 0.60, R * 0.18); c.stroke()
+        // Raios do pedestal
+        for (let i = 0; i < 8; i++) {
+            const ang = (i / 8) * 6.2832 + t * 0.1
+            const rx1 = cx + Math.cos(ang) * R * 0.55, ry1 = base_y + Math.sin(ang) * R * 0.16
+            const rx2 = cx + Math.cos(ang) * R * 0.95, ry2 = base_y + Math.sin(ang) * R * 0.28
+            c.beginPath(); c.moveTo(rx1, ry1); c.lineTo(rx2, ry2); c.stroke()
+        }
+
+        // Projeção dos vértices 3D
+        const verts = s.vertices || [], pts = []
+        for (let i = 0; i < verts.length; i++) {
+            let vx = verts[i][0], vy = verts[i][1], vz = verts[i][2]
+            if (exp > 0) {
+                const mag = Math.hypot(vx, vy, vz) || 1
+                vx += (vx / mag) * exp * 0.5
+                vy += (vy / mag) * exp * 0.5
+                vz += (vz / mag) * exp * 0.5
+            }
+            const x1 = vx * Math.cos(ay) + vz * Math.sin(ay)
+            const z1 = -vx * Math.sin(ay) + vz * Math.cos(ay)
+            const y1 = -vy
+            const y2 = y1 * Math.cos(ax) - z1 * Math.sin(ax)
+            const z2 = y1 * Math.sin(ax) + z1 * Math.cos(ax)
+            const f = 3.6 / (3.6 + z2)
+            pts.push([cx + x1 * R * f, cy + y2 * R * f, z2])
+        }
+
+        // Arestas / Wireframe
+        if (s.modo !== "particulas") {
+            const edges = s.arestas || []
+            for (let i = 0; i < edges.length; i++) {
+                const e = edges[i]
+                if (e[0] < pts.length && e[1] < pts.length) {
+                    const p = pts[e[0]], q = pts[e[1]]
+                    const depth = 0.55 + 0.45 * (1 - (p[2] + q[2] + 2) / 4)
+                    c.strokeStyle = corBase
+                    c.globalAlpha = Math.max(0.18, Math.min(1.0, depth * 0.92))
+                    c.lineWidth = (s.modo === "raio_x" ? 1.0 : 1.6)
+                    c.beginPath(); c.moveTo(p[0], p[1]); c.lineTo(q[0], q[1]); c.stroke()
+                }
+            }
+            c.globalAlpha = 1.0
+        }
+
+        // Vértices luminosos
+        for (let i = 0; i < pts.length; i++) {
+            const p = pts[i]
+            const depth = 0.6 + 0.4 * (1 - (p[2] + 1.6) / 3.2)
+            c.fillStyle = corBase
+            c.globalAlpha = Math.max(0.35, Math.min(1.0, depth))
+            c.beginPath(); c.arc(p[0], p[1], 2.4, 0, 6.2832); c.fill()
+        }
+        c.globalAlpha = 1.0
+
+        // Partículas 3D flutuantes / emissivas
+        const parts = s.particulas || []
+        for (let i = 0; i < parts.length; i++) {
+            const pt = parts[i]
+            const px = pt[0] + 0.04 * Math.sin(t * 2.5 + i)
+            const py = -pt[1] + 0.04 * Math.cos(t * 2.5 + i)
+            const pz = pt[2]
+            const x1 = px * Math.cos(ay) + pz * Math.sin(ay)
+            const z1 = -px * Math.sin(ay) + pz * Math.cos(ay)
+            const y2 = py * Math.cos(ax) - z1 * Math.sin(ax)
+            const z2 = py * Math.sin(ax) + z1 * Math.cos(ax)
+            const f = 3.6 / (3.6 + z2)
+            c.fillStyle = pt[4] || corBase
+            c.globalAlpha = 0.70 + 0.30 * Math.sin(t * 4 + i)
+            c.beginPath(); c.arc(cx + x1 * R * f, cy + y2 * R * f, (pt[3] || 2) * f, 0, 6.2832); c.fill()
+        }
+        c.globalAlpha = 1.0
+
+        // HUD de Telemetria e Status
+        const tels = s.telemetria || []
+        c.font = "bold 11px monospace"
+        const startY = H - 38
+        for (let i = 0; i < tels.length; i++) {
+            const item = tels[i], tx = 28 + i * 135
+            c.fillStyle = "rgba(127,230,255,0.60)"; c.fillText(String(item.label || ""), tx, startY)
+            c.fillStyle = "#ffffff"; c.fillText(String(item.valor || ""), tx, startY + 16)
+        }
+        c.font = "bold 11px sans-serif"; c.fillStyle = "rgba(127,230,255,0.85)"
+        c.fillText("◈ MATRIZ HOLOGRÁFICA ATIVA  ·  STARK CAD", W - 280, H - 22)
+    }
+
+    // ---------- gráficos ----------
+    function drawChart(c, tipo, dados, x, y, w, h, t) {
+        const vals = (dados || []).map(d => Number(d.valor) || 0), mx = Math.max(1, ...vals), n = vals.length
+        if (!n) return
+        c.font = "11px sans-serif"
+        if (tipo === "linha") {
+            c.beginPath()
+            for (let i = 0; i < n; i++) {
+                const px = x + (n > 1 ? i / (n - 1) : 0.5) * w, py = y + h - (vals[i] / mx) * h * ease(t * 1.2 - i * 0.05)
+                if (i === 0) c.moveTo(px, py); else c.lineTo(px, py)
+            }
+            c.strokeStyle = "rgba(127,230,255,0.25)"; c.lineWidth = 7; c.stroke()
+            c.strokeStyle = "rgba(210,248,255,0.95)"; c.lineWidth = 2; c.stroke()
+            for (let i = 0; i < n; i++) {
+                const px = x + (n > 1 ? i / (n - 1) : 0.5) * w, py = y + h - (vals[i] / mx) * h * ease(t * 1.2 - i * 0.05)
+                c.fillStyle = "#ffffff"; c.beginPath(); c.arc(px, py, 3, 0, 6.2832); c.fill()
+                c.fillStyle = "rgba(190,235,255,0.9)"; c.fillText(String(dados[i].rotulo || "").slice(0, 8), px - 12, y + h + 14)
+            }
+        } else if (tipo === "pizza") {
+            const tot = vals.reduce((a, b) => a + b, 0) || 1, R = Math.min(w, h) / 2 - 6, cx = x + w / 2, cy = y + h / 2
+            let a0 = -1.5708
+            for (let i = 0; i < n; i++) {
+                const a1 = a0 + vals[i] / tot * 6.2832 * ease(t)
+                c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a0, a1); c.closePath()
+                c.fillStyle = "rgba(" + (80 + 150 * i / n) + "," + (190 - 40 * i / n) + ",255,0.28)"; c.fill()
+                c.strokeStyle = "rgba(210,248,255,0.9)"; c.lineWidth = 1.4; c.stroke()
+                a0 = a1
+            }
+        } else {   // barras
+            const bw = w / n * 0.62
+            for (let i = 0; i < n; i++) {
+                const bh = (vals[i] / mx) * (h - 16) * ease(t * 1.3 - i * 0.07), bx = x + i * (w / n) + (w / n - bw) / 2
+                let g = c.createLinearGradient(0, y + h - bh, 0, y + h)
+                g.addColorStop(0, "rgba(190,245,255,0.75)"); g.addColorStop(1, "rgba(60,150,230,0.25)")
+                c.fillStyle = g; c.fillRect(bx, y + h - bh, bw, bh)
+                c.strokeStyle = "rgba(210,248,255,0.95)"; c.lineWidth = 1.3; c.strokeRect(bx, y + h - bh, bw, bh)
+                c.fillStyle = "rgba(190,235,255,0.9)"; c.fillText(String(dados[i].rotulo || "").slice(0, 9), bx - 2, y + h + 13)
+            }
+        }
+    }
+
+    // ---------- painéis de "software" ----------
+    function panel(c, p, x, y, w, h, t) {
+        c.strokeStyle = "rgba(127,230,255,0.55)"; c.lineWidth = 1; rr(c, x, y, w, h, 8); c.stroke()
+        c.fillStyle = "rgba(20,70,120,0.18)"; rr(c, x, y, w, h, 8); c.fill()
+        c.font = "bold 12px sans-serif"; c.fillStyle = "rgba(190,240,255,0.95)"; c.fillText(String(p.titulo || "").slice(0, 34), x + 10, y + 18)
+        const ix = x + 10, iy = y + 28, iw = w - 20, ih = h - 38, tp = p.tipo || "lista"
+        c.font = "12px monospace"
+        if (tp === "tabela") {
+            const cols = p.cols || [], rows = p.rows || [], cw = iw / Math.max(1, cols.length)
+            c.fillStyle = "rgba(127,230,255,0.95)"; cols.forEach((cn, i) => c.fillText(String(cn).slice(0, 12), ix + i * cw, iy + 10))
+            c.strokeStyle = "rgba(127,230,255,0.3)"; c.beginPath(); c.moveTo(ix, iy + 16); c.lineTo(ix + iw, iy + 16); c.stroke()
+            rows.slice(0, 8).forEach((r, k) => {
+                const a = ease(t * 1.5 - k * 0.12); c.fillStyle = "rgba(225,248,255," + a * 0.95 + ")"
+                r.forEach((cell, i) => c.fillText(String(cell).slice(0, 14), ix + i * cw, iy + 32 + k * 17))
+            })
+        } else if (tp === "grafico") {
+            drawChart(c, p.grafico || "barras", p.dados || [], ix, iy, iw, ih - 14, t)
+        } else if (tp === "kpis") {
+            const it = p.itens || [], bw = iw / Math.max(1, it.length)
+            it.forEach((k, i) => {
+                const v = Number(String(k.valor).replace(/[^0-9.\-]/g, ""))
+                const shown = isFinite(v) && String(k.valor).match(/^[\d.,\-]+/) ? String(k.valor).replace(/[\d.,]+/, Math.round(v * ease(t)).toString()) : k.valor
+                c.fillStyle = "#ffffff"; c.font = "bold 22px sans-serif"; c.fillText(String(shown).slice(0, 10), ix + i * bw, iy + 28)
+                c.font = "11px sans-serif"; c.fillStyle = "rgba(160,225,255,0.9)"; c.fillText(String(k.rotulo || "").slice(0, 14), ix + i * bw, iy + 46)
+            })
+        } else if (tp === "terminal") {
+            const lines = p.linhas || []; let budget = Math.floor(t * 38)
+            c.fillStyle = "rgba(150,255,200,0.95)"
+            for (let k = 0; k < Math.min(lines.length, 9); k++) {
+                const L = String(lines[k]); const n = Math.min(L.length, budget); budget -= L.length
+                c.fillText("$ " + L.slice(0, Math.max(0, n)).slice(0, 44), ix, iy + 14 + k * 16)
+                if (budget <= 0) break
+            }
+        } else if (tp === "form") {
+            (p.campos || []).slice(0, 6).forEach((f, k) => {
+                c.fillStyle = "rgba(160,225,255,0.9)"; c.font = "11px sans-serif"; c.fillText(String(f.rotulo || f).slice(0, 18), ix, iy + 14 + k * 26)
+                c.strokeStyle = "rgba(127,230,255,0.5)"; c.beginPath(); c.moveTo(ix + 92, iy + 18 + k * 26); c.lineTo(ix + iw, iy + 18 + k * 26); c.stroke()
+                const val = String(f.valor || ""); c.fillStyle = "#ffffff"; c.font = "12px monospace"
+                c.fillText(val.slice(0, Math.floor(Math.max(0, t * 14 - k * 4))), ix + 96, iy + 14 + k * 26)
+            })
+        } else {   // lista
+            (p.itens || p.linhas || []).slice(0, 8).forEach((it, k) => {
+                c.fillStyle = "rgba(225,248,255," + ease(t * 1.6 - k * 0.1) * 0.95 + ")"
+                c.fillText("› " + String(it).slice(0, 42), ix, iy + 14 + k * 17)
+            })
+        }
+    }
+
+    function drawEmail(c, W, H, s, t) {
+        c.font = "13px sans-serif"
+        let y = 92
+        const rows = [["PARA", s.para], ["CC", s.cc], ["ASSUNTO", s.assunto]]
+        rows.forEach((r, i) => {
+            if (!r[1] && r[0] === "CC") return
+            const a = ease(t * 2 - i * 0.2)
+            c.fillStyle = "rgba(127,230,255," + a + ")"; c.font = "bold 11px sans-serif"; c.fillText(r[0], 24, y)
+            c.fillStyle = "rgba(240,252,255," + a + ")"; c.font = (r[0] === "ASSUNTO" ? "bold 15px sans-serif" : "14px sans-serif")
+            c.fillText(String(r[1] || "").slice(0, 70), 100, y)
+            c.strokeStyle = "rgba(127,230,255,0.25)"; c.beginPath(); c.moveTo(20, y + 8); c.lineTo(W - 20, y + 8); c.stroke()
+            y += 30
+        })
+        y += 8
+        c.font = "14px sans-serif"
+        const corpo = String(s.corpo || "")
+        const instant = !!s.instant || /(?:corrig|alter|atualiz)/i.test(s.status || "")
+        const shown = instant ? corpo : corpo.slice(0, Math.floor(Math.max(0, t - 0.1) * 120))
+        const lines = wrap(c, shown, W - 52)
+        c.fillStyle = "rgba(235,250,255,0.97)"
+        const maxLines = Math.floor((H - y - 70) / 20)
+        const start = Math.max(0, lines.length - maxLines)
+        for (let i = start; i < lines.length; i++) c.fillText(lines[i], 24, y + (i - start) * 20)
+        if (shown.length < corpo.length && Math.floor(t * 3) % 2 === 0) {          // cursor piscando
+            const last = lines.length ? lines[lines.length - 1] : ""
+            c.fillStyle = "rgba(190,245,255,0.95)"; c.fillRect(24 + c.measureText(last).width + 3, y + (lines.length - 1 - start) * 20 - 13, 8, 16)
+        }
+        // rodapé: estado + dica
+        const status = String(s.status || "rascunho")
+        const ok = status.indexOf("enviado") >= 0
+        c.font = "bold 12px sans-serif"
+        c.fillStyle = ok ? "rgba(140,255,190,0.95)" : "rgba(255,220,120,0.95)"
+        const label = ok ? "✓ " + status.toUpperCase() : "● " + status.toUpperCase()
+        c.fillText(label, 24, H - 26)
+        c.fillStyle = "rgba(170,230,255,0.85)"; c.font = "12px sans-serif"
+        c.fillText(ok ? "" : "Diga \"aprovado\" para enviar, \"modifica para...\" ou \"pula\"", 24 + c.measureText(label).width + 18, H - 26)
+    }
+
+    function draw(c, W, H) {
+        c.reset()
+        const s = st.spec; if (!s) return
+        const t = st.clock, kind = s.kind || "texto"
+        const isZap = (s.para && s.para.indexOf("WhatsApp") >= 0) || (s.titulo && s.titulo.indexOf("WhatsApp") >= 0)
+        const sub = s.sub || (isZap ? "ESPELHO · WHATSAPP" : ({ imagem: "JANELA PROJETADA", email: "ESPELHO · E-MAIL", figura: "HOLOGRAMA", grafico: "ANÁLISE", ui: "SOFTWARE HOLOGRÁFICO", cena: "HOLOGRAMA", texto: "ESPELHO HOLOGRÁFICO", projecao_3d: "PROJEÇÃO HOLOGRÁFICA 3D" }[kind] || "ESPELHO"))
+        frame(c, W, H, s.titulo, sub)
+        const top = s.titulo ? 76 : 48
+        if (kind === "imagem") {
+            if (cv.isImageLoaded(s.src)) {
+                const iw = W - 20, ih = H - top - 14, im = cv.getContext("2d")
+                // encaixa preservando proporção (a janela real vem do niri)
+                const ar = (s.aspecto && s.aspecto > 0) ? s.aspecto : 16 / 9
+                let w = iw, h = iw / ar; if (h > ih) { h = ih; w = ih * ar }
+                const x = (W - w) / 2, y = top + 6 + (ih - h) / 2
+                c.globalAlpha = Math.min(1, t * 2) * 0.93
+                c.drawImage(s.src, x, y, w, h)
+                c.globalCompositeOperation = "lighter"; c.globalAlpha = 0.20
+                c.fillStyle = "rgb(30,100,170)"; c.fillRect(x, y, w, h)
+                c.globalCompositeOperation = "source-over"; c.globalAlpha = 1
+                c.strokeStyle = "rgba(127,230,255,0.9)"; c.lineWidth = 1.5; c.strokeRect(x, y, w, h)
+                // varredura vertical e cintilação de projeção
+                const sy = y + ((t * 0.35) % 1) * h
+                c.fillStyle = "rgba(190,245,255,0.16)"; c.fillRect(x, sy, w, 3)
+                for (let yy = y; yy < y + h; yy += 3) { c.fillStyle = "rgba(0,20,40,0.10)"; c.fillRect(x, yy, w, 1) }
+            } else {
+                c.font = "14px sans-serif"; c.fillStyle = "rgba(190,240,255,0.9)"; c.fillText("projetando janela…", 24, top + 40)
+            }
+            if (s.legenda) { c.font = "12px sans-serif"; c.fillStyle = "rgba(200,240,255,0.95)"; c.fillText(String(s.legenda).slice(0, 90), 24, H - 12) }
+        } else if (kind === "email") {
+            drawEmail(c, W, H, s, t)
+        } else if (kind === "figura") {
+            drawShape(c, s.forma || "esfera", W / 2, (H + top) / 2, Math.min(W, H - top) * 0.34, t, 0.95)
+            if (s.legenda) { c.font = "13px sans-serif"; c.fillStyle = "rgba(200,240,255,0.95)"; c.fillText(String(s.legenda).slice(0, 80), 24, H - 22) }
+        } else if (kind === "grafico") {
+            drawChart(c, s.tipo || "barras", s.dados || [], 40, top + 14, W - 80, H - top - 56, t)
+        } else if (kind === "ui") {
+            const ps = s.paineis || []
+            // barra de menu + lateral
+            c.fillStyle = "rgba(20,70,120,0.28)"; c.fillRect(14, top - 4, W - 28, 24)
+            c.font = "12px sans-serif"; c.fillStyle = "rgba(200,240,255,0.95)"
+            ;(s.barra || []).slice(0, 7).forEach((m, i) => c.fillText(String(m).slice(0, 14), 24 + i * 90, top + 13))
+            let gx = 14
+            if ((s.lateral || []).length) {
+                const lw = 130; c.strokeStyle = "rgba(127,230,255,0.4)"; c.strokeRect(14, top + 26, lw, H - top - 40)
+                s.lateral.slice(0, 12).forEach((m, i) => {
+                    c.fillStyle = i === Math.floor(t / 2.2) % s.lateral.length ? "rgba(255,255,255,0.98)" : "rgba(170,225,255,0.85)"
+                    c.fillText("▸ " + String(m).slice(0, 15), 24, top + 48 + i * 22)
+                })
+                gx = 14 + lw + 10
+            }
+            const cols = ps.length > 2 ? 2 : 1, rowsN = Math.ceil(ps.length / cols), gw = (W - gx - 14), gh = H - top - 40
+            ps.slice(0, 6).forEach((p, i) => {
+                const col = i % cols, row = Math.floor(i / cols), pw = gw / cols - 8, ph = gh / rowsN - 8
+                const a = ease(t * 1.4 - i * 0.25)
+                if (a <= 0) return
+                c.globalAlpha = a
+                panel(c, p, gx + col * (pw + 8), top + 30 + row * (ph + 8), pw, ph, Math.max(0, t - i * 0.25))
+                c.globalAlpha = 1
+            })
+        } else if (kind === "cena") {
+            for (const it of (s.itens || [])) {
+                const a = ease((t - (it.atraso || 0)) * 2), x = it.x * W, y = it.y * H, w = (it.w || 0.1) * W, h = (it.h || 0.1) * H
+                if (a <= 0) continue
+                let sc = 1, rot = 0, dy = 0
+                if (it.anim === "pulso") sc = 1 + 0.08 * Math.sin(t * 3)
+                if (it.anim === "gira") rot = t * 1.2
+                if (it.anim === "flutua") dy = Math.sin(t * 1.6) * 8
+                c.save(); c.globalAlpha = a; c.translate(x + w / 2, y + h / 2 + dy); c.rotate(rot); c.scale(sc, sc)
+                c.strokeStyle = it.cor || "rgba(190,245,255,0.95)"; c.fillStyle = it.preenche || "rgba(60,150,230,0.2)"; c.lineWidth = it.espessura || 2
+                if (it.t === "circulo") { c.beginPath(); c.arc(0, 0, Math.min(w, h) / 2, 0, 6.2832); if (it.preenche) c.fill(); c.stroke() }
+                else if (it.t === "linha") { c.beginPath(); c.moveTo(-w / 2, -h / 2); c.lineTo(w / 2, h / 2); c.stroke() }
+                else if (it.t === "texto") { c.font = "bold " + (it.tam || 18) + "px sans-serif"; c.fillStyle = it.cor || "#eaf8ff"; c.fillText(String(it.texto || ""), -w / 2, 0) }
+                else if (it.t === "poligono" && it.pts) { c.beginPath(); it.pts.forEach((p, i) => { const px = (p[0] - 0.5) * w, py = (p[1] - 0.5) * h; i ? c.lineTo(px, py) : c.moveTo(px, py) }); c.closePath(); if (it.preenche) c.fill(); c.stroke() }
+                else { rr(c, -w / 2, -h / 2, w, h, 6); if (it.preenche) c.fill(); c.stroke() }
+                c.restore()
+            }
+        } else if (kind === "projecao_3d") {
+            drawProjecao3D(c, W, H, s, t)
+        } else {   // texto
+            c.font = "15px sans-serif"
+            ;(s.linhas || []).slice(0, 14).forEach((l, i) => {
+                c.fillStyle = "rgba(235,250,255," + ease(t * 1.8 - i * 0.15) * 0.97 + ")"
+                const ls = wrap(c, "• " + l, W - 52); c.fillText(ls[0], 24, top + 16 + i * 26)
+            })
+        }
+    }
+    Canvas { id: cv; anchors.fill: parent; onPaint: st.draw(getContext("2d"), width, height); renderStrategy: Canvas.Immediate
+             onImageLoaded: requestPaint()
+             opacity: st.ent
+             layer.enabled: st.visible
+             layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "#8fe9ff"; shadowBlur: 0.6; shadowOpacity: 0.8; shadowHorizontalOffset: 0; shadowVerticalOffset: 0; blurMax: 28 } }
+    Rectangle {                                    // varredura de luz na entrada
+        id: varreStage; width: st.width; height: 3; color: "#ffffff"; opacity: st.ent < 1 ? 0.85 : 0
+        Rectangle { anchors.centerIn: parent; width: parent.width; height: 26; opacity: 0.35
+            gradient: Gradient { GradientStop { position: 0; color: "#008fe9ff" } GradientStop { position: 0.5; color: "#ff8fe9ff" } GradientStop { position: 1; color: "#008fe9ff" } } }
+    }
+}

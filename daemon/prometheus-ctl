@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""prometheus-ctl watch | send "texto" [--file f]... | voice on|off | hand joinha|paz|punho|apontar|ok|aberta | say "texto" | mood X | stop | chat "texto"
+              | mode <nome> on|off|toggle | raw '<json>'
+watch: imprime cada evento do daemon como JSON (uma linha). chat: envia e imprime a resposta até o fim."""
+import json, os, socket, sys
+
+SOCK = os.environ.get("XDG_RUNTIME_DIR", "/tmp") + "/prometheus.sock"
+a = sys.argv[1:]
+cmd = a[0] if a else "watch"
+files, words, i = [], [], 1
+while i < len(a):
+    if a[i] == "--file" and i + 1 < len(a):
+        files.append(a[i + 1]); i += 2
+    else:
+        words.append(a[i]); i += 1
+arg = " ".join(words)
+msg = {"send": {"type": "chat", "text": arg, "files": files}, "chat": {"type": "chat", "text": arg, "files": files},
+       "say": {"type": "say", "text": arg}, "mood": {"type": "mood", "mood": arg},
+       "voice": {"type": "voice", "on": arg in ("on", "1", "true")},
+       "camera": {"type": "camera", "on": arg in ("on", "1", "true")}, "stop": {"type": "stop"}, "hand": {"type": "mao", "lado": "R", "pose": arg}, "heard": {"type": "heard", "text": arg},
+       "friday": {"type": "friday", "on": arg not in ("off", "0", "false")}, "ligar": {"type": "friday", "on": True}, "desligar": {"type": "friday", "on": False},
+       "holo": {"type": "holo_window", "enabled": arg not in ("off", "0", "false", "real")},
+       "watch": None}.get(cmd, "?") if cmd not in ("raw", "mode") else None
+if cmd == "raw":                              # envia o JSON exatamente como veio: prometheus-ctl raw '{"type":"stop"}'
+    try:
+        msg = json.loads(arg)
+    except ValueError as e:
+        sys.exit(f"raw: JSON inválido: {e}")
+    if not isinstance(msg, dict) or "type" not in msg:
+        sys.exit('raw: o JSON precisa ser um objeto com "type"')
+elif cmd == "mode":                           # prometheus-ctl mode janela on|off|toggle
+    if not words:
+        sys.exit("uso: prometheus-ctl mode <nome> on|off|toggle")
+    val = words[1] if len(words) > 1 else "toggle"
+    msg = {"type": "mode", "mode": words[0],
+           "on": None if val in ("toggle", "alternar") else val in ("on", "1", "true", "ligar")}
+elif msg == "?":
+    sys.exit(f"comando desconhecido: {cmd}\n" + __doc__)
+s = socket.socket(socket.AF_UNIX); s.connect(SOCK)
+if msg:
+    s.sendall((json.dumps(msg) + "\n").encode())
+if cmd not in ("watch", "chat"):
+    import time; time.sleep(0.3)          # deixa o daemon ler antes de fechar
+if cmd in ("watch", "chat"):
+    for line in s.makefile():
+        if cmd == "watch":
+            print(line.strip(), flush=True)
+        else:
+            ev = json.loads(line)
+            if ev["type"] == "text" and ev["role"] != "user":
+                print(f"[{ev['role']}] {ev['text']}", flush=True)
+            if ev["type"] == "done":
+                break

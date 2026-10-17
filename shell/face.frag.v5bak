@@ -1,0 +1,116 @@
+#version 440
+// Passo 2: malha de pontos sobre a cena 3D + fundo próprio
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
+layout(std140, binding = 0) uniform buf {
+    mat4 qt_Matrix;
+    float qt_Opacity;
+    float time;
+    float aspect;
+    float glow;
+    vec2 mouse;      // cursor em coords do plano (x*aspect, y), centro = 0
+    float mouseOn;   // 0..1: o ponteiro está sobre o wallpaper
+};
+layout(binding = 1) uniform sampler2D scene;
+layout(binding = 2) uniform sampler2D tex;     // textura original (dá o "grão" de dados à pele)
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+// partículas animadas (flutuam para cima, piscam) que se afastam/giram em torno do cursor
+vec3 particles(vec2 p, vec2 m, float on, float t) {
+    vec3 acc = vec3(0.0);
+    for (int k = 0; k < 2; k++) {
+        float fk = float(k);
+        float sc = 8.0 + fk * 7.0;
+        float vel = 0.22 + 0.14 * fk;
+        vec2 q = p * sc - vec2(0.0, t * vel);
+        vec2 ci = floor(q);
+        for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+                vec2 c = ci + vec2(float(i), float(j));
+                vec2 h = vec2(hash(c + fk * 31.0), hash(c.yx + 7.0 + fk * 13.0));
+                vec2 pos = c + 0.5 + (h - 0.5) * 0.8 + 0.22 * vec2(sin(t * 0.6 + h.x * 6.28), cos(t * 0.5 + h.y * 6.28));
+                vec2 pw = (pos + vec2(0.0, t * vel)) / sc;
+                vec2 dv = pw - m;
+                float dl = length(dv);
+                float inf = on * exp(-dl * dl * 16.0);
+                pw += dv / (dl + 1e-3) * inf * 0.075 + vec2(-dv.y, dv.x) / (dl + 0.06) * inf * 0.018;
+                float r = length(p - pw);
+                float size = (0.0016 + 0.0020 * hash(c + 3.7)) * (1.0 + 1.6 * inf);
+                float tw = 0.55 + 0.45 * sin(t * (1.0 + 2.0 * hash(c)) + hash(c.yx) * 6.28);
+                float a = exp(-(r * r) / (size * size)) * tw * (0.95 - 0.35 * fk);
+                acc += mix(vec3(0.10, 0.55, 0.70), vec3(0.55, 0.95, 1.0), inf) * a * (1.0 + 2.2 * inf);
+            }
+        }
+    }
+    float dm = length(p - m);                                   // halo suave + anel no cursor
+    acc += vec3(0.10, 0.50, 0.65) * on * (exp(-dm * dm * 260.0) * 0.20 + (1.0 - smoothstep(0.0, 0.003, abs(dm - 0.045))) * 0.35);
+    return acc;
+}
+
+void main() {
+    vec2 uv = qt_TexCoord0;
+    vec2 p = vec2((uv.x - 0.5) * aspect, 0.5 - uv.y);
+
+    // ---- grade de pontos em linhas ----
+    float cell = 0.0030;
+    vec2 g = p / cell;
+    float row = floor(g.y);
+    float rj = hash(vec2(row, 7.0));
+    float wob = sin(time * 0.25 + row * 0.5) * 0.04;
+    float colx = g.x + rj * 0.5 + wob;
+    vec2 cid = vec2(floor(colx), row);
+    vec2 cl = vec2(fract(colx) - 0.5, fract(g.y) - 0.5);
+    vec2 pc = vec2(cid.x + 0.5 - rj * 0.5 - wob, row + 0.5) * cell;
+    float tw = 0.78 + 0.22 * sin(time * (0.6 + hash(cid) * 1.4) + hash(cid.yx) * 6.28);
+
+    // ---- superfície sólida com os materiais do HUMANOID (BODY cinza-claro, GLOW azul) ----
+    vec4 sc = texture(scene, uv);
+    float cov = sc.a;
+    float mat = sc.g * 4.0;
+    float L = clamp(sc.r * 1.40, 0.0, 1.4);
+    vec3 body = vec3(0.799, 0.799, 0.799) * vec3(0.96, 0.98, 1.03);       // Kd do BODY/METAL
+    vec3 col = body * pow(L, 1.05) * 0.95 + vec3(0.18, 0.20, 0.23) * pow(clamp(L - 0.8, 0.0, 1.0), 2.0);
+    float glowK = 0.0;
+    if (mat > 0.5) glowK = clamp(0.35 + sc.r * 0.70, 0.0, 1.0);           // sobrancelhas e lábios (LED)
+    vec3 glowC = vec3(0.96, 0.97, 1.00);
+    col = mix(col, glowC * glowK + vec3(1.0) * pow(glowK, 5.0) * 0.10, step(0.5, mat));
+    // olho original do HUMANOID: B=0.5 marca a parte GLOW (íris), azul emissivo do material (Kd 0, 0.027, 0.8)
+    float irisA = smoothstep(0.3, 0.45, sc.b);
+    vec3 irisC = vec3(0.05, 0.38, 1.0) * (0.70 + 0.55 * sc.r);
+    col = mix(col, irisC, irisA * cov);
+    col *= cov * (0.94 + 0.06 * (tw - 0.8) / 0.22 * 0.3);
+    // grão sutil de malha: lembra a origem holográfica sem esconder a textura
+    float dotm = 1.0 - smoothstep(0.30, 0.50, length(cl));
+    col *= 0.90 + 0.10 * dotm;
+
+    // ---- fundo próprio (substitui por completo o da imagem) ----
+    float vig = smoothstep(1.0, 0.15, length(vec2(p.x * 0.7, p.y * 0.9)));
+    vec3 bg = mix(vec3(0.004, 0.012, 0.030), vec3(0.010, 0.050, 0.095), vig * 0.9 + 0.1 * (p.y + 0.5));
+    // halo e raios de luz atrás da cabeça
+    vec2 hp = p - vec2(0.0, 0.12);
+    float halo = exp(-dot(hp / vec2(0.34, 0.44), hp / vec2(0.34, 0.44)) * 1.2);
+    float ang = atan(hp.y, hp.x);
+    float rays = pow(max(0.0, sin(ang * 14.0 + time * 0.12) * 0.5 + 0.5), 6.0) * exp(-length(hp) * 2.4) * 0.35;
+    bg += vec3(0.02, 0.17, 0.24) * halo * (0.5 + 0.7 * glow) + vec3(0.03, 0.22, 0.30) * rays * (0.3 + 0.4 * glow) * 0.5;
+    // chuva digital nas laterais
+    float side = smoothstep(0.30, 0.62, abs(p.x)) * (0.0 + 1.0);
+    float colI = floor(p.x * 55.0);
+    float cs = 0.3 + hash(vec2(colI, 1.0)) * 0.7;
+    float ypos = fract(p.y * 0.6 + time * cs * 0.12 + hash(vec2(colI, 5.0)));
+    float rain = pow(ypos, 9.0) * step(0.5, hash(vec2(colI, 9.0))) * (1.0 - smoothstep(0.35, 0.48, abs(fract(p.x * 55.0) - 0.5)));
+    bg += vec3(0.05, 0.45, 0.55) * rain * side * 0.45;
+    // anéis HUD girando com marcas
+    float rr = length(hp);
+    float a2 = atan(hp.y, hp.x) + time * 0.08;
+    float ring1 = (1.0 - smoothstep(0.0, 0.0018, abs(rr - 0.52))) * (0.35 + 0.65 * step(0.5, fract(a2 * 38.0 / 6.2832)));
+    float ring2 = (1.0 - smoothstep(0.0, 0.0012, abs(rr - 0.585 - 0.01 * sin(time * 0.4)))) * step(0.15, fract(-a2 * 7.0 / 6.2832 + 0.5));
+    float ticks = step(0.485, fract(a2 * 72.0 / 6.2832)) * step(fract(a2 * 72.0 / 6.2832), 0.515) * step(0.535, rr) * step(rr, 0.560);
+    bg += vec3(0.08, 0.55, 0.65) * (ring1 * 0.35 + ring2 * 0.45 + ticks * 0.25) * (0.5 + 0.7 * glow);
+    // linha de varredura lenta
+    float scan = exp(-pow((fract(time * 0.07) * 1.4 - 0.2 - (p.y + 0.5)) * 14.0, 2.0)) * 0.05;
+    bg += vec3(0.1, 0.5, 0.6) * scan;
+    bg += particles(p, mouse, mouseOn, time) * (1.0 - cov);
+
+    fragColor = vec4(bg + col, 1.0) * qt_Opacity;
+}

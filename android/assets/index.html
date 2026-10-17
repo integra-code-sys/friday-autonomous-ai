@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>F.R.I.D.A.Y. Remoto</title>
+<style>
+:root { --bg:#02070c; --bg2:#071728; --cia:#36d6ff; --cia2:#1a8fb8; --cia3:#0f5b78; --lar:#ff8a1f; --txt:#d8f6ff; --mut:#6fb2c8;
+  --ok:#3dff9a; --err:#ff5a6e; --roxo:#c084fc; --vid:rgba(7,23,40,.78); --lin:rgba(54,214,255,.28); --lin2:rgba(54,214,255,.55);
+  --mono:"JetBrains Mono","Fira Code","Roboto Mono",monospace; --tab:66px; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { margin:0; height:100%; background:var(--bg); color:var(--txt); font:15px/1.4 "Inter","Roboto","Noto Sans",sans-serif; overflow:hidden; user-select:none; }
+body { background:radial-gradient(120% 70% at 50% 0%,#0a2236 0%,#02070c 60%); }
+body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:90; background:repeating-linear-gradient(0deg,rgba(54,214,255,.03) 0 1px,transparent 1px 4px); }
+button { font:inherit; color:inherit; cursor:pointer; }
+[hidden] { display:none !important; }
+.mono { font-family:var(--mono); }
+/* ---------- topo ---------- */
+#top { position:fixed; top:0; left:0; right:0; z-index:20; display:flex; align-items:center; gap:8px; height:calc(env(safe-area-inset-top) + 52px);
+  padding:env(safe-area-inset-top) 14px 0; background:linear-gradient(180deg,rgba(2,7,12,.96),rgba(2,7,12,.82)); border-bottom:1px solid var(--lin); backdrop-filter:blur(8px); }
+#dot { width:10px; height:10px; border-radius:50%; background:var(--err); box-shadow:0 0 10px currentColor; color:var(--err); flex:none; }
+#dot.on { background:var(--ok); color:var(--ok); } #dot.thinking { background:var(--lar); color:var(--lar); }
+#dot.speaking { background:var(--cia); color:var(--cia); animation:pulsa .5s infinite alternate; } #dot.listening { background:var(--ok); color:var(--ok); animation:pulsa 1s infinite alternate; }
+@keyframes pulsa { to { transform:scale(1.5); opacity:.6; } }
+#nome { font:700 13px var(--mono); letter-spacing:.3em; color:var(--cia); text-shadow:0 0 12px rgba(54,214,255,.5); }
+#vozLockTop { padding:3px 7px; border:1px solid rgba(61,255,154,.5); border-radius:999px; background:rgba(61,255,154,.1); color:var(--ok); font:700 9px var(--mono); letter-spacing:.08em; flex:none; }
+#sub { margin-left:auto; font:10px var(--mono); letter-spacing:.12em; color:var(--lar); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+#aprBadge { display:none; padding:4px 9px; border:1px solid var(--lar); background:rgba(255,138,31,.18); font:700 10px var(--mono); letter-spacing:.1em; color:#fff; flex:none; }
+#aprBadge.on { display:block; animation:alerta 1s ease-in-out infinite alternate; }
+@keyframes alerta { to { background:rgba(255,138,31,.04); } }
+/* ---------- abas ---------- */
+main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px); bottom:calc(env(safe-area-inset-bottom) + var(--tab)); }
+.aba { position:absolute; inset:0; display:none; overflow-y:auto; overscroll-behavior:contain; padding:14px 14px 24px; }
+.aba.on { display:block; animation:entra .22s ease; }
+.aba::-webkit-scrollbar, #msgs::-webkit-scrollbar, .hscroll::-webkit-scrollbar { width:0; height:0; }
+#conversa.on { display:flex; flex-direction:column; padding:0; overflow:hidden; }
+@keyframes entra { from { opacity:0; transform:translateY(6px); } }
+#tabs { position:fixed; left:0; right:0; bottom:0; z-index:20; display:grid; grid-template-columns:repeat(7,1fr); height:calc(env(safe-area-inset-bottom) + var(--tab));
+  padding-bottom:env(safe-area-inset-bottom); background:rgba(2,7,12,.98); border-top:1px solid var(--lin2); box-shadow:0 -6px 24px rgba(54,214,255,.08); }
+#tabs button { background:none; border:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--mut); font:700 8.5px var(--mono); letter-spacing:.06em; position:relative; padding:2px 1px; }
+#tabs button svg { width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+#tabs button.on { color:var(--cia); text-shadow:0 0 10px rgba(54,214,255,.6); }
+#tabs button.on::before { content:""; position:absolute; top:-1px; left:16%; right:16%; height:2px; background:var(--lar); box-shadow:0 0 10px var(--lar); }
+/* ---------- blocos ---------- */
+.card { position:relative; background:var(--vid); border:1px solid var(--lin); padding:12px 14px; margin-bottom:12px; border-radius:4px; }
+.card::before,.card::after { content:""; position:absolute; width:10px; height:10px; pointer-events:none; }
+.card::before { top:-1px; left:-1px; border-top:2px solid var(--cia); border-left:2px solid var(--cia); }
+.card::after { bottom:-1px; right:-1px; border-bottom:2px solid var(--lar); border-right:2px solid var(--lar); }
+.card h4 { margin:0 0 10px; font:600 11px var(--mono); letter-spacing:.26em; color:var(--lar); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.card h4 small { margin-left:auto; color:var(--mut); letter-spacing:.1em; font-size:10px; font-weight:400; }
+.vazio { color:var(--mut); font:11px var(--mono); letter-spacing:.18em; padding:6px 0; }
+.lst { margin:0; padding:0; list-style:none; }
+.lst li { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid rgba(54,214,255,.1); font-size:14px; align-items:center; }
+.lst li:last-child { border-bottom:0; }
+.lst li b { font:12px var(--mono); color:var(--cia); flex:none; min-width:48px; font-weight:400; }
+.lst li span { overflow-wrap:anywhere; flex:1; }
+.lst li i { margin-left:auto; font:10px var(--mono); font-style:normal; color:var(--lar); flex:none; letter-spacing:.1em; }
+.tagz { display:flex; flex-wrap:wrap; gap:6px; }
+.tag { padding:4px 9px; border:1px solid var(--lin2); color:var(--cia); font:12px var(--mono); border-radius:2px; background:rgba(54,214,255,.06); }
+.tag.p { border-color:var(--lar); color:#ffd2a8; background:rgba(255,138,31,.1); }
+/* ---------- conversa ---------- */
+#reator { position:relative; height:148px; flex:none; }
+#fx { position:absolute; inset:0; width:100%; height:100%; }
+#estadoTxt { position:absolute; left:0; right:0; bottom:4px; text-align:center; font:600 11px var(--mono); letter-spacing:.35em; color:var(--cia); }
+#ouvi { flex:none; margin:0 14px 4px; padding:7px 11px; min-height:34px; border:1px dashed var(--lin2); border-radius:4px; color:var(--cia); font-size:13.5px; font-style:italic;
+  background:rgba(54,214,255,.05); display:flex; gap:8px; align-items:center; }
+#ouvi::before { content:"OUVINDO"; font:600 9px var(--mono); letter-spacing:.2em; color:var(--lar); font-style:normal; flex:none; }
+#ouvi.vazio-o { opacity:.45; }
+#msgs { flex:1; overflow-y:auto; padding:6px 14px 8px; display:flex; flex-direction:column; gap:8px; user-select:text; overscroll-behavior:contain; }
+.m { max-width:88%; padding:9px 13px; font-size:15px; white-space:pre-wrap; overflow-wrap:anywhere; border-radius:12px; animation:entra .22s ease; }
+.m.u { align-self:flex-end; background:linear-gradient(135deg,rgba(255,138,31,.26),rgba(255,138,31,.1)); border:1px solid rgba(255,138,31,.5); border-bottom-right-radius:3px; }
+.m.a { align-self:flex-start; background:linear-gradient(135deg,rgba(54,214,255,.14),rgba(54,214,255,.04)); border:1px solid var(--lin2); border-bottom-left-radius:3px; }
+.m.t { align-self:center; color:var(--mut); font:11px var(--mono); border:0; padding:2px 6px; max-width:96%; }
+.m.h { opacity:.85; }
+#atalhosConv { flex:none; display:flex; gap:6px; overflow-x:auto; padding:4px 12px; border-top:1px solid rgba(54,214,255,.12); background:rgba(4,12,22,.85); }
+.chipAcao { flex:none; padding:5px 10px; border-radius:999px; border:1px solid var(--lin2); background:rgba(54,214,255,.08); color:var(--txt); font:600 10.5px var(--mono); letter-spacing:.06em; white-space:nowrap; }
+.chipAcao.lar { border-color:rgba(255,138,31,.6); color:#ffd2a8; background:rgba(255,138,31,.1); }
+.chipAcao.roxo { border-color:rgba(192,132,252,.6); color:#e9d5ff; background:rgba(192,132,252,.12); }
+.chipAcao:active { transform:scale(.95); }
+#anexos { display:flex; gap:6px; padding:0 14px; flex-wrap:wrap; flex:none; }
+.anx { font:11px var(--mono); padding:4px 8px; border:1px solid var(--cia); color:var(--cia); }
+#form { flex:none; display:flex; gap:7px; align-items:center; padding:7px 10px 8px; border-top:1px solid var(--lin); background:rgba(2,7,12,.94); }
+#txt { flex:1; min-width:0; background:rgba(0,0,0,.6); color:var(--txt); border:1px solid var(--lin2); padding:11px 14px; font-size:15.5px; outline:none; border-radius:999px; user-select:text; }
+#txt:focus { border-color:var(--cia); box-shadow:0 0 0 2px rgba(54,214,255,.18); }
+.rb { width:44px; height:44px; flex:none; border-radius:50%; border:1px solid var(--lin2); background:rgba(7,23,40,.9); display:grid; place-items:center; color:var(--cia); }
+.rb svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+.rb:active { transform:scale(.92); }
+#bEnviar { width:auto; min-width:86px; height:44px; padding:0 14px; border-radius:999px; background:var(--cia); color:#02070c; border:1px solid var(--cia); font:700 11.5px var(--mono); letter-spacing:.1em; display:flex; align-items:center; justify-content:center; gap:5px; box-shadow:0 0 12px rgba(54,214,255,.35); }
+#bEnviar svg { width:16px; height:16px; stroke:#02070c; fill:#02070c; }
+#ptt { width:50px; height:50px; border:2px solid var(--lar); color:var(--lar); background:radial-gradient(circle,rgba(255,138,31,.25),rgba(7,23,40,.9) 70%); touch-action:none; }
+#ptt.talk { background:var(--lar); color:#000; box-shadow:0 0 0 0 rgba(255,138,31,.6); animation:anel 1.2s infinite; }
+@keyframes anel { to { box-shadow:0 0 0 22px rgba(255,138,31,0); } }
+#chips { flex:none; display:flex; justify-content:center; gap:6px; flex-wrap:wrap; padding:0 8px 4px; }
+#cerebroSel, #tsSel, #vozSel, #devSel { flex:none; margin:0 0 3px; font:10px var(--mono); letter-spacing:.12em; color:var(--mut); background:transparent; border:1px solid var(--lin2); border-radius:999px; padding:4px 10px; }
+#vozSel { border-color:rgba(61,255,154,.55); color:#b8ffda; }
+#vozSel b { color:var(--ok); }
+#devSel b { color:var(--mut); } #devSel.on { border-color:var(--roxo); } #devSel.on b { color:var(--roxo); }
+#tsSel b { font-weight:600; } #tsSel.on b { color:#3ddc84; } #tsSel.off b { color:#ff6b6b; }
+#cerebroSel b { color:var(--ac, #36d6ff); font-weight:600; }
+#pttDica { flex:none; text-align:center; font:9.5px var(--mono); letter-spacing:.18em; color:var(--mut); padding:0 0 3px; }
+
+/* ---------- AGENDA FRIDAY ---------- */
+.agTopBar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+.agBadgeNivel { padding:4px 10px; border-radius:999px; font:700 10px var(--mono); letter-spacing:.16em; border:1px solid var(--cia); color:var(--cia); background:rgba(54,214,255,.1); }
+.agDias { display:flex; gap:7px; overflow-x:auto; padding:4px 0 10px; }
+.agDia { flex:none; min-width:74px; padding:8px 8px; border:1px solid var(--lin); border-radius:6px; background:rgba(7,23,40,.65); text-align:center; font:10px var(--mono); color:var(--mut); position:relative; }
+.agDia b { display:block; font-size:13px; color:var(--txt); margin:2px 0; }
+.agDia i { font-style:normal; font-size:9px; padding:1px 5px; border-radius:8px; background:rgba(54,214,255,.15); color:var(--cia); }
+.agDia.on { border-color:var(--cia); background:rgba(54,214,255,.16); box-shadow:0 0 14px rgba(54,214,255,.2); }
+.agDia.on b { color:var(--cia); }
+.agFormGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+.agInput { width:100%; background:#020810; color:var(--txt); border:1px solid var(--lin2); border-radius:5px; padding:10px 11px; font:14px sans-serif; outline:none; }
+.agInput:focus { border-color:var(--cia); }
+.agItem { border:1px solid var(--lin); border-left:3px solid var(--cia); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(5,16,28,.85); display:flex; flex-direction:column; gap:6px; }
+.agItem.alta { border-left-color:var(--lar); }
+.agItem.critica { border-left-color:var(--err); background:rgba(40,10,18,.65); }
+.agItem.feito { opacity:.58; border-left-color:var(--ok); }
+.agItemTop { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.agHora { font:700 12px var(--mono); color:var(--cia); }
+.agCat { font:600 9.5px var(--mono); padding:2px 7px; border-radius:999px; border:1px solid var(--lin2); color:var(--mut); text-transform:uppercase; }
+.agPrio { font:700 9.5px var(--mono); padding:2px 7px; border-radius:999px; margin-left:auto; }
+.agTit { font-size:15px; font-weight:600; color:var(--txt); overflow-wrap:anywhere; }
+.agItem.feito .agTit { text-decoration:line-through; }
+.agNotas { font-size:12.5px; color:var(--mut); white-space:pre-wrap; }
+.agItemBtns { display:flex; gap:6px; margin-top:2px; }
+.agBtn { flex:1; padding:6px 8px; border:1px solid var(--lin2); background:rgba(54,214,255,.07); color:var(--cia); border-radius:4px; font:600 10px var(--mono); letter-spacing:.08em; }
+.agBtn.ok { border-color:rgba(61,255,154,.5); color:var(--ok); background:rgba(61,255,154,.08); }
+.agBtn.lar { border-color:rgba(255,138,31,.5); color:var(--lar); background:rgba(255,138,31,.08); }
+.agBtn.err { border-color:rgba(255,90,110,.45); color:var(--err); background:rgba(255,90,110,.08); }
+
+/* ---------- MODO DEV IDE ---------- */
+.devHeader { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+.devStatusPill { padding:4px 10px; border-radius:999px; font:700 10px var(--mono); letter-spacing:.15em; border:1px solid var(--roxo); color:#e9d5ff; background:rgba(192,132,252,.15); }
+.devStatusPill.on { border-color:var(--ok); color:var(--ok); background:rgba(61,255,154,.12); animation:pulsa .9s infinite alternate; }
+.devAlvoSwitch { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
+.devAlvoBtn { padding:9px 8px; border:1px solid var(--lin); background:rgba(7,23,40,.7); color:var(--mut); border-radius:6px; font:700 10.5px var(--mono); letter-spacing:.1em; text-align:center; }
+.devAlvoBtn.on { border-color:var(--roxo); color:#fff; background:rgba(192,132,252,.2); box-shadow:0 0 14px rgba(192,132,252,.22); }
+#devPrompt { width:100%; min-height:78px; background:#02060c; color:var(--txt); border:1px solid var(--lin2); border-radius:6px; padding:10px 12px; font:14px/1.4 var(--mono); outline:none; resize:vertical; user-select:text; }
+#devPrompt:focus { border-color:var(--roxo); }
+#devTerm { background:#010408; border:1px solid rgba(192,132,252,.4); border-radius:6px; padding:10px; height:250px; overflow-y:auto; font:11.5px/1.45 var(--mono); user-select:text; display:flex; flex-direction:column; gap:3px; }
+.dl { white-space:pre-wrap; overflow-wrap:anywhere; }
+.dl.plano, .dl.pensando { color:#36d6ff; }
+.dl.editar, .dl.escrever { color:#c084fc; }
+.dl.bash, .dl.cmd { color:#ff8a1f; }
+.dl.ok, .dl.fim { color:#3dff9a; font-weight:600; }
+.dl.erro { color:#ff5a6e; font-weight:600; }
+.dl.claude, .dl.llm { color:#e2e8f0; }
+
+/* ---------- modelos & biometria de voz ---------- */
+.modCard { border:1px solid var(--lin); border-radius:6px; padding:10px 12px; margin-bottom:8px; background:rgba(5,16,28,.8); display:flex; align-items:center; gap:10px; }
+.modCard.ativo { border-color:var(--ok); background:rgba(61,255,154,.08); }
+.modCard .mInfo { flex:1; min-width:0; }
+.modCard .mInfo b { display:block; font:700 12.5px var(--mono); color:var(--cia); }
+.modCard.ativo .mInfo b { color:var(--ok); }
+.modCard .mInfo small { display:block; color:var(--mut); font-size:11.5px; margin-top:2px; }
+.modCard .mMeta { font:10px var(--mono); color:var(--lar); margin-top:3px; }
+
+/* ---------- câmeras ---------- */
+.cams { display:grid; grid-template-columns:1fr; gap:12px; }
+.cam { position:relative; border:1px solid var(--lin2); background:#000; aspect-ratio:16/9; overflow:hidden; border-radius:4px; }
+.cam img { width:100%; height:100%; object-fit:contain; display:block; }
+.cam .rot { position:absolute; left:8px; top:6px; font:600 10px var(--mono); letter-spacing:.25em; color:var(--cia); text-shadow:0 0 6px #000; }
+.cam .idade { position:absolute; right:8px; top:6px; font:10px var(--mono); color:var(--txt); text-shadow:0 0 6px #000; display:flex; align-items:center; gap:6px; }
+.cam .idade::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--err); }
+.cam.viva .idade::before { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+.cam .off { position:absolute; inset:0; display:grid; place-items:center; font:11px var(--mono); letter-spacing:.3em; color:var(--mut); }
+.cam::after { content:""; position:absolute; inset:0; pointer-events:none; border:1px solid transparent; box-shadow:inset 0 0 30px rgba(54,214,255,.12); }
+.camsMin { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+.camsMin .cam .rot { font-size:9px; }
+#camFull { position:fixed; inset:0; z-index:60; background:#000; display:none; }
+#camFull.open { display:block; }
+#camFull img { width:100%; height:100%; object-fit:contain; }
+#camFull .rot { position:absolute; left:14px; top:calc(env(safe-area-inset-top) + 12px); font:600 12px var(--mono); letter-spacing:.3em; color:var(--cia); }
+#camFull button { position:absolute; right:12px; top:calc(env(safe-area-inset-top) + 8px); }
+.dpad { display:grid; grid-template-columns:repeat(3,64px); grid-template-rows:repeat(3,64px); gap:6px; justify-content:center; margin:4px auto 12px; }
+.dpad button { border:1px solid var(--lin2); background:rgba(54,214,255,.06); color:var(--cia); border-radius:8px; font-size:22px; }
+.dpad button:active, .bt:active { background:rgba(255,138,31,.3); border-color:var(--lar); color:#fff; transform:scale(.96); }
+.dpad .c { font:600 10px var(--mono); letter-spacing:.1em; color:var(--lar); border-color:var(--lar); }
+.grade { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.grade.g2 { grid-template-columns:repeat(2,1fr); }
+.bt { min-height:48px; padding:8px 6px; border:1px solid var(--lin2); background:rgba(54,214,255,.06); color:var(--cia); border-radius:6px; font:600 10.5px var(--mono); letter-spacing:.1em; }
+.bt.lar { border-color:var(--lar); color:var(--lar); background:rgba(255,138,31,.08); }
+.bt.roxo { border-color:var(--roxo); color:#e9d5ff; background:rgba(192,132,252,.14); }
+.bt.ok { border-color:var(--ok); color:var(--ok); background:rgba(61,255,154,.1); }
+.bt.perigo { border-color:var(--err); color:var(--err); background:rgba(255,90,110,.08); }
+#celCam { width:100%; max-height:240px; object-fit:cover; background:#000; border:1px solid var(--lin); display:none; border-radius:4px; margin-bottom:10px; transform:scaleX(-1); }
+#celCam.traseira { transform:none; }
+/* ---------- painel ---------- */
+.gs { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.g { text-align:center; } .g svg { width:100%; display:block; } .g span { font:600 10px var(--mono); letter-spacing:.2em; color:var(--lar); }
+.gauge circle { fill:none; stroke-width:7; stroke-linecap:round; } .gauge .trilho { stroke:rgba(54,214,255,.12); }
+.gauge .valor { stroke:var(--cia); transition:stroke-dasharray .8s; filter:drop-shadow(0 0 4px var(--cia)); }
+.gauge.medio .valor { stroke:var(--lar); filter:drop-shadow(0 0 4px var(--lar)); } .gauge.alto .valor { stroke:var(--err); }
+.gauge text { fill:var(--txt); font:17px var(--mono); }
+.linhaInfo { display:flex; justify-content:space-between; gap:8px; margin-top:10px; font:11px var(--mono); color:var(--mut); letter-spacing:.06em; flex-wrap:wrap; }
+.linhaInfo b { color:var(--txt); font-weight:400; }
+.clima1 { display:flex; align-items:baseline; gap:12px; }
+.clima1 .big { font:300 48px var(--mono); color:var(--cia); line-height:1; text-shadow:0 0 16px rgba(54,214,255,.5); }
+.clima1 .d { font-size:15px; } .clima1 .c { font:10px var(--mono); color:var(--lar); letter-spacing:.2em; }
+.dias { display:grid; grid-template-columns:repeat(auto-fit,minmax(0,1fr)); gap:6px; margin-top:10px; }
+.dias div { border:1px solid var(--lin); padding:6px 2px; text-align:center; font:10px var(--mono); color:var(--mut); }
+.dias b { display:block; color:var(--cia); font-size:13px; font-weight:400; }
+.barras div { display:grid; grid-template-columns:90px 1fr 40px; align-items:center; gap:8px; font:11px var(--mono); padding:3px 0; }
+.barras s { display:block; height:4px; background:rgba(54,214,255,.12); text-decoration:none; } .barras s i { display:block; height:100%; background:var(--cia); box-shadow:0 0 6px var(--cia); }
+.barras span:first-child { color:var(--lar); letter-spacing:.08em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .barras span:last-child { text-align:right; color:var(--txt); }
+/* ---------- controles ---------- */
+.tg { display:flex; align-items:center; gap:12px; width:100%; min-height:58px; padding:10px 14px; margin-bottom:8px; border:1px solid var(--lin); background:rgba(7,23,40,.7);
+  border-radius:6px; text-align:left; }
+.tg .ic { width:38px; height:38px; flex:none; border-radius:50%; border:1px solid var(--lin2); display:grid; place-items:center; color:var(--mut); }
+.tg .ic svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.tg .tx { flex:1; min-width:0; } .tg .tx b { display:block; font:600 13px var(--mono); letter-spacing:.14em; color:var(--txt); } .tg .tx small { color:var(--mut); font-size:12px; }
+.tg .sw { width:50px; height:28px; flex:none; border-radius:999px; background:rgba(111,178,200,.2); border:1px solid var(--lin2); position:relative; transition:background .2s; }
+.tg .sw::after { content:""; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:var(--mut); transition:transform .2s, background .2s; }
+.tg.on { border-color:var(--cia); box-shadow:inset 0 0 18px rgba(54,214,255,.1); } .tg.on .ic { color:var(--cia); border-color:var(--cia); }
+.tg.on .sw { background:rgba(54,214,255,.35); } .tg.on .sw::after { transform:translateX(22px); background:var(--cia); box-shadow:0 0 8px var(--cia); }
+.tg.lar.on { border-color:var(--lar); } .tg.lar.on .ic { color:var(--lar); border-color:var(--lar); } .tg.lar.on .sw { background:rgba(255,138,31,.35); } .tg.lar.on .sw::after { background:var(--lar); box-shadow:0 0 8px var(--lar); }
+.tg.esp { opacity:.55; }
+#bParar { width:100%; min-height:58px; margin-bottom:12px; border:2px solid var(--err); color:#fff; background:linear-gradient(180deg,rgba(255,90,110,.35),rgba(255,90,110,.12)); border-radius:8px; font:700 14px var(--mono); letter-spacing:.28em; }
+#bParar:active { transform:scale(.98); background:var(--err); }
+.sec { font:600 10px var(--mono); letter-spacing:.3em; color:var(--mut); margin:16px 2px 8px; }
+/* ---------- tela ---------- */
+#telaImg { width:100%; background:#000; border:1px solid var(--lin2); display:block; min-height:160px; object-fit:contain; border-radius:4px; }
+#vnc { position:fixed; inset:0; z-index:70; background:#000; display:none; }
+#vnc.open { display:block; }
+#vncTela { position:absolute; inset:0; }
+#vncBar { position:absolute; top:calc(env(safe-area-inset-top) + 8px); right:8px; z-index:2; display:flex; gap:8px; }
+#vncBar .bt { min-height:40px; padding:6px 12px; background:rgba(2,7,12,.8); }
+/* ---------- aprovação ---------- */
+#aprov { position:fixed; z-index:65; left:12px; right:12px; bottom:calc(env(safe-area-inset-bottom) + var(--tab) + 10px); display:none; padding:14px; background:rgba(7,23,40,.97);
+  border:1px solid var(--lar); border-radius:8px; box-shadow:0 0 30px rgba(255,138,31,.3); }
+#aprov.open { display:block; animation:entra .3s ease; }
+#aprov .ht { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+#aprov h4 { margin:0; font:600 12px var(--mono); letter-spacing:.2em; color:var(--lar); overflow-wrap:anywhere; }
+#aprFila { color:var(--cia); font:10px var(--mono); margin-left:auto; flex:none; }
+#aprMin { width:40px; height:36px; border:1px solid var(--lin2); background:none; color:var(--txt); border-radius:4px; flex:none; }
+.row { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid rgba(54,214,255,.12); font-size:14px; }
+.row span:first-child { color:var(--lar); font:10px var(--mono); letter-spacing:.2em; flex:none; } .row span:last-child { text-align:right; overflow-wrap:anywhere; }
+#aprTexto { margin-top:8px; padding:10px; background:rgba(54,214,255,.05); border-left:2px solid var(--lar); white-space:pre-wrap; overflow-wrap:anywhere; max-height:28vh; overflow-y:auto; user-select:text; }
+#aprTexto.novo { animation:novo 1s; } @keyframes novo { from { background:rgba(255,138,31,.38); } }
+#aprEdit { display:block; width:100%; margin-top:8px; background:#000; color:var(--txt); border:1px solid var(--lar); padding:10px; font:15px/1.4 sans-serif; min-height:110px; max-height:32vh; outline:none; user-select:text; }
+#aprBtns { display:flex; gap:8px; margin-top:12px; } #aprBtns .bt { flex:1; }
+#aprOk { background:var(--lar) !important; color:#000 !important; border-color:var(--lar) !important; }
+#aprBtns .bt:disabled { opacity:.4; }
+/* ---------- painel holográfico vindo do daemon ---------- */
+#holo { position:fixed; z-index:55; left:50%; top:46%; width:min(92vw,520px); padding:14px 16px 16px; display:none; transform:translate(-50%,-50%); }
+#holo.open { display:block; animation:holoIn .4s cubic-bezier(.2,1,.3,1) both; }
+@keyframes holoIn { from { opacity:0; transform:translate(-50%,-50%) scale(.92); } to { opacity:1; transform:translate(-50%,-50%) scale(1); } }
+.pb { height:5px; background:rgba(54,214,255,.14); margin:8px 0 10px; border-radius:999px; overflow:hidden; } .pb i { display:block; height:100%; background:linear-gradient(90deg,var(--cia),var(--lar)); transition:width .5s; }
+.etapa { display:flex; gap:10px; align-items:center; padding:4px 0; font-size:14px; }
+.etapa i { width:18px; height:18px; border-radius:50%; border:1px solid var(--lin2); flex:none; display:grid; place-items:center; font:700 11px sans-serif; font-style:normal; color:var(--bg); }
+.etapa.ok i { background:var(--cia); border:0; } .etapa.falhou i { background:var(--err); border:0; } .etapa.executando i { border:2px solid var(--lar); animation:pulsa .6s infinite alternate; }
+.etapa.pendente span, .etapa.pulado span { opacity:.55; }
+/* ---------- configuração / avisos ---------- */
+#setup { position:fixed; inset:0; z-index:80; background:rgba(2,7,12,.97); display:none; flex-direction:column; justify-content:center; padding:24px; gap:14px; }
+#setup.open { display:flex; }
+#setup h2 { margin:0 0 8px; font:700 20px var(--mono); letter-spacing:.4em; color:var(--cia); }
+#setup h2 small { display:block; font-size:11px; color:var(--lar); letter-spacing:.3em; margin-top:6px; }
+#setup input { background:#000; color:var(--txt); border:1px solid var(--lin2); padding:14px; font-size:16px; outline:none; user-select:text; border-radius:4px; }
+#cfOk { background:var(--cia); color:var(--bg); border:0; padding:14px; font:700 13px var(--mono); letter-spacing:.25em; border-radius:4px; }
+#toast { position:fixed; z-index:95; left:50%; bottom:calc(env(safe-area-inset-bottom) + var(--tab) + 76px); transform:translateX(-50%); max-width:90vw; background:rgba(2,7,12,.96);
+  border:1px solid var(--lar); padding:9px 14px; font-size:13px; opacity:0; transition:opacity .3s; pointer-events:none; border-radius:4px; text-align:center; }
+#toast.on { opacity:1; }
+#boot { position:fixed; inset:0; z-index:99; background:var(--bg); display:grid; place-items:center; transition:opacity .7s; }
+#boot div { font:16px var(--mono); letter-spacing:.6em; color:var(--cia); animation:glitch 1.2s steps(2) infinite; text-align:center; }
+#boot small { display:block; color:var(--lar); letter-spacing:.4em; font-size:10px; margin-top:10px; }
+@keyframes glitch { 0%,100% { text-shadow:2px 0 var(--lar),-2px 0 var(--cia); } 50% { text-shadow:-2px 0 var(--lar),2px 0 var(--cia); } }
+.fuiEu { margin-left:6px; padding:6px 12px; border-radius:14px; border:1px solid var(--cy,#36d6ff); background:rgba(54,214,255,.15); color:#fff; font:700 11px var(--mono,monospace); letter-spacing:.1em; }
+.fuiEu:disabled { opacity:.6; }
+</style>
+</head>
+<body>
+<div id="boot"><div>F.R.I.D.A.Y.<small>CENTRO DE COMANDO REMOTO</small></div></div>
+
+<header id="top">
+  <i id="dot"></i>
+  <span id="nome">F.R.I.D.A.Y.</span>
+  <span id="vozLockTop" title="Reconhecimento Biométrico Estrito: Somente Voz do Dono">🔒 SÓ DONO</span>
+  <span id="aprBadge"></span>
+  <span id="sub">CONECTANDO…</span>
+</header>
+
+<main>
+  <!-- ===== CONVERSA ===== -->
+  <section class="aba on" id="conversa">
+    <div id="reator"><canvas id="fx"></canvas><div id="estadoTxt">EM ESPERA</div></div>
+    <div id="ouvi" class="vazio-o"><span id="ouviTxt">—</span></div>
+    <div id="msgs"></div>
+    <div id="anexos"></div>
+    <div id="atalhosConv" class="hscroll">
+      <button type="button" class="chipAcao lar" data-atalho="agenda">📅 AGENDA FRIDAY</button>
+      <button type="button" class="chipAcao roxo" data-atalho="dev">💻 MODO DEV</button>
+      <button type="button" class="chipAcao" data-atalho="pesquisa">🌐 PESQUISAR WEB</button>
+      <button type="button" class="chipAcao" data-atalho="pdf">📄 CRIAR PDF/DOC</button>
+      <button type="button" class="chipAcao lar" data-atalho="comp_zap">💬 PESQUISAR + ZAP</button>
+      <button type="button" class="chipAcao" data-atalho="comp_doc">📝 PESQUISAR + ARQUIVO</button>
+    </div>
+    <form id="form" autocomplete="off">
+      <button type="button" class="rb" id="bAnexo" aria-label="Anexar"><svg viewBox="0 0 24 24"><path d="M20 12l-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></svg></button>
+      <input id="txt" placeholder="Digite ou fale com a Sexta-Feira…" enterkeyhint="send">
+      <button type="submit" id="bEnviar" aria-label="Enviar mensagem"><svg viewBox="0 0 24 24"><path d="M3 12l18-9-7 18-3-7z"/></svg>ENVIAR</button>
+      <button type="button" class="rb" id="ptt" aria-label="Segure para falar"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    </form>
+    <div id="pttDica">TOQUE EM ENVIAR OU SEGURE O MICROFONE (SÓ VOZ DO DONO)</div>
+    <div id="chips">
+      <button type="button" id="cerebroSel" aria-label="Trocar cérebro">CÉREBRO · <b id="cerebroNome">LOCAL</b></button>
+      <button type="button" id="tsSel" aria-label="Ligar ou desligar o Tailscale">TAILSCALE · <b id="tsNome">…</b></button>
+      <button type="button" id="devSel" aria-label="Modo dev">MODO DEV · <b id="devNome">OFF</b></button>
+      <button type="button" id="vozSel" aria-label="Segurança biométrica da voz do dono">🔒 VOZ DONO · <b id="vozCont">+</b></button>
+    </div>
+    <input type="file" id="arq" multiple hidden>
+  </section>
+
+  <!-- ===== AGENDA FRIDAY (NATIVA + SYNC PC) ===== -->
+  <section class="aba" id="agenda">
+    <div class="card">
+      <h4>AGENDA F.R.I.D.A.Y.<small id="agDataTit">HOJE</small></h4>
+      <div class="agTopBar">
+        <span class="agBadgeNivel" id="agNivelBadge">NÍVEL: LIVRE</span>
+        <span class="mono" style="font-size:11px;color:var(--mut)" id="agStatsTxt">0 itens · 0 feitos</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button type="button" class="bt lar" id="bAgNovoToggle" style="min-height:34px;padding:4px 10px">+ NOVO</button>
+          <button type="button" class="bt" id="bAgSync" style="min-height:34px;padding:4px 10px">↻ SYNC</button>
+          <button type="button" class="bt" id="bAgFlut" style="min-height:34px;padding:4px 10px" title="Abrir Agenda Flutuante">⧉ HUD</button>
+        </div>
+      </div>
+      <div class="pb"><i id="agProgBar" style="width:0%"></i></div>
+      <div id="agDias" class="agDias hscroll"></div>
+    </div>
+
+    <div class="card" id="agFormCard" hidden>
+      <h4>NOVO COMPROMISSO NA SEXTA-FEIRA<small>AGENDA PRÓPRIA</small></h4>
+      <input id="agTitIn" class="agInput" placeholder="Título (ex.: Reunião Integra Code, Deploy APK…)">
+      <div class="agFormGrid">
+        <input id="agDataIn" type="date" class="agInput">
+        <input id="agHoraIn" type="time" class="agInput" value="09:00">
+        <select id="agDurIn" class="agInput">
+          <option value="30">Duração: 30 min</option>
+          <option value="60" selected>Duração: 1 hora</option>
+          <option value="90">Duração: 1h 30m</option>
+          <option value="120">Duração: 2 horas</option>
+        </select>
+        <select id="agCatIn" class="agInput">
+          <option value="geral">Categoria: Geral</option>
+          <option value="trabalho">Trabalho</option>
+          <option value="dev">Modo Dev / Código</option>
+          <option value="pessoal">Pessoal</option>
+          <option value="saude">Saúde</option>
+          <option value="estudo">Estudo</option>
+        </select>
+      </div>
+      <div class="agFormGrid" style="margin-top:8px">
+        <select id="agPrioIn" class="agInput">
+          <option value="1">Prioridade: Normal</option>
+          <option value="2">Prioridade: Alta ★</option>
+          <option value="3">Prioridade: Crítica ⚠</option>
+        </select>
+        <input id="agNotasIn" class="agInput" placeholder="Notas / observações (opcional)">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button type="button" class="bt ok" id="bAgSalvar" style="flex:2;min-height:42px">✓ SALVAR COMPROMISSO</button>
+        <button type="button" class="bt perigo" id="bAgCancelarForm" style="flex:1;min-height:42px">FECHAR</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>LINHA DO TEMPO DO DIA<small id="agLivreTxt"></small></h4>
+      <div id="agLista"><div class="vazio">CARREGANDO AGENDA FRIDAY…</div></div>
+    </div>
+  </section>
+
+  <!-- ===== MODO DEV (IDE AUTÔNOMA CELULAR + PC) ===== -->
+  <section class="aba" id="dev">
+    <div class="card">
+      <h4>MODO DEV · ENGENHEIRA AUTÔNOMA<small id="devMotorTxt">LOCAL + PC</small></h4>
+      <div class="devHeader">
+        <span class="devStatusPill" id="devEstadoPill">PRONTA</span>
+        <span class="mono" style="font-size:11px;color:var(--cia)" id="devRoundTxt">ROUND 0 / 8</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button type="button" class="bt roxo" id="bDevFlut" style="min-height:34px;padding:4px 10px">⧉ IDE HUD</button>
+          <button type="button" class="bt" id="bDevTermux" style="min-height:34px;padding:4px 10px">&gt;_ TERMUX</button>
+        </div>
+      </div>
+      <div class="pb"><i id="devProgBar" style="width:0%"></i></div>
+      <div class="devAlvoSwitch">
+        <button type="button" class="devAlvoBtn on" data-devalvo="auto" id="bDevAlvoAuto">⚡ HÍBRIDO (CELULAR + PC)</button>
+        <button type="button" class="devAlvoBtn" data-devalvo="pc" id="bDevAlvoPc">🖥 FORÇAR IDE DO PC</button>
+      </div>
+      <textarea id="devPrompt" placeholder="Descreva a tarefa de programação, script, página web, refatoração ou correção de bugs que a Sexta-Feira deve planejar, codar e testar autonomamente…"></textarea>
+      <div class="hscroll" style="display:flex;gap:6px;overflow-x:auto;padding:8px 0">
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie um script Python completo com testes automatizados que analisa uso de CPU, RAM e rede e gera um relatório em Markdown.">🐍 Script Diagnóstico</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma página HTML5 interativa com painel futurista em Canvas e salve em calculadora_hud.html.">🌐 App Web HUD</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Audite os arquivos recentes do projeto, rode validação de sintaxe e corrija eventuais erros encontrados.">🧪 Auditar &amp; Testar</button>
+        <button type="button" class="chipAcao roxo" data-devpreset="Crie uma API REST rápida em Python com endpoint /health e salve com documentação.">⚡ Microserviço API</button>
+      </div>
+      <div class="grade" style="margin-top:4px">
+        <button type="button" class="bt ok" id="bDevIniciar">▶ CODAR AGORA</button>
+        <button type="button" class="bt lar" id="bDevPausar">⏸ PAUSAR / RETOMAR</button>
+        <button type="button" class="bt perigo" id="bDevParar">■ PARAR</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>TELEMETRIA &amp; TERMINAL AO VIVO<small id="devTarefaAtiva">—</small></h4>
+      <div id="devTerm"><div class="dl plano">[F.R.I.D.A.Y. DEV IDE] Pronta para planejar, escrever código, testar e corrigir autonomamente.</div></div>
+    </div>
+  </section>
+
+  <!-- ===== CÂMERAS ===== -->
+  <section class="aba" id="cameras">
+    <div class="cams">
+      <div class="cam" data-cam="ptz"><img alt=""><span class="rot">PTZ · QUARTO</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+    </div>
+    <div class="camsMin">
+      <div class="cam" data-cam="nativa"><img alt=""><span class="rot">NATIVA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+      <div class="cam" data-cam="porta"><img alt=""><span class="rot">PORTA</span><span class="idade">--</span><span class="off">SEM SINAL</span></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h4>CONTROLE PTZ<small id="ptzMsg"></small></h4>
+      <div class="dpad">
+        <span></span><button data-ptz="cima" aria-label="Cima">▲</button><span></span>
+        <button data-ptz="esquerda" aria-label="Esquerda">◀</button><button data-ptz="centro" class="c">CENTRO</button><button data-ptz="direita" aria-label="Direita">▶</button>
+        <span></span><button data-ptz="baixo" aria-label="Baixo">▼</button><span></span>
+      </div>
+      <div class="grade">
+        <button class="bt lar" data-op="seguir">SEGUIR-ME</button><button class="bt" data-op="vigiar">VIGIAR</button><button class="bt" data-op="auto">AUTOMÁTICO</button>
+        <button class="bt" data-op="em_volta">OLHAR EM VOLTA</button><button class="bt" data-op="zoom">ZOOM 2×</button><button class="bt perigo" data-op="parar">PARAR</button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>CÂMERA DO CELULAR<small>VISÃO DELA</small></h4>
+      <video id="celCam" autoplay muted playsinline></video>
+      <button class="tg" id="tgCel" type="button"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+        <span class="tx"><b>ENVIAR MINHA CÂMERA</b><small>Ela passa a enxergar pelo celular</small></span><span class="sw"></span></button>
+      <button class="bt" id="bVirar" type="button" style="width:100%">TROCAR FRONTAL / TRASEIRA</button>
+    </div>
+  </section>
+
+  <!-- ===== PAINEL ===== -->
+  <section class="aba" id="painel">
+    <div class="card"><h4>SISTEMA<small id="pSisH">--</small></h4>
+      <div class="gs" id="pGauges"></div>
+      <div class="linhaInfo"><span>TEMP <b id="pTemp">--</b></span><span>DISCO <b id="pDisco">--</b></span><span>ATIVO <b id="pUp">--</b></span><span>REDE <b id="pRede">--</b></span></div>
+    </div>
+    <div class="card"><h4>PRESENÇA<small id="pAlvo"></small></h4><div class="tagz" id="pPessoas"></div><div class="tagz" id="pObjetos" style="margin-top:8px"></div></div>
+    <div class="card"><h4>CLIMA</h4><div id="pClima"><div class="vazio">CARREGANDO…</div></div></div>
+    <div class="card" id="cardPainelAgenda" style="cursor:pointer"><h4>AGENDA FRIDAY<small style="color:var(--cia)">ABRIR AGENDA ▸</small></h4><ul class="lst" id="pAgenda"></ul></div>
+    <div class="card"><h4>TAREFAS</h4><ul class="lst" id="pTarefas"></ul></div>
+    <div class="card"><h4>ATIVIDADE RECENTE</h4><ul class="lst" id="pRecente"></ul></div>
+    <div class="card"><h4>MEMÓRIA<small id="pFatos"></small></h4><div class="barras" id="pMem"></div></div>
+    <div class="card"><h4>PROCESSOS</h4><div class="barras" id="pProc"></div></div>
+  </section>
+
+  <!-- ===== CONTROLES ===== -->
+  <section class="aba" id="controles">
+    <button id="bParar" type="button">■ PARAR TUDO</button>
+
+    <div class="card">
+      <h4>BIOMETRIA DE VOZ · SÓ VOZ DO DONO<small id="vozBioBadge">ESTRITO</small></h4>
+      <div class="linhaInfo" style="margin-top:0;margin-bottom:8px">
+        <span>AMOSTRAS DO DONO: <b id="vozBioAmostras">--</b></span>
+        <span>LIMIAR: <b id="vozBioLimiarVal">0.54</b></span>
+        <span>ÚLTIMO SCORE: <b id="vozBioScore">--</b></span>
+      </div>
+      <input type="range" id="vozBioSlider" min="0.48" max="0.72" step="0.01" value="0.54" style="width:100%;accent-color:var(--cia);margin-bottom:8px">
+      <div class="grade g2">
+        <button type="button" class="bt ok" id="bVozGravar">+ GRAVAR MINHA VOZ</button>
+        <button type="button" class="bt lar" id="bVozFuiEu">✓ ENSINAR ÚLTIMA FALA</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>MODELOS DE IA NO ANDROID (GGUF)<small id="modAtivoTxt">LOCAL</small></h4>
+      <div id="listaModelos"><div class="vazio">CARREGANDO CATÁLOGO DE MODELOS…</div></div>
+    </div>
+
+    <div class="sec">COMPUTADOR (DAEMON)</div>
+    <div id="tgsPC"></div>
+    <div class="sec">MODOS</div>
+    <div id="tgsModos"></div>
+    <div class="sec">NO CELULAR</div>
+    <div id="tgsCel"></div>
+    <div class="sec">AÇÕES RÁPIDAS</div>
+    <div class="grade" id="acoes"></div>
+  </section>
+
+  <!-- ===== TELA ===== -->
+  <section class="aba" id="tela">
+    <div class="card"><h4>CONTROLE TOTAL<small>VNC</small></h4>
+      <button class="bt lar" id="bVnc" type="button" style="width:100%;min-height:60px">ABRIR TELA DO PC (VNC)</button>
+    </div>
+    <div class="card"><h4>PRÉVIA AO VIVO<small id="telaH">--</small></h4><img id="telaImg" alt=""></div>
+  </section>
+</main>
+
+<nav id="tabs">
+  <button data-aba="conversa" class="on"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>CHAT</button>
+  <button data-aba="agenda"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>AGENDA</button>
+  <button data-aba="dev"><svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12"/></svg>DEV</button>
+  <button data-aba="cameras"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>CÂMS</button>
+  <button data-aba="painel"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 17.5h7M17.5 14v7"/></svg>PAINEL</button>
+  <button data-aba="controles"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>AJUSTES</button>
+  <button data-aba="tela"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12"/><path d="M8 20h8M12 16v4"/></svg>TELA</button>
+</nav>
+
+<div id="camFull" class="sheet"><img alt=""><span class="rot"></span><button class="bt" id="camFecha" type="button">FECHAR</button></div>
+<div id="holo" class="card sheet"></div>
+<div id="aprov" class="sheet">
+  <div class="ht"><h4 id="aprTit">APROVAÇÃO</h4><span id="aprFila"></span><button id="aprMin" type="button" aria-label="Minimizar">▾</button></div>
+  <div class="row"><span>AÇÃO</span><span id="aprAcao"></span></div>
+  <div class="row"><span>DESTINO</span><span id="aprDest"></span></div>
+  <div id="aprTexto"></div>
+  <textarea id="aprEdit" maxlength="2000" rows="5" hidden></textarea>
+  <div id="aprBtns"><button type="button" class="bt" id="aprOk">APROVAR</button><button type="button" class="bt" id="aprAlt">ALTERAR</button><button type="button" class="bt perigo" id="aprNo">CANCELAR</button></div>
+</div>
+<div id="vnc"><div id="vncBar"><button class="bt" id="vTeclado" type="button">TECLADO</button><button class="bt lar" id="vSair" type="button">SAIR</button></div><div id="vncTela"></div></div>
+<div id="setup">
+  <h2>F.R.I.D.A.Y.<small>LINK REMOTO</small></h2>
+  <input id="cfHost" placeholder="Endereço do PC (ex.: 100.110.230.55:8790)" inputmode="url">
+  <input id="cfTok" placeholder="Token de acesso" autocomplete="off">
+  <button id="cfOk" type="button">CONECTAR</button>
+  <small style="color:var(--mut)">O token fica em memory/remoto.json no PC. PC e celular precisam estar no mesmo Tailscale ou Wi-Fi.</small>
+</div>
+<div id="toast"></div>
+
+<script src="novnc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

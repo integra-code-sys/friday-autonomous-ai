@@ -1,0 +1,46 @@
+{
+  "versao": "1.0.0-commercial",
+  "onboarding_concluido": false,
+  "usuario": {
+    "nome": "Chefe",
+    "idioma": "pt-BR",
+    "tratamento": "você"
+  },
+  "boot": {
+    "iniciar_no_boot": false
+  },
+  "ia": {
+    "provedor_cerebro": "ollama",
+    "provedor_visao": "ollama",
+    "ollama_url": "http://127.0.0.1:11434",
+    "ollama_modelo_cerebro": "qwen3-vl:4b-instruct",
+    "ollama_modelo_visao": "qwen3-vl:4b-instruct",
+    "gemini_api_key": "",
+    "gemini_modelo": "gemini-2.5-flash",
+    "claude_api_key": "",
+    "claude_modelo": "claude-3-5-sonnet-latest",
+    "openai_api_key": "",
+    "openai_modelo": "gpt-4o"
+  },
+  "cameras": {
+    "modo": "auto",
+    "quantidade_detectada": 0,
+    "camera_principal": "auto",
+    "camera_secundaria": "none",
+    "camera_ptz_ip": "",
+    "camera_ptz_usuario": "admin",
+    "camera_ptz_senha": "",
+    "camera_ptz_rtsp": ""
+  },
+  "voz": {
+    "ativa": true,
+    "tts_motor": "auto",
+    "stt_motor": "faster-whisper",
+    "wake_word": "Sexta-feira"
+  },
+  "mesh": {
+    "ativo": true,
+    "porta_http": 8790,
+    "porta_udp": 8792
+  }
+}

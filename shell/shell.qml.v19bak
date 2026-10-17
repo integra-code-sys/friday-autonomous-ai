@@ -1,0 +1,288 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+
+// F.R.I.D.A.Y. — assistente holográfica. Dormindo: não desenha nada (o wallpaper normal do Noctalia aparece).
+// "Sexta-Feira, ligar!" -> coluna esquerda (20% da tela) com o corpo inteiro holográfico articulado; as janelas reais
+// ocupam os 80% restantes (a coluna reserva espaço no layout). "Sexta-Feira, desligar!" -> some.
+// O avatar-wallpaper antigo continua em wallpaper_avatar.qml (PROMETHEUS_OLD=1 usa-o em vez deste).
+ShellRoot {
+    id: root
+
+    // ---- estado vindo do daemon ----
+    property bool online: false
+    property double lastRx: 0
+    property bool fridayOn: false
+    property string state: "idle"           // idle | listening | thinking | speaking
+    property string mood: "neutro"
+    property real mouth: 0
+    property real lookX: 0
+    property real lookY: 0
+    property bool present: false
+    property string caption: ""
+    property double lastSpeech: 0
+    property string poseOverride: ""
+    property string gestureLabel: ""
+    property bool micOn: true
+    property bool camOn: false
+    property int captionTick: 0
+    property string heardText: ""
+    property double heardAt: 0
+    property int camTick: 0
+    Timer { interval: 300; running: root.fridayOn; repeat: true; onTriggered: root.camTick++ }
+    // palco holográfico (e-mail, figuras, janelas projetadas)
+    property var stageSpec: null
+    property int stageSeq: 0
+    property string stageOp: "show"
+    // cursor do assistente (overlay)
+    property real curX: 960; property real curY: 540
+    property bool curOn: false
+    property int curClick: 0
+    Timer { id: curHide; interval: 6000; onTriggered: root.curOn = false }
+    Timer { id: poseReset; onTriggered: root.poseOverride = "" }
+    Timer { id: gestReset; interval: 1800; onTriggered: root.gestureLabel = "" }
+    Timer { interval: 1000; running: true; repeat: true; onTriggered: root.captionTick++ }
+    readonly property bool captionVisible: caption !== "" && (Date.now() - lastSpeech < 7000 || state === "speaking") && captionTick >= 0
+
+    function setPose(name, ttl) { poseOverride = name; if (ttl > 0) { poseReset.interval = ttl; poseReset.restart() } }
+
+    // ---- conexão com o daemon (JSON por linha) ----
+    Component {
+        id: sockComp
+        Socket {
+            path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/prometheus.sock"
+            connected: true
+            onConnectedChanged: root.online = connected
+            onError: root.online = false
+            parser: SplitParser {
+                onRead: line => {
+                    try {
+                        root.lastRx = Date.now()
+                        const m = JSON.parse(line)
+                        if (m.type === "friday") { root.fridayOn = !!m.on; if (!m.on) { root.caption = ""; root.stageSpec = null; root.stageSeq++ } }
+                        if (m.type === "state") { if (m.state) root.state = m.state; if (m.mood) root.mood = m.mood }
+                        if (m.type === "mouth") root.mouth = m.v > 0.05 ? Math.min(1, 0.10 + m.v * 1.30) : 0
+                        if (m.type === "text" && m.role === "assistant") { root.caption = String(m.text || ""); root.lastSpeech = Date.now() }
+                        if (m.type === "gaze") { root.present = m.present; root.lookX = m.present ? m.x : 0; root.lookY = m.present ? m.y : 0 }
+                        if (m.type === "camera") root.camOn = !!m.on
+                        if (m.type === "friday_heard") { root.heardText = String(m.text || ""); root.heardAt = Date.now() }
+                        if (m.type === "voice") root.micOn = !!m.on
+                        if (m.type === "friday_pose") root.setPose(m.pose || "", m.ttl || 2500)
+                        if (m.type === "friday_gesture") {
+                            root.gestureLabel = String(m.label || m.kind || "")
+                            gestReset.restart()
+                            if (m.pose) root.setPose(m.pose, m.ttl || 1800)
+                        }
+                        if (m.type === "holo") {
+                            root.stageOp = m.op || "show"
+                            if (m.op === "clear") root.stageSpec = null
+                            else if (m.spec) root.stageSpec = m.spec
+                            root.stageSeq++
+                        }
+                        if (m.type === "cursor") {
+                            root.curX = m.x; root.curY = m.y; root.curOn = true; curHide.restart()
+                            if (m.act === "click") root.curClick++
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    }
+    Loader { id: sockLoader; active: true; sourceComponent: sockComp }
+    function reconnect() { online = false; sockLoader.active = false; retry.restart() }
+    Timer { interval: 2500; running: !root.online; repeat: true; onTriggered: root.reconnect() }
+    Timer { id: retry; interval: 300; onTriggered: sockLoader.active = true }
+    Timer { interval: 3000; running: true; repeat: true; onTriggered: if (Date.now() - root.lastRx > 7000) root.reconnect() }
+
+    // ================== COLUNA DO AVATAR (20% da tela, esquerda; reserva espaço no layout) ==================
+    Variants {
+        model: root.fridayOn ? Quickshell.screens : []
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            color: "transparent"
+            anchors { left: true; top: true; bottom: true }
+            implicitWidth: Math.round(modelData.width * 0.20)
+            exclusionMode: ExclusionMode.Normal
+            exclusiveZone: Math.round(modelData.width * 0.20)      // reserva a coluna: as janelas reais ocupam só os 80% restantes
+            WlrLayershell.layer: WlrLayer.Top
+            WlrLayershell.namespace: "friday-avatar"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#e0030a14" }
+                    GradientStop { position: 1.0; color: "#e0061a2c" }
+                }
+                Rectangle { anchors.right: parent.right; width: 2; height: parent.height; color: "#667fe6ff" }
+                // cabeçalho
+                Row {
+                    x: 14; y: 10; spacing: 8
+                    Rectangle { width: 9; height: 9; radius: 5; y: 5; color: root.state === "speaking" ? "#7fffd0" : (root.state === "thinking" ? "#ffd27f" : "#7fe6ff") }
+                    Text { text: "F.R.I.D.A.Y."; color: "#bff3ff"; font.pixelSize: 15; font.bold: true; font.letterSpacing: 4 }
+                }
+                Text { x: 14; y: 32; color: "#7fb8cc"; font.pixelSize: 11; font.letterSpacing: 1
+                       text: (root.state === "listening" ? "OUVINDO" : root.state === "thinking" ? "PROCESSANDO" : root.state === "speaking" ? "FALANDO" : "EM ESPERA")
+                             + (root.micOn ? "  ·  MIC" : "") + (root.camOn ? "  ·  CAM" : "") }
+                FridayBody {
+                    anchors { left: parent.left; right: parent.right; top: parent.top; bottom: capBox.top; topMargin: 44; bottomMargin: 6 }
+                    pose: root.poseOverride !== "" ? root.poseOverride : (root.state === "listening" ? "ouvindo" : (root.state === "thinking" ? "pensando" : "neutro"))
+                    speaking: root.state === "speaking"
+                    thinking: root.state === "thinking"
+                    lookX: root.lookX
+                    lookY: root.lookY
+                }
+                // miniatura da câmera (com os pontos da mão): ajuda a posicionar a mão no quadro
+                Rectangle {
+                    visible: root.camOn
+                    anchors { right: parent.right; top: parent.top; margins: 10 }
+                    width: 132; height: 99; radius: 6; color: "#101820"; border.color: "#557fe6ff"; border.width: 1; clip: true
+                    Image { anchors.fill: parent; cache: false; fillMode: Image.PreserveAspectCrop; source: "file:///tmp/friday-cam.jpg?" + root.camTick }
+                    Text { anchors.left: parent.left; anchors.bottom: parent.bottom; anchors.margins: 3; text: "CÂMERA"; color: "#9fe6ff"; font.pixelSize: 8; font.letterSpacing: 1 }
+                }
+                // o que ela ouviu (feedback imediato)
+                Text {
+                    visible: root.heardText !== "" && Date.now() - root.heardAt < 6000 && root.captionTick >= 0
+                    anchors { left: parent.left; right: parent.right; top: parent.top; leftMargin: 14; rightMargin: 150; topMargin: 56 }
+                    text: "🎤 " + root.heardText; color: "#9fe6ff"; font.pixelSize: 12; wrapMode: Text.WordWrap; maximumLineCount: 3; elide: Text.ElideRight
+                }
+                // gesto reconhecido (feedback)
+                Rectangle {
+                    visible: root.gestureLabel !== ""
+                    anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 58 }
+                    width: gl.implicitWidth + 24; height: 26; radius: 13; color: "#cc062a44"; border.color: "#7fe6ff"; border.width: 1
+                    Text { id: gl; anchors.centerIn: parent; text: "✋ " + root.gestureLabel.toUpperCase(); color: "#d6f6ff"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2 }
+                }
+                // legenda da fala
+                Rectangle {
+                    id: capBox
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 10 }
+                    height: root.captionVisible ? Math.min(150, capText.implicitHeight + 20) : 0
+                    radius: 8; color: "#a0062038"; border.color: "#557fe6ff"; border.width: 1
+                    clip: true
+                    Behavior on height { NumberAnimation { duration: 180 } }
+                    Text {
+                        id: capText
+                        x: 10; y: 10; width: parent.width - 20
+                        text: root.caption; color: "#e9f9ff"; font.pixelSize: 14; wrapMode: Text.WordWrap
+                        maximumLineCount: 6; elide: Text.ElideRight
+                    }
+                }
+            }
+        }
+    }
+
+    // ================== PALCO HOLOGRÁFICO (80% direitos; clique passa direto) ==================
+    Variants {
+        model: root.fridayOn ? Quickshell.screens : []
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            color: "transparent"
+            anchors { right: true; top: true; bottom: true }
+            implicitWidth: Math.round(modelData.width * 0.80)
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "friday-stage"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            mask: Region {}
+            HoloStage {
+                id: stage
+                x: parent.width * 0.04; y: parent.height * 0.06
+                width: parent.width * 0.92; height: parent.height * 0.62
+                Connections {
+                    target: root
+                    function onStageSeqChanged() { if (!root.stageSpec) stage.clear(); else if (root.stageOp === "update") stage.update(root.stageSpec); else stage.show(root.stageSpec) }
+                }
+            }
+        }
+    }
+
+
+    // ================== "TINTA" HOLOGRÁFICA sobre as janelas reais (80% direitos; clique passa direto) ==================
+    Variants {
+        model: root.fridayOn ? Quickshell.screens : []
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            color: "transparent"
+            anchors { right: true; top: true; bottom: true }
+            implicitWidth: Math.round(modelData.width * 0.80)
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "friday-coat"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            mask: Region {}
+            Item {
+                anchors.fill: parent
+                opacity: 0.55
+                // véu azulado muito leve
+                Rectangle { anchors.fill: parent; color: "#0a2a55ff"; opacity: 0.10 }
+                // varredura lenta subindo
+                Rectangle {
+                    id: sweep; width: parent.width; height: 90
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#00bff3ff" }
+                        GradientStop { position: 0.5; color: "#1fbff3ff" }
+                        GradientStop { position: 1.0; color: "#00bff3ff" }
+                    }
+                    NumberAnimation on y { from: 1080; to: -90; duration: 7000; loops: Animation.Infinite }
+                }
+                // cantos de projeção
+                Repeater {
+                    model: [[0, 0, 1, 1], [1, 0, -1, 1], [0, 1, 1, -1], [1, 1, -1, -1]]
+                    Item {
+                        x: modelData[0] === 0 ? 6 : parent.width - 6; y: modelData[1] === 0 ? 6 : parent.height - 6
+                        Rectangle { x: modelData[2] > 0 ? 0 : -34; y: modelData[3] > 0 ? 0 : -2; width: 34; height: 2; color: "#cc7fe6ff" }
+                        Rectangle { x: modelData[2] > 0 ? 0 : -2; y: modelData[3] > 0 ? 0 : -34; width: 2; height: 34; color: "#cc7fe6ff" }
+                    }
+                }
+            }
+        }
+    }
+
+    // ================== CURSOR DO ASSISTENTE (sempre disponível) ==================
+    Variants {
+        model: Quickshell.screens
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            color: "transparent"
+            anchors { top: true; bottom: true; left: true; right: true }
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.namespace: "prometheus-cursor"
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            mask: Region {}
+            visible: root.curOn
+            Item {
+                id: cur
+                x: root.curX; y: root.curY
+                Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+                Behavior on y { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+                Rectangle { id: ripple; anchors.centerIn: parent; width: 40; height: 40; radius: width / 2
+                    color: "transparent"; border.color: "#aaf0ff"; border.width: 3; opacity: 0
+                    SequentialAnimation { id: rip
+                        ParallelAnimation {
+                            NumberAnimation { target: ripple; property: "width"; from: 40; to: 130; duration: 420; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ripple; property: "height"; from: 40; to: 130; duration: 420; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ripple; property: "opacity"; from: 0.95; to: 0; duration: 420 }
+                        }
+                    }
+                }
+                Connections { target: root; function onCurClickChanged() { rip.restart() } }
+                Rectangle { anchors.centerIn: parent; width: 52; height: 52; radius: 26; color: "transparent"; border.color: "#000000"; border.width: 7; opacity: 0.55 }
+                Rectangle { anchors.centerIn: parent; width: 52; height: 52; radius: 26; color: "#1f6fd0ff"; border.color: "#7fe6ff"; border.width: 3 }
+                Rectangle { anchors.centerIn: parent; width: 10; height: 10; radius: 5; color: "#ffffff"; border.color: "#001018"; border.width: 2 }
+                Rectangle { x: -34; y: -1; width: 24; height: 3; color: "#7fe6ff" }
+                Rectangle { x: 10; y: -1; width: 24; height: 3; color: "#7fe6ff" }
+                Rectangle { x: -1; y: -34; width: 3; height: 24; color: "#7fe6ff" }
+                Rectangle { x: -1; y: 10; width: 3; height: 24; color: "#7fe6ff" }
+                Rectangle { x: 34; y: 24; width: lbl.implicitWidth + 14; height: lbl.implicitHeight + 6; radius: 5; color: "#d9061a2a"; border.color: "#7fe6ff"; border.width: 1
+                    Text { id: lbl; anchors.centerIn: parent; text: "F.R.I.D.A.Y."; color: "#d6f6ff"; font.pixelSize: 12; font.bold: true; font.letterSpacing: 2 }
+                }
+            }
+        }
+    }
+}

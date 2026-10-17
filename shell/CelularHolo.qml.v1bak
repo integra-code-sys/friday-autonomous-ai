@@ -1,0 +1,396 @@
+import QtQuick
+import QtQuick.Effects
+import QtMultimedia
+
+// Holograma de um CELULAR: espelha a tela do aparelho ao vivo (H.264 -> mpegts via relay do daemon) a 60 FPS.
+// Moldura de aparelho (metal escuro, furo da câmera, botões laterais), brilho ciano + detalhes laranja, interativo:
+// clique = toque, arrastar = deslizar, roda = rolar, barra inferior = voltar/início/recentes. Arrastar a moldura move.
+Item {
+    id: holo
+
+    // ---- entrada ----
+    property string fonte: ""                 // ex.: tcp://127.0.0.1:8793
+    property int vidW: 720
+    property int vidH: 1568
+    property bool ligado: true                // false -> anima a saída
+    property string titulo: "CELULAR"
+
+    signal tocar(real nx, real ny, int ms)
+    signal arrastar(real nx0, real ny0, real nx1, real ny1)
+    signal tecla(string nome)
+    signal fechar()
+
+    // ---- paleta ----
+    readonly property color ciano: "#8fe9ff"
+    readonly property color cianoForte: "#3fd4ff"
+    readonly property color laranja: "#ff8a1f"
+
+    // ---- geometria (o corpo segue a proporção do vídeo) ----
+    readonly property real topoH: 38
+    readonly property real baseH: 62
+    readonly property real ladoM: 10                       // espaço para os botões laterais
+    readonly property real corpoH: Math.max(200, height - topoH - baseH)
+    readonly property real aspecto: (vidW > 0 && vidH > 0) ? vidW / vidH : 720 / 1568
+    readonly property real borda: Math.max(7, corpoH * 0.013)
+    readonly property real telaH: corpoH - 2 * borda
+    readonly property real telaW: telaH * aspecto
+    readonly property real corpoW: telaW + 2 * borda
+    readonly property real raio: corpoW * 0.09
+    implicitWidth: corpoW + 2 * ladoM
+    width: implicitWidth
+
+    // ---- estado do vídeo ----
+    property int fps: 0
+    property int quadros: 0
+    property double ultimoQuadro: 0
+    property double tentouEm: 0
+    property bool semSinal: true
+    property bool jaRecebeu: false
+
+    property bool pronto: false
+    function reiniciar() {
+        if (!pronto) return
+        tentouEm = Date.now()
+        player.stop()
+        player.source = ""
+        if (fonte !== "" && ligado) { player.source = fonte; player.play() }
+    }
+    onFonteChanged: reiniciar()
+    onLigadoChanged: if (!ligado) player.stop(); else reiniciar()
+    Component.onCompleted: { pronto = true; reiniciar() }
+
+    // anel laranja expandindo no ponto (nx, ny normalizados sobre o vídeo)
+    function toque(nx, ny) {
+        const r = vo.contentRect.width > 0 ? vo.contentRect : Qt.rect(0, 0, tela.width, tela.height)
+        anelComp.createObject(tela, { cx: r.x + nx * r.width, cy: r.y + ny * r.height })
+    }
+
+    // ---- entrada/saída animadas ----
+    property real aparecer: 0
+    Behavior on aparecer { NumberAnimation { duration: 520; easing.type: Easing.OutCubic } }
+    Component.onDestruction: player.stop()
+    Timer { interval: 16; running: true; onTriggered: holo.aparecer = Qt.binding(() => holo.ligado ? 1 : 0) }
+    opacity: aparecer
+    scale: 0.82 + 0.18 * aparecer
+    transform: Rotation {
+        origin.x: holo.width / 2; origin.y: holo.height / 2
+        axis { x: 0.25; y: 1; z: 0 }
+        angle: (1 - holo.aparecer) * -28
+    }
+
+    MediaPlayer {
+        id: player
+        videoOutput: vo
+        playbackOptions.playbackIntent: PlaybackOptions.PlaybackIntent.LowLatencyStreaming
+        playbackOptions.probeSize: 32768
+        onErrorOccurred: (err, msg) => console.log("[celular] player:", msg)
+    }
+
+    // conta quadros reais que chegam ao VideoOutput
+    Connections {
+        target: vo.videoSink
+        function onVideoFrameChanged() { holo.quadros++; holo.ultimoQuadro = Date.now(); if (!holo.jaRecebeu) holo.jaRecebeu = true }
+    }
+    Timer { interval: 1000; running: holo.visible; repeat: true; onTriggered: { holo.fps = holo.quadros; holo.quadros = 0 } }
+    Timer {
+        interval: 250; running: holo.visible; repeat: true
+        onTriggered: holo.semSinal = Date.now() - holo.ultimoQuadro > 1500
+    }
+    // reconecta: erro, parado ou sem quadros, a cada 1,5 s enquanto visível
+    Timer {
+        interval: 1500; running: holo.visible && holo.ligado && holo.fonte !== ""; repeat: true
+        onTriggered: {
+            const parado = player.playbackState !== MediaPlayer.PlayingState || player.error !== MediaPlayer.NoError
+            const mudo = Date.now() - holo.ultimoQuadro > 3000 && Date.now() - holo.tentouEm > 4000
+            if (parado || mudo) holo.reiniciar()
+        }
+    }
+
+    // ================== CABEÇALHO (arrasta o holograma) ==================
+    Item {
+        id: topo
+        x: holo.ladoM; width: holo.corpoW; height: holo.topoH - 6
+        MouseArea { anchors.fill: parent; drag.target: holo; cursorShape: Qt.SizeAllCursor }
+        Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: holo.ciano; opacity: 0.35 }
+        Rectangle { anchors.bottom: parent.bottom; width: 44; height: 3; color: holo.laranja }
+        Row {
+            anchors.verticalCenter: parent.verticalCenter; spacing: 8
+            Text { text: "◢"; color: holo.laranja; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: holo.titulo; color: holo.ciano; font.family: "monospace"; font.pixelSize: 12; font.bold: true; font.letterSpacing: 3
+                anchors.verticalCenter: parent.verticalCenter }
+            Text { text: holo.vidW + "×" + holo.vidH; color: holo.ciano; opacity: 0.55; font.family: "monospace"; font.pixelSize: 10
+                anchors.verticalCenter: parent.verticalCenter }
+        }
+        Row {
+            anchors.right: fecharBt.left; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; spacing: 8
+            // selo AO VIVO / SEM SINAL
+            Rectangle {
+                width: seloTx.implicitWidth + 28; height: 18; radius: 3; anchors.verticalCenter: parent.verticalCenter
+                color: holo.semSinal ? "#33ff5f6d" : "#2aff8a1f"; border.width: 1; border.color: holo.semSinal ? "#ff5f6d" : holo.laranja
+                Rectangle {
+                    id: seloPonto; x: 7; anchors.verticalCenter: parent.verticalCenter; width: 7; height: 7; radius: 3.5
+                    color: holo.semSinal ? "#ff5f6d" : holo.laranja
+                    SequentialAnimation on opacity { running: !holo.semSinal && holo.visible; loops: Animation.Infinite
+                        NumberAnimation { to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1; duration: 600; easing.type: Easing.InOutSine } }
+                }
+                Text { id: seloTx; x: 20; anchors.verticalCenter: parent.verticalCenter; text: holo.semSinal ? "SEM SINAL" : "AO VIVO"
+                    color: holo.semSinal ? "#ffb3bb" : "#ffd2a8"; font.family: "monospace"; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: holo.fps + " FPS"; font.family: "monospace"; font.pixelSize: 12; font.bold: true
+                color: holo.fps >= 50 ? holo.ciano : holo.fps >= 25 ? "#ffd27f" : "#ff7f9f"
+            }
+        }
+        // ✕ fechar
+        Rectangle {
+            id: fecharBt
+            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+            width: 24; height: 24; radius: 12
+            color: fma.containsMouse ? "#55ff5f6d" : "#22061a2a"; border.width: 1; border.color: fma.containsMouse ? "#ff8f9a" : holo.ciano
+            Text { anchors.centerIn: parent; text: "✕"; color: fma.containsMouse ? "#ffffff" : holo.ciano; font.pixelSize: 12; font.bold: true }
+            MouseArea { id: fma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: holo.fechar() }
+        }
+    }
+
+    // ================== APARELHO ==================
+    Item {
+        id: aparelho
+        x: holo.ladoM; y: holo.topoH; width: holo.corpoW; height: holo.corpoH
+
+        // brilho holográfico atrás do corpo
+        Rectangle {
+            id: aura
+            anchors.fill: parent; anchors.margins: -2; radius: holo.raio + 2
+            color: "transparent"; border.width: 3; border.color: holo.cianoForte
+            layer.enabled: true
+            layer.effect: MultiEffect { blurEnabled: true; blur: 1.0; blurMax: 40; brightness: 0.25 }
+            SequentialAnimation on opacity { running: holo.visible; loops: Animation.Infinite
+                NumberAnimation { from: 0.55; to: 0.95; duration: 1800; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 0.95; to: 0.55; duration: 1800; easing.type: Easing.InOutSine } }
+        }
+
+        // botões laterais (volume à esquerda, power à direita)
+        component BotaoLado: Rectangle {
+            width: 4; radius: 2
+            gradient: Gradient { orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: "#1b232b" } GradientStop { position: 0.5; color: "#6a7a88" } GradientStop { position: 1; color: "#1b232b" } }
+            border.width: 1; border.color: "#408fe9ff"
+        }
+        BotaoLado { x: -3.5; y: parent.height * 0.17; height: parent.height * 0.075 }
+        BotaoLado { x: -3.5; y: parent.height * 0.26; height: parent.height * 0.075 }
+        BotaoLado { x: parent.width - 0.5; y: parent.height * 0.22; height: parent.height * 0.11 }
+
+        // corpo de metal escuro com reflexo
+        Rectangle {
+            id: corpo
+            anchors.fill: parent; radius: holo.raio
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#3a4652" }
+                GradientStop { position: 0.08; color: "#141a20" }
+                GradientStop { position: 0.5; color: "#0b1015" }
+                GradientStop { position: 0.92; color: "#141a20" }
+                GradientStop { position: 1.0; color: "#2e3944" }
+            }
+            border.width: 1.5; border.color: "#7fa9c4d6"
+        }
+        // aro interno (chanfro)
+        Rectangle {
+            anchors.fill: parent; anchors.margins: holo.borda * 0.45; radius: holo.raio - holo.borda * 0.45
+            color: "transparent"; border.width: 1; border.color: "#30d8f4ff"
+        }
+        // reflexo diagonal no metal
+        Item {
+            anchors.fill: parent
+            layer.enabled: true
+            layer.effect: MultiEffect { maskEnabled: true; maskSource: corpoMascara; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+            Rectangle {
+                width: parent.width * 0.35; height: parent.height * 1.6; x: parent.width * 0.05; y: -parent.height * 0.3
+                rotation: 22; opacity: 0.16
+                gradient: Gradient { orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: "transparent" } GradientStop { position: 0.5; color: "#ffffff" } GradientStop { position: 1; color: "transparent" } }
+            }
+        }
+        Rectangle { id: corpoMascara; anchors.fill: parent; radius: holo.raio; visible: false; layer.enabled: true }
+
+        // arrastar pela moldura move o holograma
+        MouseArea { anchors.fill: parent; drag.target: holo; cursorShape: Qt.SizeAllCursor }
+
+        // ---------- TELA ----------
+        Item {
+            id: tela
+            x: holo.borda; y: holo.borda; width: holo.telaW; height: holo.telaH
+            readonly property real raioTela: Math.max(4, holo.raio - holo.borda)
+
+            Rectangle { anchors.fill: parent; radius: tela.raioTela; color: "#02060a" }
+            VideoOutput {
+                id: vo
+                anchors.fill: parent
+                fillMode: VideoOutput.PreserveAspectFit
+                layer.enabled: true
+                layer.effect: MultiEffect { maskEnabled: true; maskSource: telaMascara; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+            }
+            Rectangle { id: telaMascara; anchors.fill: parent; radius: tela.raioTela; visible: false; layer.enabled: true }
+
+            // linhas de varredura sutis + faixa que desce
+            Item {
+                anchors.fill: parent
+                layer.enabled: true
+                layer.effect: MultiEffect { maskEnabled: true; maskSource: telaMascara; maskThresholdMin: 0.5; maskSpreadAtMin: 1.0 }
+                Canvas {
+                    anchors.fill: parent; opacity: 0.10
+                    onWidthChanged: requestPaint(); onHeightChanged: requestPaint()
+                    onPaint: { const c = getContext("2d"); c.reset(); c.fillStyle = "#8fe9ff"
+                        for (let y = 0; y < height; y += 3) c.fillRect(0, y, width, 1) }
+                }
+                Rectangle {
+                    id: faixa; width: parent.width; height: parent.height * 0.12; opacity: 0.10
+                    gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 0.8; color: "#8fe9ff" } GradientStop { position: 1; color: "transparent" } }
+                    NumberAnimation on y { running: holo.visible; loops: Animation.Infinite; from: -faixa.height; to: tela.height; duration: 4200 }
+                }
+                // brilho de vidro
+                Rectangle { anchors.fill: parent; opacity: 0.07
+                    gradient: Gradient { GradientStop { position: 0; color: "#ffffff" } GradientStop { position: 0.35; color: "transparent" } } }
+            }
+            // contorno holográfico da tela
+            Rectangle { anchors.fill: parent; radius: tela.raioTela; color: "transparent"; border.width: 1; border.color: "#668fe9ff" }
+
+            // sem sinal / conectando
+            Rectangle {
+                anchors.fill: parent; radius: tela.raioTela; color: "#d9020a10"
+                visible: opacity > 0; opacity: holo.semSinal ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 250 } }
+                Column {
+                    anchors.centerIn: parent; spacing: 14
+                    Item {
+                        width: 64; height: 64; anchors.horizontalCenter: parent.horizontalCenter
+                        Rectangle { anchors.fill: parent; radius: 32; color: "transparent"; border.width: 1; border.color: holo.ciano; opacity: 0.35 }
+                        Canvas {
+                            anchors.fill: parent
+                            onPaint: { const c = getContext("2d"); c.reset(); c.lineWidth = 3; c.lineCap = "round"
+                                c.strokeStyle = "#ff8a1f"; c.beginPath(); c.arc(32, 32, 28, 0, Math.PI * 0.6); c.stroke()
+                                c.strokeStyle = "#8fe9ff"; c.beginPath(); c.arc(32, 32, 28, Math.PI, Math.PI * 1.35); c.stroke() }
+                            RotationAnimation on rotation { running: holo.semSinal && holo.visible; loops: Animation.Infinite; from: 0; to: 360; duration: 1400 }
+                        }
+                    }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "SEM SINAL"; color: "#ff9aa5"
+                        font.family: "monospace"; font.pixelSize: 16; font.bold: true; font.letterSpacing: 4 }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: holo.jaRecebeu ? "RECONECTANDO…" : "CONECTANDO AO APARELHO…"
+                        color: holo.ciano; opacity: 0.7; font.family: "monospace"; font.pixelSize: 10; font.letterSpacing: 2 }
+                }
+            }
+
+            // furo da câmera frontal
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter; y: holo.telaH * 0.012
+                width: holo.corpoW * 0.04; height: width; radius: width / 2
+                color: "#000000"; border.width: 1.5; border.color: "#2a3a48"
+                Rectangle { anchors.centerIn: parent; width: parent.width * 0.42; height: width; radius: width / 2; color: "#0d2236"
+                    Rectangle { x: parent.width * 0.18; y: parent.width * 0.18; width: parent.width * 0.3; height: width; radius: width / 2; color: "#5a8fe9ff" } }
+            }
+
+            // ---------- interação: toque / arrasto / roda ----------
+            Rectangle {
+                id: rastro; visible: false; height: 3; radius: 1.5; color: holo.laranja; opacity: 0.85
+                transformOrigin: Item.Left
+            }
+            MouseArea {
+                id: ma
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                property real x0: 0; property real y0: 0; property double t0: 0; property bool arrastando: false
+                function nx(px) { const r = vo.contentRect.width > 0 ? vo.contentRect : Qt.rect(0, 0, width, height); return Math.max(0, Math.min(1, (px - r.x) / r.width)) }
+                function ny(py) { const r = vo.contentRect.height > 0 ? vo.contentRect : Qt.rect(0, 0, width, height); return Math.max(0, Math.min(1, (py - r.y) / r.height)) }
+                onPressed: m => { x0 = m.x; y0 = m.y; t0 = Date.now(); arrastando = false }
+                onPositionChanged: m => {
+                    if (!pressed) return
+                    const dx = m.x - x0, dy = m.y - y0
+                    if (!arrastando && Math.hypot(dx, dy) > 12) arrastando = true
+                    if (arrastando) { rastro.visible = true; rastro.x = x0; rastro.y = y0 - 1.5
+                        rastro.width = Math.hypot(dx, dy); rastro.rotation = Math.atan2(dy, dx) * 180 / Math.PI }
+                }
+                onReleased: m => {
+                    rastro.visible = false
+                    if (arrastando) holo.arrastar(nx(x0), ny(y0), nx(m.x), ny(m.y))
+                    else { holo.toque(nx(m.x), ny(m.y)); holo.tocar(nx(m.x), ny(m.y), Date.now() - t0) }
+                    arrastando = false
+                }
+                onCanceled: { rastro.visible = false; arrastando = false }
+                // roda: acumula (touchpad manda passos pequenos) e vira um deslize vertical
+                property real acum: 0; property double ultimaRoda: 0
+                onWheel: w => {
+                    acum += w.angleDelta.y
+                    if (Math.abs(acum) < 120 || Date.now() - ultimaRoda < 280) return
+                    const px = nx(w.x), sobe = acum < 0           // roda para baixo -> conteúdo sobe (dedo de baixo para cima)
+                    acum = 0; ultimaRoda = Date.now()
+                    holo.arrastar(px, sobe ? 0.68 : 0.32, px, sobe ? 0.32 : 0.68)
+                }
+            }
+        }
+
+        // cantoneiras HUD laranja/ciano em volta do aparelho
+        component Canto: Item {
+            property bool dir: false; property bool baixo: false
+            width: 22; height: 22
+            Rectangle { x: parent.dir ? parent.width - 22 : 0; y: parent.baixo ? 20 : 0; width: 22; height: 2; color: holo.laranja }
+            Rectangle { x: parent.dir ? 20 : 0; y: 0; width: 2; height: 22; color: holo.laranja }
+        }
+        Canto { x: -9; y: -9 }
+        Canto { x: parent.width - 13; y: -9; dir: true }
+        Canto { x: -9; y: parent.height - 13; baixo: true }
+        Canto { x: parent.width - 13; y: parent.height - 13; dir: true; baixo: true }
+    }
+
+    // ================== BARRA DE NAVEGAÇÃO HOLOGRÁFICA ==================
+    component BotaoNav: Item {
+        id: bn
+        property string simbolo: ""
+        property string nome: ""
+        width: 64; height: 40
+        Rectangle {
+            anchors.centerIn: parent; width: 40; height: 40; radius: 20
+            color: bnm.pressed ? "#55ff8a1f" : bnm.containsMouse ? "#2a8fe9ff" : "transparent"
+            border.width: 1; border.color: bnm.containsMouse ? holo.laranja : "#668fe9ff"
+            Behavior on color { ColorAnimation { duration: 120 } }
+        }
+        Text { anchors.centerIn: parent; text: bn.simbolo; color: bnm.containsMouse ? "#ffd2a8" : holo.ciano; font.pixelSize: 19 }
+        MouseArea { id: bnm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: holo.tecla(bn.nome) }
+    }
+    Item {
+        x: holo.ladoM; y: holo.topoH + holo.corpoH + 10; width: holo.corpoW; height: holo.baseH - 14
+        // feixe projetado do aparelho para a barra
+        Rectangle { anchors.horizontalCenter: parent.horizontalCenter; y: -10; width: parent.width * 0.5; height: 10; opacity: 0.35
+            gradient: Gradient { GradientStop { position: 0; color: holo.ciano } GradientStop { position: 1; color: "transparent" } } }
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter; anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(parent.width, 250); height: 46; radius: 23
+            color: "#99061a2a"; border.width: 1; border.color: "#888fe9ff"
+            MouseArea { anchors.fill: parent; drag.target: holo }
+            Rectangle { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; width: 60; height: 2; color: holo.laranja; opacity: 0.8 }
+            Row {
+                anchors.centerIn: parent; spacing: 6
+                BotaoNav { simbolo: "◁"; nome: "voltar" }
+                BotaoNav { simbolo: "○"; nome: "inicio" }
+                BotaoNav { simbolo: "▢"; nome: "recentes" }
+            }
+        }
+    }
+
+    // anel de toque
+    Component {
+        id: anelComp
+        Item {
+            id: anel
+            property real cx: 0; property real cy: 0
+            property real t: 0
+            x: cx; y: cy
+            Rectangle { anchors.centerIn: parent; width: 14 + 70 * anel.t; height: width; radius: width / 2
+                color: "transparent"; border.width: 3; border.color: holo.laranja; opacity: 1 - anel.t }
+            Rectangle { anchors.centerIn: parent; width: 14 + 40 * anel.t; height: width; radius: width / 2
+                color: "#55ff8a1f"; border.width: 1; border.color: "#ffd2a8"; opacity: (1 - anel.t) * 0.8 }
+            NumberAnimation on t { from: 0; to: 1; duration: 560; easing.type: Easing.OutCubic; running: true
+                onFinished: anel.destroy() }
+        }
+    }
+}

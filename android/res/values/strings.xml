@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">F.R.I.D.A.Y.</string>
+    <string name="acesso_nome">F.R.I.D.A.Y. · controle pelo PC</string>
+    <string name="acesso_desc">Permite que o seu PC (pelo Tailscale, com o token do controle remoto) acenda a tela, desbloqueie com o seu PIN e mexa no celular. Só aceita conexões do Tailscale.</string>
+</resources>

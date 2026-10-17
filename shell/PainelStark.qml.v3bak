@@ -1,0 +1,507 @@
+import QtQuick
+import Quickshell.Io
+
+// Fundo animado e interativo da F.R.I.D.A.Y. (centro de comando): Mark 85 girando no centro (quadros pré-renderizados por
+// tools/mark85/bake.py, com crossfade entre quadros vizinhos = giro contínuo; arrastar gira à mão), sistema/memória/agenda à
+// esquerda, 3 câmeras + tarefas/atividade à direita, barra de status embaixo.
+// Dados: propriedades do daemon (stats) + /tmp/friday-painel.json (daemon/memoria.py, a cada 3 s).
+Item {
+    id: p
+    // ---- vindos do shell.qml ----
+    property string mode: "idle"
+    property real level: 0
+    property real cpu: 0
+    property real ram: 0
+    property real gpu: 0
+    property real vram: 0
+    property int temp: 0
+    property bool online: false
+    property string clock: ""
+    property string date: ""
+    property int pessoas: 0
+    property int objetos: 0
+    property var listaPessoas: []
+    property var listaObjetos: []
+    property string alvo: ""
+    property bool ptzOnline: false
+    property bool usbOnline: false
+    property bool natOnline: false
+    property int camTick: 0
+    property bool camOn: false
+    readonly property Item hit: armHit         // área que recebe mouse (o resto passa direto)
+
+    // ---- paleta ----
+    readonly property color cBg: "#02070c"
+    readonly property color cCyan: "#36d6ff"
+    readonly property color cCyanDim: "#1b6f8a"
+    readonly property color cTxt: "#d8f6ff"
+    readonly property color cSub: "#6fb2c8"
+    readonly property color cOrange: "#ff8a1f"
+    readonly property color cRed: "#ff5a6e"
+    readonly property color cGreen: "#3dff9a"
+    readonly property color cGlass: Qt.rgba(0.03, 0.10, 0.16, 0.66)
+    readonly property real s: Math.min(width / 1920, height / 1080)
+    readonly property int nQuadros: 144
+
+    // ---- dados do painel ----
+    property var d: ({})
+    FileView { id: fv; path: "/tmp/friday-painel.json"; blockLoading: false; printErrors: false
+        onLoaded: { try { p.d = JSON.parse(text()) } catch (e) {} } }
+    Timer { interval: 3000; running: p.visible; repeat: true; triggeredOnStart: true; onTriggered: fv.reload() }
+
+    // histórico p/ gráficos (1 ponto a cada 2 s, 60 pontos = 2 min)
+    property var hCpu: []
+    property var hRam: []
+    property var hGpu: []
+    Timer { interval: 2000; running: p.visible; repeat: true; triggeredOnStart: true
+        onTriggered: {
+            const add = (a, v) => { const b = a.slice(-59); b.push(v); return b }
+            p.hCpu = add(p.hCpu, p.cpu); p.hRam = add(p.hRam, p.ram); p.hGpu = add(p.hGpu, p.gpu)
+        } }
+    readonly property real saude: Math.max(0, Math.round(100 - Math.max(0, cpu - 60) * 0.6 - Math.max(0, ram - 70) * 0.8
+        - Math.max(0, temp - 75) * 1.2 - Math.max(0, parseInt(d.disco || "0") - 85) * 1.5 - (online ? 0 : 30)))
+
+    // ================== FUNDO ==================
+    Rectangle { anchors.fill: parent
+        gradient: Gradient { GradientStop { position: 0; color: "#071728" } GradientStop { position: 0.5; color: p.cBg } GradientStop { position: 1; color: "#010407" } } }
+    Canvas {        // grade fina + hexágonos esparsos (pintado uma vez)
+        anchors.fill: parent; opacity: 0.5
+        onPaint: {
+            const c = getContext("2d"); c.reset()
+            const g = 48 * p.s
+            c.strokeStyle = "rgba(54,214,255,0.06)"; c.lineWidth = 1
+            for (let x = 0; x < width; x += g) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, height); c.stroke() }
+            for (let y = 0; y < height; y += g) { c.beginPath(); c.moveTo(0, y); c.lineTo(width, y); c.stroke() }
+            c.strokeStyle = "rgba(54,214,255,0.10)"
+            const r = 26 * p.s, hx = r * Math.sqrt(3)
+            for (let j = 0; j * r * 1.5 < height; j++) for (let i = 0; i * hx < width; i++) {
+                if (((i * 7 + j * 13) % 11) > 1) continue
+                const cx = i * hx + (j % 2 ? hx / 2 : 0), cy = j * r * 1.5
+                c.beginPath(); for (let k = 0; k < 6; k++) { const a = Math.PI / 3 * k + Math.PI / 6; c.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a)) } c.closePath(); c.stroke()
+            }
+        }
+        onWidthChanged: requestPaint(); onHeightChanged: requestPaint()
+    }
+    Rectangle {     // vinheta radial no centro
+        anchors.centerIn: parent; width: parent.width * 0.9; height: width; radius: width / 2; opacity: 0.16
+        gradient: Gradient { GradientStop { position: 0; color: "#0f5b78" } GradientStop { position: 0.5; color: "transparent" } }
+    }
+    Rectangle {     // varredura horizontal
+        width: parent.width; height: 2; opacity: 0.25
+        gradient: Gradient { orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: "transparent" } GradientStop { position: 0.5; color: p.cCyan } GradientStop { position: 1; color: "transparent" } }
+        NumberAnimation on y { from: 0; to: p.height; duration: 9000; loops: Animation.Infinite; running: p.visible }
+    }
+    Repeater {      // partículas subindo
+        model: 50
+        Rectangle {
+            property real dur: 9000 + ((index * 977) % 14000)
+            width: (2 + index % 3) * p.s; height: width; radius: width / 2; color: index % 7 === 0 ? p.cOrange : p.cCyan
+            x: ((index * 0.6180339) % 1) * p.width; opacity: 0.12 + (index % 5) * 0.07
+            NumberAnimation on y { from: p.height + 10; to: -10; duration: dur; loops: Animation.Infinite; running: p.visible }
+        }
+    }
+
+    // ================== componentes ==================
+    component Card: Rectangle {
+        id: card
+        property string titulo: ""
+        property string extra: ""
+        property string icone: ""
+        default property alias conteudo: corpo.data
+        color: p.cGlass; radius: 6 * p.s
+        border.color: Qt.rgba(0.21, 0.84, 1, 0.26); border.width: 1
+        Rectangle { anchors.fill: parent; anchors.margins: 1; radius: parent.radius; color: "transparent"
+            gradient: Gradient { GradientStop { position: 0; color: Qt.rgba(0.21, 0.84, 1, 0.07) } GradientStop { position: 0.25; color: "transparent" } } }
+        Rectangle { width: 26 * p.s; height: 2; color: p.cCyan }
+        Rectangle { width: 2; height: 26 * p.s; color: p.cCyan }
+        Rectangle { width: 26 * p.s; height: 2; color: p.cCyan; anchors.right: parent.right; anchors.bottom: parent.bottom }
+        Rectangle { width: 2; height: 26 * p.s; color: p.cCyan; anchors.right: parent.right; anchors.bottom: parent.bottom }
+        Row { x: 14 * p.s; y: 10 * p.s; spacing: 8 * p.s
+            Text { visible: card.icone !== ""; text: card.icone; color: p.cCyan; font.pixelSize: 13 * p.s }
+            Text { text: card.titulo; color: p.cTxt; font.pixelSize: 13 * p.s; font.bold: true; font.letterSpacing: 2.2 * p.s; font.family: "monospace" } }
+        Text { anchors.right: parent.right; anchors.rightMargin: 14 * p.s; y: 11 * p.s; text: card.extra; color: p.cCyan; font.pixelSize: 11 * p.s; font.family: "monospace" }
+        Rectangle { x: 14 * p.s; y: 30 * p.s; width: parent.width - 28 * p.s; height: 1; color: Qt.rgba(0.21, 0.84, 1, 0.14) }
+        Item { id: corpo; x: 14 * p.s; y: 38 * p.s; width: parent.width - 28 * p.s; height: parent.height - 48 * p.s; clip: true }
+    }
+    component Linha: Item {
+        property string rot: ""
+        property string val: ""
+        property color cor: p.cTxt
+        width: parent ? parent.width : 100; height: 22 * p.s
+        Rectangle { width: 6 * p.s; height: 6 * p.s; rotation: 45; color: p.cCyan; anchors.verticalCenter: parent.verticalCenter; opacity: 0.8 }
+        Text { x: 14 * p.s; anchors.verticalCenter: parent.verticalCenter; text: rot; color: p.cSub; font.pixelSize: 13 * p.s; elide: Text.ElideRight; width: parent.width * 0.6 }
+        Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: val; color: cor; font.pixelSize: 13 * p.s; font.family: "monospace"; font.bold: true
+            horizontalAlignment: Text.AlignRight; width: parent.width * 0.4; elide: Text.ElideLeft }
+    }
+    component Barra: Item {
+        property string rot: ""
+        property real v: 0
+        width: parent ? parent.width : 100; height: 28 * p.s
+        Text { text: rot; color: p.cSub; font.pixelSize: 12 * p.s; font.letterSpacing: 1.2 * p.s }
+        Text { anchors.right: parent.right; text: Math.round(v) + "%"; color: v > 85 ? p.cRed : (v > 65 ? p.cOrange : p.cTxt); font.pixelSize: 12 * p.s; font.family: "monospace"; font.bold: true }
+        Row { y: 17 * p.s; spacing: 2 * p.s
+            Repeater { model: 30
+                Rectangle { width: (parent.parent.width - 58 * p.s) / 30; height: 6 * p.s; radius: 1
+                    readonly property bool aceso: index < Math.round(v / 100 * 30)
+                    color: !aceso ? Qt.rgba(0.21, 0.84, 1, 0.10) : (v > 85 ? p.cRed : (v > 65 ? p.cOrange : p.cCyan))
+                    Behavior on color { ColorAnimation { duration: 400 } } } } }
+    }
+    component Grafico: Canvas {      // linha + área (histórico 0..100)
+        property var serie: []
+        property color cor: p.cCyan
+        onSerieChanged: requestPaint()
+        onPaint: {
+            const c = getContext("2d"); c.reset()
+            const n = serie.length; if (n < 2) return
+            const px = i => i / 59 * width, py = v => height - Math.max(0, Math.min(100, v)) / 100 * (height - 2) - 1
+            c.beginPath(); c.moveTo(px(60 - n), height)
+            for (let i = 0; i < n; i++) c.lineTo(px(60 - n + i), py(serie[i]))
+            c.lineTo(px(59), height); c.closePath()
+            c.fillStyle = Qt.rgba(cor.r, cor.g, cor.b, 0.15); c.fill()
+            c.beginPath(); for (let i = 0; i < n; i++) (i ? c.lineTo : c.moveTo).call(c, px(60 - n + i), py(serie[i]))
+            c.strokeStyle = cor; c.lineWidth = 1.5; c.stroke()
+        }
+    }
+    component Anel: Canvas {          // anel tracejado (pintado 1 vez; gira por transform = custo de GPU ~zero)
+        property color cor: p.cCyan
+        property real espessura: 2
+        property int tracos: 60
+        property real cheio: 0.6
+        onPaint: {
+            const c = getContext("2d"); c.reset(); const r = width / 2 - espessura
+            c.strokeStyle = cor; c.lineWidth = espessura
+            for (let i = 0; i < tracos; i++) { const a0 = i / tracos * 2 * Math.PI; c.beginPath(); c.arc(width / 2, height / 2, r, a0, a0 + cheio * 2 * Math.PI / tracos); c.stroke() }
+        }
+    }
+
+    component Indicador: Rectangle {
+    property string titulo: ""
+    property string sub: ""
+    property string valor: ""
+    property bool alerta: false
+    width: 232 * p.s; height: 56 * p.s; color: Qt.rgba(0.02, 0.08, 0.12, 0.78); radius: 4 * p.s
+    border.color: alerta ? p.cOrange : Qt.rgba(0.21, 0.84, 1, 0.25)
+    Rectangle { width: 3 * p.s; height: parent.height - 16 * p.s; x: 6 * p.s; anchors.verticalCenter: parent.verticalCenter; color: alerta ? p.cOrange : p.cCyan }
+    Text { x: 16 * p.s; y: 8 * p.s; text: titulo; color: p.cTxt; font.pixelSize: 12 * p.s; font.letterSpacing: 1.5 * p.s; font.family: "monospace"; font.bold: true }
+    Text { x: 16 * p.s; y: 30 * p.s; text: sub; color: p.cSub; font.pixelSize: 11 * p.s; width: parent.width - 130 * p.s; elide: Text.ElideRight }
+    Text { anchors.right: parent.right; anchors.rightMargin: 12 * p.s; anchors.verticalCenter: parent.verticalCenter; text: valor; color: alerta ? p.cOrange : p.cCyan
+        font.pixelSize: 14 * p.s; font.family: "monospace"; font.bold: true; width: 110 * p.s; horizontalAlignment: Text.AlignRight; elide: Text.ElideRight }
+}
+    component Cam: Rectangle {
+    property string nome: ""
+    property string arq: ""
+    property bool on: false
+    color: "#000"; radius: 4 * p.s; border.color: on ? p.cCyan : p.cCyanDim; clip: true
+    Image { anchors.fill: parent; anchors.margins: 1; fillMode: Image.PreserveAspectCrop; cache: false; asynchronous: true; retainWhileLoading: true
+        source: parent.on ? "file://" + parent.arq + "?t=" + Math.floor(p.camTick / 4) : ""; visible: parent.on }
+    Text { visible: !parent.on; anchors.centerIn: parent; text: "SEM SINAL"; color: p.cCyanDim; font.pixelSize: 12 * p.s; font.family: "monospace" }
+    Repeater { model: 4      // cantoneiras de mira
+        Item { width: 14 * p.s; height: 14 * p.s
+            x: index % 2 ? parent.width - width - 4 * p.s : 4 * p.s; y: index > 1 ? parent.height - height - 4 * p.s : 4 * p.s
+            Rectangle { width: parent.width; height: 2; color: p.cCyan; y: index > 1 ? parent.height - 2 : 0 }
+            Rectangle { width: 2; height: parent.height; color: p.cCyan; x: index % 2 ? parent.width - 2 : 0 } } }
+    Rectangle { x: 8 * p.s; y: parent.height - 24 * p.s; width: tl.implicitWidth + 12 * p.s; height: 18 * p.s; radius: 3 * p.s; color: Qt.rgba(0, 0, 0, 0.65)
+        Text { id: tl; anchors.centerIn: parent; text: parent.parent.nome; color: p.cTxt; font.pixelSize: 10 * p.s; font.family: "monospace" } }
+    Row { visible: parent.on; anchors.right: parent.right; anchors.rightMargin: 10 * p.s; y: 8 * p.s; spacing: 5 * p.s
+        Rectangle { width: 8 * p.s; height: 8 * p.s; radius: 4 * p.s; color: p.cRed; anchors.verticalCenter: parent.verticalCenter
+            SequentialAnimation on opacity { loops: Animation.Infinite; running: p.visible; NumberAnimation { to: 0.2; duration: 700 } NumberAnimation { to: 1; duration: 700 } } }
+        Text { text: "REC"; color: p.cTxt; font.pixelSize: 10 * p.s; font.family: "monospace" } }
+}
+
+    // ================== BARRA SUPERIOR ==================
+    Item {
+        id: topo; x: 24 * p.s; y: 16 * p.s; width: parent.width - 48 * p.s; height: 70 * p.s
+        Rectangle { anchors.fill: parent; color: p.cGlass; radius: 6 * p.s; border.color: Qt.rgba(0.21, 0.84, 1, 0.25)
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 2; opacity: 0.6
+                gradient: Gradient { orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: "transparent" } GradientStop { position: 0.5; color: p.cCyan } GradientStop { position: 1; color: "transparent" } } } }
+        Row {       // logo + nome + data/hora (Row: nunca se sobrepõem)
+            x: 16 * p.s; anchors.verticalCenter: parent.verticalCenter; spacing: 18 * p.s
+            Item { width: 50 * p.s; height: 50 * p.s; anchors.verticalCenter: parent.verticalCenter
+                Anel { anchors.fill: parent; tracos: 24; cheio: 0.55; espessura: 2.5 * p.s
+                    RotationAnimation on rotation { from: 0; to: 360; duration: 8000; loops: Animation.Infinite; running: p.visible } }
+                Rectangle { anchors.centerIn: parent; width: parent.width * 0.52; height: width; radius: width / 2; color: "transparent"; border.color: p.cCyan; border.width: 2 * p.s }
+                Rectangle { anchors.centerIn: parent; width: parent.width * 0.3; height: width; radius: width / 2; color: p.mode === "speaking" ? p.cOrange : p.cCyan
+                    opacity: 0.6 + p.level * 0.4
+                    SequentialAnimation on scale { loops: Animation.Infinite; running: p.visible; NumberAnimation { to: 1.15; duration: 1100 } NumberAnimation { to: 0.9; duration: 1100 } } }
+            }
+            Column { anchors.verticalCenter: parent.verticalCenter; spacing: 2 * p.s
+                Text { text: "F.R.I.D.A.Y."; color: p.cTxt; font.pixelSize: 26 * p.s; font.letterSpacing: 6 * p.s; font.family: "monospace"; font.bold: true }
+                Text { text: "CENTRO DE COMANDO"; color: p.cSub; font.pixelSize: 10 * p.s; font.letterSpacing: 4 * p.s; font.family: "monospace" } }
+            Rectangle { width: 1; height: 42 * p.s; color: Qt.rgba(0.21, 0.84, 1, 0.3); anchors.verticalCenter: parent.verticalCenter }
+            Column { anchors.verticalCenter: parent.verticalCenter; spacing: 2 * p.s
+                Text { text: p.date; color: p.cSub; font.pixelSize: 11 * p.s; font.letterSpacing: 1.5 * p.s }
+                Text { text: p.clock; color: p.cTxt; font.pixelSize: 24 * p.s; font.family: "monospace" } }
+        }
+        Row {       // abas de estado (acende a atual)
+            anchors.centerIn: parent; spacing: 10 * p.s
+            Repeater {
+                model: [["EM ESPERA", "idle"], ["OUVINDO", "listening"], ["PENSANDO", "thinking"], ["FALANDO", "speaking"]]
+                Rectangle {
+                    readonly property bool ativa: p.mode === modelData[1]
+                    width: 128 * p.s; height: 36 * p.s; radius: 4 * p.s
+                    color: ativa ? Qt.rgba(0.21, 0.84, 1, 0.22) : Qt.rgba(0.21, 0.84, 1, 0.05)
+                    border.color: ativa ? p.cCyan : Qt.rgba(0.21, 0.84, 1, 0.2)
+                    Behavior on color { ColorAnimation { duration: 250 } }
+                    Text { anchors.centerIn: parent; text: modelData[0]; color: parent.ativa ? (modelData[1] === "speaking" ? p.cOrange : p.cTxt) : p.cSub
+                        font.pixelSize: 12 * p.s; font.letterSpacing: 1.5 * p.s; font.family: "monospace"; font.bold: parent.ativa }
+                }
+            }
+        }
+        Row {
+            anchors.right: parent.right; anchors.rightMargin: 20 * p.s; anchors.verticalCenter: parent.verticalCenter; spacing: 18 * p.s
+            Column { visible: !!p.d.clima; spacing: 2; anchors.verticalCenter: parent.verticalCenter
+                Text { text: p.d.clima ? (p.d.clima.local || "CLIMA").toUpperCase() : ""; color: p.cSub; font.pixelSize: 10 * p.s; font.letterSpacing: 2 * p.s }
+                Text { text: p.d.clima ? p.d.clima.temp + "°C · " + p.d.clima.desc : ""; color: p.cTxt; font.pixelSize: 15 * p.s } }
+            Rectangle { width: 1; height: 38 * p.s; color: Qt.rgba(0.21, 0.84, 1, 0.3); anchors.verticalCenter: parent.verticalCenter }
+            Column { anchors.verticalCenter: parent.verticalCenter; spacing: 3 * p.s
+                Text { text: "STATUS DO SISTEMA"; color: p.cSub; font.pixelSize: 10 * p.s; font.letterSpacing: 2 * p.s }
+                Row { spacing: 8 * p.s
+                    Rectangle { width: 9 * p.s; height: 9 * p.s; radius: 4.5 * p.s; anchors.verticalCenter: parent.verticalCenter; color: p.online ? p.cGreen : p.cRed
+                        SequentialAnimation on opacity { loops: Animation.Infinite; running: p.visible; NumberAnimation { to: 0.3; duration: 900 } NumberAnimation { to: 1; duration: 900 } } }
+                    Text { text: p.online ? "OPERACIONAL" : "DAEMON OFFLINE"; color: p.online ? p.cGreen : p.cRed; font.pixelSize: 13 * p.s; font.letterSpacing: 1.5 * p.s; font.bold: true } } }
+        }
+    }
+
+    readonly property real colY: 100 * p.s
+    readonly property real barraH: 44 * p.s
+    readonly property real colH: height - colY - barraH - 36 * p.s
+    readonly property real colW: 430 * p.s
+
+    // ================== COLUNA ESQUERDA ==================
+    Column {
+        x: 24 * p.s; y: p.colY; width: p.colW; spacing: 12 * p.s
+        Card {
+            titulo: "SISTEMA"; icone: "◈"; extra: "LIGADO " + (p.d.uptime || ""); width: parent.width; height: 330 * p.s
+            Item {      // anel de saúde geral
+                width: 132 * p.s; height: 132 * p.s; anchors.right: parent.right
+                Canvas { id: anelSaude; anchors.fill: parent
+                    property real v: p.saude; onVChanged: requestPaint()
+                    onPaint: { const c = getContext("2d"); c.reset(); const r = width / 2 - 8 * p.s
+                        c.lineWidth = 9 * p.s; c.strokeStyle = "rgba(54,214,255,0.12)"; c.beginPath(); c.arc(width / 2, height / 2, r, 0, 2 * Math.PI); c.stroke()
+                        c.strokeStyle = v > 70 ? "#36d6ff" : (v > 45 ? "#ff8a1f" : "#ff5a6e"); c.lineCap = "round"
+                        c.beginPath(); c.arc(width / 2, height / 2, r, -Math.PI / 2, -Math.PI / 2 + v / 100 * 2 * Math.PI); c.stroke() } }
+                Anel { anchors.centerIn: parent; width: parent.width * 0.68; height: width; tracos: 36; cheio: 0.4; espessura: 1.5 * p.s; opacity: 0.6
+                    RotationAnimation on rotation { from: 360; to: 0; duration: 14000; loops: Animation.Infinite; running: p.visible } }
+                Column { anchors.centerIn: parent
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: p.saude + "%"; color: p.cTxt; font.pixelSize: 26 * p.s; font.bold: true; font.family: "monospace" }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: p.saude > 70 ? "EXCELENTE" : (p.saude > 45 ? "ATENÇÃO" : "CRÍTICO"); color: p.cSub; font.pixelSize: 9 * p.s; font.letterSpacing: 1.5 * p.s } }
+            }
+            Column { width: parent.width - 146 * p.s; spacing: 0
+                Barra { rot: "CPU"; v: p.cpu }
+                Barra { rot: "RAM"; v: p.ram }
+                Barra { rot: "GPU RTX 3050"; v: p.gpu }
+                Barra { rot: "VRAM"; v: p.vram }
+                Barra { rot: "DISCO /"; v: parseInt(p.d.disco || "0") }
+            }
+            Item { y: 146 * p.s; width: parent.width; height: 96 * p.s
+                Text { text: "HISTÓRICO 2 MIN"; color: p.cSub; font.pixelSize: 10 * p.s; font.letterSpacing: 1.5 * p.s }
+                Row { anchors.right: parent.right; spacing: 12 * p.s
+                    Text { text: "● CPU"; color: p.cCyan; font.pixelSize: 10 * p.s } Text { text: "● RAM"; color: p.cOrange; font.pixelSize: 10 * p.s } Text { text: "● GPU"; color: p.cGreen; font.pixelSize: 10 * p.s } }
+                Rectangle { y: 16 * p.s; width: parent.width; height: 78 * p.s; color: Qt.rgba(0, 0, 0, 0.25); border.color: Qt.rgba(0.21, 0.84, 1, 0.12)
+                    Grafico { anchors.fill: parent; serie: p.hRam; cor: p.cOrange }
+                    Grafico { anchors.fill: parent; serie: p.hGpu; cor: p.cGreen }
+                    Grafico { anchors.fill: parent; serie: p.hCpu; cor: p.cCyan } }
+            }
+            Row { y: 246 * p.s; spacing: 22 * p.s
+                Repeater { model: [["TEMP", p.temp + "°C"], ["REDE", p.d.rede || "—"], ["PROCESSOS", String((p.d.processos || []).length) + " TOP"]]
+                    Column { Text { text: modelData[0]; color: p.cSub; font.pixelSize: 10 * p.s; font.letterSpacing: 1.5 * p.s }
+                             Text { text: modelData[1]; color: p.cTxt; font.pixelSize: 13 * p.s; font.family: "monospace"; elide: Text.ElideRight; width: 120 * p.s } } } }
+        }
+        Card {
+            titulo: "MEMÓRIA PRÓPRIA"; icone: "◉"; extra: ((p.d.memoria || {}).kb || 0) + " KB · " + ((p.d.memoria || {}).eventos || 0) + " EVENTOS"
+            width: parent.width; height: 196 * p.s
+            Flow { width: parent.width; spacing: 7 * p.s
+                Repeater {
+                    model: Object.entries((p.d.memoria || {}).por_tipo || {}).sort((a, b) => b[1] - a[1]).slice(0, 15)
+                    Rectangle { width: lbl.implicitWidth + 18 * p.s; height: 25 * p.s; radius: 3 * p.s; color: Qt.rgba(0.21, 0.84, 1, 0.08); border.color: Qt.rgba(0.21, 0.84, 1, 0.35)
+                        Text { id: lbl; anchors.centerIn: parent; text: modelData[0].toUpperCase() + "  " + modelData[1]; color: p.cTxt; font.pixelSize: 11 * p.s; font.family: "monospace" } }
+                }
+            }
+        }
+        Card {
+            titulo: "AGENDA & CLIMA"; icone: "▤"; extra: (p.d.agenda || []).length + " PRÓXIMOS"; width: parent.width; height: p.colH - 330 * p.s - 196 * p.s - 24 * p.s
+            Column { width: parent.width; spacing: 6 * p.s
+                Text { visible: !(p.d.agenda || []).length; text: "Nada marcado. Diga \"Sexta-Feira, marca…\""; color: p.cSub; font.pixelSize: 13 * p.s }
+                Repeater {
+                    model: (p.d.agenda || []).slice(0, 4)
+                    Row { spacing: 12 * p.s; width: parent.width
+                        Rectangle { width: 3 * p.s; height: 30 * p.s; color: modelData.feito ? p.cCyanDim : p.cOrange }
+                        Column { width: parent.width - 20 * p.s
+                            Text { text: modelData.titulo; color: modelData.feito ? p.cSub : p.cTxt; font.pixelSize: 13 * p.s; elide: Text.ElideRight; width: parent.width; font.strikeout: modelData.feito }
+                            Text { text: modelData.hora + (modelData.tipo ? " · " + modelData.tipo : ""); color: p.cCyan; font.pixelSize: 11 * p.s; font.family: "monospace" } } }
+                }
+                Item { width: 1; height: 4 * p.s }
+                Row { visible: !!(p.d.clima && p.d.clima.dias); spacing: 10 * p.s
+                    Repeater { model: p.d.clima ? p.d.clima.dias : []
+                        Rectangle { width: (p.colW - 48 * p.s) / 3; height: 48 * p.s; radius: 4 * p.s; color: Qt.rgba(0.21, 0.84, 1, 0.06); border.color: Qt.rgba(0.21, 0.84, 1, 0.2)
+                            Column { anchors.centerIn: parent
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.data.split("-").reverse().join("/"); color: p.cSub; font.pixelSize: 10 * p.s; font.family: "monospace" }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.min + "° / " + modelData.max + "°"; color: p.cTxt; font.pixelSize: 14 * p.s } } } } }
+            }
+        }
+    }
+
+    // ================== CENTRO: MARK 85 ==================
+    Item {
+        id: centro
+        x: p.colW + 40 * p.s; y: p.colY; width: p.width - 2 * (p.colW + 40 * p.s); height: p.colH
+        Card { anchors.fill: parent; titulo: "MARK 85"; icone: "▲"; extra: "DIAGNÓSTICO DA ARMADURA · " + (p.online ? "ONLINE" : "OFFLINE") }
+
+        readonly property real armH: Math.min(centro.height * 0.78, (centro.width - 500 * p.s) * 757 / 480)
+        readonly property real cy: centro.height * 0.50
+
+        // anéis grandes atrás da armadura (giram em sentidos opostos)
+        Anel { width: centro.armH * 0.98; height: width; anchors.horizontalCenter: parent.horizontalCenter; y: centro.cy - height / 2
+            tracos: 90; cheio: 0.5; espessura: 1.5 * p.s; opacity: 0.30
+            RotationAnimation on rotation { from: 0; to: 360; duration: 60000; loops: Animation.Infinite; running: p.visible } }
+        Anel { width: centro.armH * 0.84; height: width; anchors.horizontalCenter: parent.horizontalCenter; y: centro.cy - height / 2
+            tracos: 8; cheio: 0.7; espessura: 3 * p.s; opacity: 0.35; cor: p.cOrange
+            RotationAnimation on rotation { from: 360; to: 0; duration: 40000; loops: Animation.Infinite; running: p.visible } }
+        Rectangle { width: centro.armH * 0.8; height: width; radius: width / 2; anchors.horizontalCenter: parent.horizontalCenter; y: centro.cy - height / 2
+            opacity: 0.18 + p.level * 0.25
+            gradient: Gradient { GradientStop { position: 0; color: "#1a8fb8" } GradientStop { position: 0.55; color: "transparent" } } }
+
+        // piso holográfico em perspectiva (elipses pulsando)
+        Item {
+            id: base; width: centro.armH * 0.82; height: width * 0.26
+            anchors.horizontalCenter: parent.horizontalCenter; y: arm.y + arm.height * 0.965 - height / 2
+            Repeater { model: 5
+                Rectangle { anchors.centerIn: parent; width: base.width * (1 - index * 0.17); height: base.height * (1 - index * 0.17); radius: height / 2
+                    color: "transparent"; border.width: index === 0 ? 2 : 1; border.color: p.cCyan; opacity: 0.6 - index * 0.1
+                    SequentialAnimation on opacity { loops: Animation.Infinite; running: p.visible
+                        PauseAnimation { duration: index * 250 } NumberAnimation { to: 0.1; duration: 1300 } NumberAnimation { to: 0.6 - index * 0.1; duration: 1300 } } }
+            }
+            Rectangle { anchors.centerIn: parent; width: base.width * 0.55; height: base.height * 0.55; radius: height / 2; opacity: 0.35 + p.level * 0.5
+                gradient: Gradient { GradientStop { position: 0; color: p.cCyan } GradientStop { position: 1; color: "transparent" } } }
+            Rectangle {     // onda que se expande do piso
+                anchors.centerIn: parent; height: width * 0.26; radius: height / 2; color: "transparent"; border.color: p.cCyan; border.width: 2
+                NumberAnimation on width { from: base.width * 0.3; to: base.width * 1.25; duration: 3000; loops: Animation.Infinite; running: p.visible }
+                NumberAnimation on opacity { from: 0.7; to: 0; duration: 3000; loops: Animation.Infinite; running: p.visible } }
+        }
+
+        // armadura: dois quadros vizinhos em crossfade -> giro contínuo
+        property real ang: 0
+        property bool arrastando: false
+        NumberAnimation on ang { id: giro; from: 0; to: 360; duration: 30000; loops: Animation.Infinite; running: p.visible && !centro.arrastando }
+        readonly property real fq: ((centro.ang / 360 * p.nQuadros) % p.nQuadros + p.nQuadros) % p.nQuadros
+        readonly property int q0: Math.floor(fq) % p.nQuadros
+        readonly property int q1: (q0 + 1) % p.nQuadros
+        function src(q) { return "assets/mark85/f" + ("00" + q).slice(-3) + ".png" }
+        Image {
+            id: arm
+            height: centro.armH; width: height * 480 / 757
+            anchors.horizontalCenter: parent.horizontalCenter; y: centro.cy - height / 2
+            source: centro.src(centro.q0); asynchronous: false; cache: true; smooth: true; mipmap: true
+        }
+        Image {
+            anchors.fill: arm; source: centro.src(centro.q1); asynchronous: false; cache: true; smooth: true; mipmap: true
+            opacity: centro.fq - Math.floor(centro.fq)
+        }
+        Rectangle {     // feixe de varredura vertical sobre a armadura
+            x: arm.x - 30 * p.s; width: arm.width + 60 * p.s; height: 3 * p.s; opacity: 0.5
+            gradient: Gradient { orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: "transparent" } GradientStop { position: 0.5; color: p.cCyan } GradientStop { position: 1; color: "transparent" } }
+            SequentialAnimation on y { loops: Animation.Infinite; running: p.visible
+                NumberAnimation { from: arm.y; to: arm.y + arm.height; duration: 4200; easing.type: Easing.InOutSine }
+                NumberAnimation { from: arm.y + arm.height; to: arm.y; duration: 4200; easing.type: Easing.InOutSine } }
+        }
+        MouseArea {
+            id: armHit; anchors.fill: arm; cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+            property real x0: 0; property real a0: 0
+            onPressed: m => { x0 = m.x; a0 = centro.ang; centro.arrastando = true }
+            onPositionChanged: m => { if (pressed) centro.ang = ((a0 - (m.x - x0) * 0.6) % 360 + 360) % 360 }
+            onReleased: { giro.from = centro.ang; giro.to = centro.ang + 360; centro.arrastando = false }
+        }
+
+        // indicadores laterais com linha-guia até a armadura
+        Column {
+            x: 22 * p.s; y: 64 * p.s; spacing: 12 * p.s
+            Indicador { titulo: "IA LOCAL"; sub: "qwen3-vl:4b · GPU"; valor: "ATIVA" }
+            Indicador { titulo: "VOZ"; sub: "pt-BR · Whisper/Parakeet"; valor: p.mode === "listening" ? "OUVINDO" : "PRONTA"; alerta: p.mode === "listening" }
+            Indicador { titulo: "CÂMERAS"; sub: p.camOn ? "visão ligada" : "visão desligada"; valor: (p.natOnline + p.usbOnline + p.ptzOnline) + " / 3" }
+            Indicador { titulo: "MEMÓRIA"; sub: "fatos guardados"; valor: String((p.d.memoria || {}).fatos || 0) }
+            Indicador { titulo: "TEMPO LIGADO"; sub: "desde o boot"; valor: p.d.uptime || "—" }
+        }
+        Column {
+            anchors.right: parent.right; anchors.rightMargin: 22 * p.s; y: 64 * p.s; spacing: 12 * p.s
+            Indicador { titulo: "PESSOAS NA CENA"; sub: (p.listaPessoas || []).map(f => typeof f === "string" ? f : (f.nome || "?")).join(", ") || "ninguém"; valor: String(p.pessoas); alerta: p.pessoas > 1 }
+            Indicador { titulo: "OBJETOS"; sub: (p.listaObjetos || []).slice(0, 4).join(", ") || "—"; valor: String(p.objetos) }
+            Indicador { titulo: "ALVO DA PTZ"; sub: p.ptzOnline ? "motor no ar" : "sem sinal"; valor: p.alvo || "LIVRE" }
+            Indicador { titulo: "CONTATOS ZAP"; sub: "conhecidos"; valor: String(((p.d.memoria || {}).por_tipo || {}).contato || 0) }
+            Indicador { titulo: "APPS"; sub: "no repertório"; valor: String(((p.d.memoria || {}).por_tipo || {}).app || 0) }
+        }
+        // núcleo de voz
+        Item {
+            anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: 14 * p.s
+            width: parent.width * 0.62; height: 40 * p.s
+            Row { anchors.centerIn: parent; spacing: 3 * p.s
+                Repeater { model: 64
+                    Rectangle { width: 3 * p.s; radius: 1.5 * p.s; anchors.verticalCenter: parent.verticalCenter; color: p.mode === "speaking" ? p.cOrange : p.cCyan
+                        opacity: 0.4 + 0.6 * (1 - Math.abs(index - 32) / 32)
+                        height: Math.max(3 * p.s, 34 * p.s * (p.mode === "idle" ? 0.06 + 0.05 * Math.abs(Math.sin(index * 0.5 + p.camTick * 0.08))
+                                                                                : (0.15 + p.level * Math.abs(Math.sin(index * 0.7 + p.camTick * 0.35)))))
+                        Behavior on height { NumberAnimation { duration: 90 } } } }
+            }
+        }
+    }
+
+    // ================== COLUNA DIREITA ==================
+    Column {
+        x: p.width - p.colW - 24 * p.s; y: p.colY; width: p.colW; spacing: 12 * p.s
+        Card {
+            titulo: "CÂMERAS"; icone: "◎"; extra: (p.natOnline + p.usbOnline + p.ptzOnline) + "/3 AO VIVO"; width: parent.width; height: 380 * p.s
+            Column { width: parent.width; spacing: 8 * p.s
+                Row { spacing: 8 * p.s
+                    Cam { width: (p.colW - 36 * p.s) / 2; height: 136 * p.s; nome: "NATIVA · ROSTO"; arq: "/tmp/friday-cam.jpg"; on: p.natOnline }
+                    Cam { width: (p.colW - 36 * p.s) / 2; height: 136 * p.s; nome: "PORTA · C270"; arq: "/tmp/friday-cam-amb.jpg"; on: p.usbOnline } }
+                Cam { width: p.colW - 28 * p.s; height: 178 * p.s; nome: "PTZ · QUARTO" + (p.alvo ? " · ALVO " + p.alvo.toUpperCase() : ""); arq: "/tmp/friday-cam-ptz.jpg"; on: p.ptzOnline }
+            }
+        }
+        Card {
+            titulo: "TAREFAS ATIVAS"; icone: "☰"; extra: (p.d.tarefas || []).length + " ABERTAS"; width: parent.width; height: 150 * p.s
+            Column { width: parent.width; spacing: 4 * p.s
+                Text { visible: !(p.d.tarefas || []).length; text: "Nenhuma tarefa pendente."; color: p.cSub; font.pixelSize: 13 * p.s }
+                Repeater { model: p.d.tarefas || []
+                    Linha { rot: modelData.texto; val: (modelData.estado || "").toUpperCase(); cor: p.cOrange } }
+            }
+        }
+        Card {
+            titulo: "ATIVIDADE RECENTE"; icone: "⟳"; extra: "LINHA DO TEMPO"; width: parent.width; height: p.colH - 380 * p.s - 150 * p.s - 24 * p.s
+            Column { width: parent.width; spacing: 5 * p.s
+                Repeater { model: (p.d.recente || []).slice(0, 6)
+                    Row { spacing: 10 * p.s; width: parent.width
+                        Text { text: modelData.h; color: p.cCyan; font.pixelSize: 11 * p.s; font.family: "monospace"; width: 44 * p.s }
+                        Text { text: modelData.tipo.toUpperCase(); color: p.cOrange; font.pixelSize: 10 * p.s; font.family: "monospace"; width: 72 * p.s; anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: modelData.txt; color: p.cTxt; font.pixelSize: 12 * p.s; elide: Text.ElideRight; width: parent.width - 136 * p.s } } }
+                Item { width: 1; height: 4 * p.s }
+                Repeater { model: (p.d.processos || []).slice(0, 4)
+                    Linha { rot: modelData.nome; val: modelData.cpu + "% CPU" } }
+            }
+        }
+    }
+
+    // ================== BARRA DE STATUS INFERIOR ==================
+    Rectangle {
+        x: 24 * p.s; y: p.height - p.barraH - 16 * p.s; width: p.width - 48 * p.s; height: p.barraH
+        color: p.cGlass; radius: 6 * p.s; border.color: Qt.rgba(0.21, 0.84, 1, 0.25)
+        Row {
+            anchors.verticalCenter: parent.verticalCenter; x: 18 * p.s; spacing: 34 * p.s
+            Repeater {
+                model: [["◈", "F.R.I.D.A.Y. OS", "local · " + (p.online ? "on-line" : "off-line")],
+                        ["☁", "CLIMA", p.d.clima ? p.d.clima.temp + "°C · umidade " + p.d.clima.umidade + "%" : "—"],
+                        ["⇅", "REDE", p.d.rede || "—"],
+                        ["▣", "DISCO /", (p.d.disco || "—") + " usado"],
+                        ["◉", "MEMÓRIA", ((p.d.memoria || {}).kb || 0) + " KB comprimidos"],
+                        ["◎", "VISÃO", p.pessoas + " pessoa(s) · " + p.objetos + " objeto(s)"]]
+                Row { spacing: 8 * p.s
+                    Text { text: modelData[0]; color: p.cCyan; font.pixelSize: 16 * p.s; anchors.verticalCenter: parent.verticalCenter }
+                    Column { Text { text: modelData[1]; color: p.cSub; font.pixelSize: 9 * p.s; font.letterSpacing: 1.5 * p.s }
+                             Text { text: modelData[2]; color: p.cTxt; font.pixelSize: 12 * p.s } } }
+            }
+        }
+        Text { anchors.right: parent.right; anchors.rightMargin: 18 * p.s; anchors.verticalCenter: parent.verticalCenter
+            text: "\"Sexta-Feira, …\" para falar · arraste a armadura para girar"; color: p.cSub; font.pixelSize: 12 * p.s; font.italic: true }
+    }
+}

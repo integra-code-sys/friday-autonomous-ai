@@ -1,0 +1,51 @@
+# F.R.I.D.A.Y. — microfone limpo: cancelamento de eco (o que toca nas caixas, inclusive a voz dela), supressão de ruído,
+# filtro passa-alta e ganho automático (WebRTC). Roda como cliente PipeWire separado (não mexe na config do sistema):
+#   pipewire -c ".../daemon/audio/friday-ec.conf"      (iniciado por daemon/audio/microfone)
+# Cria a fonte "friday_mic"; o daemon grava dela. Para desfazer basta matar o processo.
+context.properties = {
+    log.level = 2
+}
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.*       = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-rt args = { nice.level = -11 } flags = [ ifexists nofail ] }
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-echo-cancel
+        args = {
+            library.name = aec/libspa-aec-webrtc
+            monitor.mode = true                  # referência = o que sai na saída padrão (voz dela, música, vídeos)
+            node.latency = 480/48000
+            audio.rate = 48000
+            audio.channels = 1
+            audio.position = [ MONO ]
+            aec.args = {
+                webrtc.high_pass_filter = true
+                webrtc.noise_suppression = true
+                webrtc.transient_suppression = true  # cliques de teclado/mouse
+                webrtc.voice_detection = true
+                webrtc.gain_control = false          # nível é normalizado no daemon; AGC mudava o timbre e bombeava o ruído
+            }
+            capture.props = {
+                node.name = "friday_ec_capture"
+                node.description = "F.R.I.D.A.Y. captura (bruta)"
+                target.object = "@MIC@"
+                node.passive = false
+                node.dont-reconnect = false
+            }
+            source.props = {
+                node.name = "friday_mic"
+                node.description = "F.R.I.D.A.Y. microfone limpo"
+                node.virtual = true
+            }
+            sink.props = {                       # em monitor.mode vira a captura do monitor da saída padrão
+                node.name = "friday_ec_ref"
+                node.description = "F.R.I.D.A.Y. referência de eco"
+                node.passive = true
+            }
+        }
+    }
+]

@@ -1,0 +1,121 @@
+import QtQuick
+
+// Aglomerado holográfico da F.R.I.D.A.Y. (plexo: partículas ligadas por linhas com um ponto em cada ponta).
+// Pulsa com a voz (level 0..1); explode() espalha tudo e reagrupa quando o painel some.
+Item {
+    id: core
+    property real level: 0              // amplitude da fala
+    property string mode: "idle"       // idle | listening | thinking | speaking
+    property bool exploded: false
+    property color cHolo: "#00d2ff"      // partes holográficas: ciano Stark
+    property color cHot: "#ff8a1f"       // destaque da interface: laranja
+    property int count: 240
+    property real radius: Math.min(width, height) * 0.16
+
+    property var pts: []
+    property real burst: 0               // 0 = agrupado, 1 = explodido
+    property real pulse: 0
+    Behavior on burst { NumberAnimation { duration: core.exploded ? 650 : 1400; easing.type: core.exploded ? Easing.OutExpo : Easing.InOutCubic } }
+
+    function explode() { exploded = true; burst = 1 }
+    function regroup() { exploded = false; burst = 0 }
+
+    Component.onCompleted: {
+        const a = []
+        for (let i = 0; i < count; i++) {
+            const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = Math.cbrt(Math.random())
+            const s = Math.sqrt(Math.max(0, 1 - u * u))
+            a.push({ x: s * Math.cos(th) * r, y: u * r, z: s * Math.sin(th) * r,
+                     sp: 0.25 + Math.random() * 0.7, ph: Math.random() * 6.28,
+                     dx: Math.cos(th) * (2 + Math.random() * 3), dy: (Math.random() * 2 - 1) * 2.5 })
+        }
+        pts = a
+    }
+
+    Timer {
+        interval: 33; running: core.visible; repeat: true          // 30 qps suave
+        onTriggered: {
+            const target = core.mode === "speaking" ? 0.35 + core.level * 1.2 : (core.mode === "listening" ? 0.25 : (core.mode === "thinking" ? 0.18 : 0.06))
+            core.pulse += (target - core.pulse) * 0.32
+            cv.requestPaint()
+        }
+    }
+
+    // brilho de fundo
+    Rectangle {
+        anchors.centerIn: parent
+        width: core.radius * (3.2 + core.pulse); height: width; radius: width / 2
+        opacity: (1 - core.burst) * (0.35 + core.pulse * 0.5)
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#338fe9ff" }
+            GradientStop { position: 0.5; color: "#108fe9ff" }
+            GradientStop { position: 1.0; color: "#008fe9ff" }
+        }
+    }
+
+    // anéis de interface (laranja/branco)
+    Repeater {
+        model: 3
+        Rectangle {
+            anchors.centerIn: parent
+            width: core.radius * (2.5 + index * 0.45) * (1 + core.pulse * 0.08); height: width; radius: width / 2
+            color: "transparent"; border.width: index === 1 ? 2 : 1
+            border.color: index === 1 ? core.cHot : (index === 0 ? "#88ffffff" : "#44ff8a1f")
+            opacity: 1 - core.burst
+            NumberAnimation on rotation { from: 0; to: index % 2 ? -360 : 360; duration: 22000 + index * 9000; loops: Animation.Infinite }
+            Rectangle { width: 6; height: 6; radius: 3; color: index === 1 ? "#ffffff" : core.cHot; x: parent.width / 2 - 3; y: -3 }
+            Rectangle { width: 22; height: 2; color: core.cHot; x: parent.width - 11; y: parent.height / 2 - 1; visible: index !== 1 }
+        }
+    }
+
+    Canvas {
+        id: cv
+        anchors.fill: parent
+        renderStrategy: Canvas.Cooperative
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.reset()
+            const t = Date.now() / 1000, cx = width / 2, cy = height / 2
+            const R = core.radius * (1 + core.pulse * 0.22), b = core.burst
+            const P = []
+            for (let i = 0; i < core.pts.length; i++) {
+                const p = core.pts[i]
+                const ang = t * 0.25 * p.sp
+                const ca = Math.cos(ang), sa = Math.sin(ang)
+                const x = p.x * ca - p.z * sa, z = p.x * sa + p.z * ca
+                const wob = 1 + core.pulse * 0.35 * Math.sin(t * 9 + p.ph)
+                const px = cx + (x * R * wob) + b * p.dx * core.radius * 2.2
+                const py = cy + (p.y * R * wob) + b * p.dy * core.radius * 1.4
+                P.push([px, py, (z + 1) / 2])
+            }
+            const maxD = core.radius * 0.55, a0 = 1 - b * 0.9
+            ctx.lineWidth = 1
+            for (let i = 0; i < P.length; i += 2) {
+                for (let j = i + 1; j < P.length; j += 2) {
+                    const dx = P[i][0] - P[j][0], dy = P[i][1] - P[j][1]
+                    if (Math.abs(dx) > maxD || Math.abs(dy) > maxD) continue
+                    const d = Math.sqrt(dx * dx + dy * dy)
+                    if (d < maxD) {
+                        ctx.strokeStyle = Qt.rgba(0.0, 0.85, 1.0, (1 - d / maxD) * (0.28 + core.pulse * 0.55) * a0)
+                        ctx.beginPath(); ctx.moveTo(P[i][0], P[i][1]); ctx.lineTo(P[j][0], P[j][1]); ctx.stroke()
+                    }
+                }
+            }
+            for (let i = 0; i < P.length; i++) {
+                const sz = 1.2 + P[i][2] * 2.2 + core.pulse * 1.5
+                ctx.fillStyle = i % 12 === 0 ? Qt.rgba(1.0, 0.54, 0.12, 0.95 * a0) : Qt.rgba(0.0, 0.85, 1.0, (0.45 + P[i][2] * 0.55) * a0)
+                ctx.fillRect(P[i][0] - sz / 2, P[i][1] - sz / 2, sz, sz)
+            }
+        }
+    }
+
+    // rótulo de estado
+    Text {
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.verticalCenter; topMargin: core.radius * 1.75 }
+        opacity: 1 - core.burst
+        text: core.mode === "speaking" ? "F.R.I.D.A.Y.  ·  FALANDO" : core.mode === "listening" ? "F.R.I.D.A.Y.  ·  OUVINDO"
+              : core.mode === "thinking" ? "F.R.I.D.A.Y.  ·  PROCESSANDO" : "F.R.I.D.A.Y.  ·  ONLINE"
+        color: "#ffffff"; font.pixelSize: 13; font.letterSpacing: 6; font.bold: true
+        Rectangle { anchors { top: parent.bottom; topMargin: 6; horizontalCenter: parent.horizontalCenter } width: parent.width * 0.6; height: 2; color: core.cHot }
+    }
+}

@@ -1,0 +1,647 @@
+import QtQuick
+import QtQuick.Effects
+
+// F.R.I.D.A.Y. — NANOFORJA (v2 do enxame de nanotecnologia). Mesma interface do NanoSwarm v1, mais a fase de revelar a janela real.
+//  core    : núcleo vivo — nanopartículas num plexo 3D com profundidade, órbitas inclinadas, anel de voz que reage à fala,
+//            régua giratória e faíscas nos picos da voz
+//  forming : onda de choque -> 4 lasers do núcleo até os cantos -> contorno traçado -> nanopartículas voam em curva (com rastro)
+//            e acendem célula por célula (de dentro para fora)
+//  screen  : (holo) holo-tela formada: vidro escuro, grade, varredura, cometas de luz correndo na moldura, partículas na borda
+//  hold    : (app) andaime pronto esperando a janela do app abrir: células cintilam, scanner varre
+//  reveal  : (app) cada célula some com um clarão e mostra a JANELA REAL atrás (o véu preto é aberto célula por célula)
+//  release : células se apagam de fora p/ dentro e as partículas voltam ao núcleo
+// Desenho: 2 Canvas (base sem rastro + partículas com rastro) com brilho por GPU (MultiEffect); véu preto separado (sem brilho).
+Item {
+    id: sw
+    property real level: 0
+    property string mode: "idle"            // idle | listening | thinking | speaking
+    property real coreX: width / 2
+    property real coreY: height / 2
+    property real radius: Math.min(width, height) * 0.12
+    property string phase: "core"
+    property string kind: "holo"            // holo | app
+    property rect target: Qt.rect(0, 0, 0, 0)
+    property string label: ""
+    readonly property real progress: _prog
+    property real _prog: 0
+    readonly property bool cobreTela: kind === "app" && (phase === "forming" || phase === "hold" || phase === "reveal")
+    signal formed()
+    signal released()
+    signal revealed()
+
+    readonly property int nTotal: 576
+    readonly property int nPlexo: 150
+    readonly property int nOrbita: 210
+    property int cols: 24
+    property int rows: 15
+    property var pts: []
+    property var faiscas: []
+    property real pulse: 0
+    property real _lvlAnt: 0
+    property double t0: 0
+    property double tRev: 0
+    property double tRel: 0
+    property bool _emitted: false
+    property real fps: 30
+    property real esc: 0.5                  // os Canvas desenham em meia resolução (4x menos pixels; o brilho disfarça) e são ampliados
+    onPhaseChanged: veu.sujo = true
+    readonly property real flight: 0.62
+    readonly property real formTime: 0.25 + 0.95 + 0.15 + flight
+
+    property color cHolo: "#8fe9ff"
+    property color cHot: "#ff8a1f"
+
+    // ---- rosto da IA (núcleo): o plexo vira um rosto; boca = voz, sobrancelhas/olhos = emoção ----
+    property string humor: "neutro"         // neutro|alegre|curioso|surpreso|serio|pensativo|triste|preocupado|irritado
+    property real lookX: 0
+    property real lookY: 0
+    property real rostoK: 0                 // 0 = esfera, 1 = rosto
+    property real intensidade: 0            // força da última reação (HUD)
+    property var _E: ({ by: 0, bt: 0, ba: 0.3, eo: 1, sm: 0.1, mw: 1, as: 0, ab: 0 })
+    property real _bk: 0                    // impulso das sobrancelhas (pulo ao mudar de emoção / ao ouvir)
+    property double _pisca: 0
+    property double _proxPisca: 3
+    readonly property var _HUM: ({
+        neutro:     { by: 0,     bt: 0,    ba: 0.3,  eo: 1,    sm: 0.1,  mw: 1,    as: 0,    ab: 0 },
+        alegre:     { by: -0.05, bt: 0.1,  ba: 0.7,  eo: 0.8,  sm: 1,    mw: 1.18, as: 0,    ab: 0.04 },
+        curioso:    { by: -0.06, bt: -0.1, ba: 0.5,  eo: 1.15, sm: 0.25, mw: 0.9,  as: 0.13, ab: 0 },
+        surpreso:   { by: -0.16, bt: 0.2,  ba: 1,    eo: 1.5,  sm: 0,    mw: 0.62, as: 0,    ab: 0.22 },
+        serio:      { by: 0.05,  bt: -0.55,ba: 0,    eo: 0.8,  sm: -0.2, mw: 0.92, as: 0,    ab: 0 },
+        pensativo:  { by: 0,     bt: 0.1,  ba: 0.2,  eo: 0.7,  sm: -0.08,mw: 0.8,  as: 0.14, ab: 0 },
+        triste:     { by: 0.03,  bt: 0.95, ba: -0.1, eo: 0.72, sm: -0.85,mw: 0.9,  as: 0,    ab: 0 },
+        preocupado: { by: -0.03, bt: 0.75, ba: 0.1,  eo: 1.1,  sm: -0.35,mw: 0.85, as: 0.05, ab: 0.03 },
+        irritado:   { by: 0.08,  bt: -1,   ba: -0.2, eo: 0.7,  sm: -0.6, mw: 1.05, as: 0,    ab: 0.02 }
+    })
+    onHumorChanged: { _bk = humor === "surpreso" ? 0.16 : (humor === "irritado" || humor === "serio" ? -0.08 : 0.1); intensidade = 1 }
+    onModeChanged: if (mode === "listening") _bk = Math.max(_bk, 0.06)
+    // alvo de cada partícula do plexo no rosto (coords em unidades do raio, y p/ baixo)
+    function facePos(i, t) {
+        const E = _E, L = level, gx = lookX * 0.07, gy = lookY * 0.05
+        if (i < 70) {                                   // contorno da cabeça (oval com queixo afinando)
+            const a = i / 70 * 6.283, y = -Math.cos(a) * 1.08
+            return [Math.sin(a) * 0.8 * (y > 0 ? 1 - 0.28 * y : 1), y + 0.015 * Math.sin(t * 1.3 + a * 3)]
+        }
+        if (i < 94) {                                   // sobrancelhas (12 pontos cada; s=0 ponta interna)
+            const dir = i < 82 ? -1 : 1, s = ((i - 70) % 12) / 11
+            const as_ = dir < 0 ? E.as : -E.as * 0.6
+            const y = -0.42 + E.by - as_ - _bk - E.bt * (1 - s) * 0.13 - E.ba * Math.sin(s * Math.PI) * 0.07
+                      + (mode === "thinking" ? 0.02 * Math.sin(t * 2) * dir : 0)
+            return [dir * (0.12 + 0.33 * s) + gx * 0.6, y + gy * 0.5]
+        }
+        const pis = t - _pisca < 0.17 ? Math.max(0.06, Math.abs((t - _pisca) / 0.17 * 2 - 1)) : 1
+        if (i < 116) {                                  // olhos (11 pontos cada, elipse)
+            const dir = i < 105 ? -1 : 1, a = ((i - 94) % 11) / 11 * 6.283
+            const ry = 0.085 * E.eo * pis * (dir < 0 ? 1 + E.as * 1.5 : 1)
+            return [dir * 0.3 + Math.cos(a) * 0.15 + gx, -0.17 + Math.sin(a) * ry + gy]
+        }
+        // boca: 17 pontos no lábio de cima, 17 no de baixo
+        const sup = i < 133, s = ((i - 116) % 17) / 16, u = 2 * s - 1, bell = 1 - u * u
+        const abre = Math.min(0.3, L * 0.26 + E.ab + (mode === "speaking" ? 0.02 * Math.sin(t * 17) : 0))
+        const y0 = 0.5 - E.sm * 0.11 * u * u + E.sm * 0.03
+        return [u * 0.27 * E.mw + gx * 0.5, y0 + (sup ? -abre * 0.35 * bell : abre * bell) + gy * 0.4]
+    }
+
+    function _now() { return Date.now() / 1000 }
+    function formApp(r, nome) { kind = "app"; cols = 32; rows = 18; label = nome || ""; _start(r) }
+    function formHolo(r, nome) { kind = "holo"; cols = 24; rows = 15; label = nome || ""; _start(r) }
+    function revelar() {
+        if (kind !== "app" || phase === "reveal") return
+        const r = target, mx = Math.hypot(Math.max(coreX - r.x, r.x + r.width - coreX), Math.max(coreY - r.y, r.y + r.height - coreY))
+        for (let i = 0; i < pts.length; i++) {
+            const p = pts[i]
+            if (p.cell < 0) continue
+            p.rv = Math.hypot(p.tx - coreX, p.ty - coreY) / mx * 0.8 + Math.random() * 0.12      // do núcleo para fora
+            const dx = p.tx - r.x - r.width / 2, dy = p.ty - r.y - r.height / 2, d = Math.hypot(dx, dy) || 1
+            p.vx = dx / d * (60 + Math.random() * 120); p.vy = dy / d * (60 + Math.random() * 120)
+        }
+        phase = "reveal"; tRev = _now()
+    }
+    function _start(r) {
+        target = r; phase = "forming"; t0 = _now(); _emitted = false
+        const nCells = cols * rows, cx = r.x + r.width / 2, cy = r.y + r.height / 2
+        const mx = Math.hypot(r.width / 2, r.height / 2)
+        const cw = r.width / cols, ch = r.height / rows
+        for (let i = 0; i < pts.length; i++) {
+            const p = pts[i]
+            if (i < nCells) {
+                const c = i % cols, rw = Math.floor(i / cols)
+                p.cell = i; p.tx = r.x + (c + 0.5) * cw; p.ty = r.y + (rw + 0.5) * ch
+                const ord = kind === "app" ? Math.hypot(p.tx - coreX, p.ty - coreY) / Math.hypot(width, height) * 1.4
+                                           : Math.hypot(p.tx - cx, p.ty - cy) / mx
+                p.delay = 0.25 + Math.min(1, ord) * 0.95 + Math.random() * 0.15
+            } else {                                   // excedentes: corredores da moldura
+                p.cell = -1
+                const q = perim((i - nCells) / Math.max(1, pts.length - nCells), r)
+                p.tx = q[0]; p.ty = q[1]
+                p.delay = 0.35 + Math.random() * 0.7
+            }
+            p.arc = (Math.random() * 2 - 1) * (kind === "app" ? 260 : 150)
+            p.sw = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6)        // giro da trajetória
+        }
+    }
+    function release() {
+        if (phase === "core" || phase === "release") return
+        phase = "release"; tRel = _now()
+        const r = target, cx = r.x + r.width / 2, cy = r.y + r.height / 2, mx = Math.hypot(r.width / 2, r.height / 2)
+        for (let i = 0; i < pts.length; i++) {
+            const p = pts[i]
+            p.sx = p.lx; p.sy = p.ly
+            p.delay = (1 - Math.min(1, Math.hypot(p.tx - cx, p.ty - cy) / mx)) * 0.35 + Math.random() * 0.15
+            p.ext = p.cell >= 0 ? (1 - Math.min(1, Math.hypot(p.tx - cx, p.ty - cy) / mx)) * 0.45 : 0     // células: de fora p/ dentro
+        }
+    }
+
+    Component.onCompleted: {
+        const a = []
+        for (let i = 0; i < nTotal; i++) {
+            const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, rr = Math.cbrt(Math.random()), s = Math.sqrt(1 - u * u)
+            a.push({ x: s * Math.cos(th) * rr, y: u * rr, z: s * Math.sin(th) * rr, sp: 0.2 + Math.random() * 0.6, ph: Math.random() * 6.283,
+                     ring: i % 3, orb: 1.45 + Math.random() * 0.5, halo: 2.2 + Math.random() * 1.6, cell: -1, tx: 0, ty: 0, delay: 0,
+                     arc: 0, sw: 1, sx: 0, sy: 0, lx: 0, ly: 0, rv: 0, vx: 0, vy: 0, ext: 0, glint: Math.random() * 30 })
+        }
+        pts = a
+        const M = []                                   // malha do plexo: cada ponto liga aos 3 vizinhos mais próximos (fixo)
+        for (let i = 0; i < nPlexo; i++) {
+            const d = []
+            for (let j = 0; j < nPlexo; j++) if (j !== i) d.push([(a[i].x - a[j].x) ** 2 + (a[i].y - a[j].y) ** 2 + (a[i].z - a[j].z) ** 2, j])
+            d.sort((u, v) => u[0] - v[0])
+            for (let k = 0; k < 4; k++) if (d[k][0] < 0.38 * 0.38 && i < d[k][1]) M.push(i, d[k][1])     // até 4 vizinhos próximos (rede 3D)
+        }
+        malha = M
+    }
+    property var malha: []
+
+    // posição de repouso no núcleo (plexo / órbita / halo)
+    function corePos(p, i, t) {
+        const R = radius * (1 + pulse * 0.22)
+        if (i < nPlexo) {
+            const ang = t * 0.22 * p.sp + p.ph * 0.02, ca = Math.cos(ang), sa = Math.sin(ang)
+            let x = p.x * ca - p.z * sa, z = p.x * sa + p.z * ca
+            const tilt = 0.35, y = p.y * Math.cos(tilt) - z * Math.sin(tilt); z = p.y * Math.sin(tilt) + z * Math.cos(tilt)
+            const wob = 1 + pulse * 0.32 * Math.sin(t * 9 + p.ph)
+            const sx = coreX + x * R * wob, sy = coreY + y * R * wob, sz = (z + 1) / 2
+            if (rostoK < 0.01) return [sx, sy, sz]
+            const f = facePos(i, t), FR = radius * 1.3, k = rostoK
+            const fx = coreX + f[0] * FR + Math.sin(t * 3 + p.ph) * 0.8, fy = coreY + f[1] * FR + Math.cos(t * 2.6 + p.ph) * 0.8
+            return [sx + (fx - sx) * k, sy + (fy - sy) * k, sz + (0.9 - sz) * k]
+        }
+        if (i < nPlexo + nOrbita) {
+            const a = p.ph + t * p.sp * (p.ring === 1 ? -0.65 : 0.5), tilt = [-0.5, 0.32, 1.2][p.ring]
+            const ex = Math.cos(a) * R * p.orb * (1 + pulse * 0.2), ey = Math.sin(a) * R * p.orb * 0.3
+            return [coreX + ex * Math.cos(tilt) - ey * Math.sin(tilt), coreY + ex * Math.sin(tilt) + ey * Math.cos(tilt), (Math.sin(a) + 1) / 2]
+        }
+        const a = p.ph + t * p.sp * 0.12, rr = R * p.halo * (1 + 0.04 * Math.sin(t * 0.7 + p.ph))
+        return [coreX + Math.cos(a) * rr, coreY + Math.sin(a) * rr * 0.62, 0.15 + 0.2 * ((Math.sin(a * 3 + p.ph) + 1) / 2)]
+    }
+    function perim(u, r) {
+        const P = 2 * (r.width + r.height); let d = ((u % 1) + 1) % 1 * P
+        if (d < r.width) return [r.x + d, r.y]; d -= r.width
+        if (d < r.height) return [r.x + r.width, r.y + d]; d -= r.height
+        if (d < r.width) return [r.x + r.width - d, r.y + r.height]; d -= r.width
+        return [r.x, r.y + r.height - d]
+    }
+    function ease(s) { return 1 - Math.pow(1 - s, 3) }
+    function easeIO(s) { return s < 0.5 ? 4 * s * s * s : 1 - Math.pow(-2 * s + 2, 3) / 2 }
+    function bez(p0, p1, p2, t) { const u = 1 - t; return u * u * p0 + 2 * u * t * p1 + t * t * p2 }
+
+    Timer {
+        interval: (sw.phase === "forming" || sw.phase === "reveal" || sw.phase === "release") ? 33 : 40     // 30 qps nas transições, 25 parado
+        running: sw.visible; repeat: true
+        onTriggered: {
+            const tg = sw.mode === "speaking" ? 0.35 + sw.level * 1.1 : (sw.mode === "listening" ? 0.25 : (sw.mode === "thinking" ? 0.18 : 0.05))
+            sw.pulse += (tg - sw.pulse) * 0.35
+            if (sw.mode === "speaking" && sw.level > 0.55 && sw.level - sw._lvlAnt > 0.15 && sw.phase === "core") {   // pico de voz: faíscas
+                for (let k = 0; k < 7; k++) {
+                    const a = Math.random() * 6.283, v = 140 + Math.random() * 200
+                    sw.faiscas.push({ x: sw.coreX + Math.cos(a) * sw.radius * 0.5, y: sw.coreY + Math.sin(a) * sw.radius * 0.5,
+                                      vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0 })
+                }
+            }
+            sw._lvlAnt = sw.level
+            const now = sw._now(), T = now - sw.t0
+            sw.rostoK += ((sw.phase === "core" ? 1 : 0) - sw.rostoK) * 0.12
+            const H = sw._HUM[sw.humor] || sw._HUM.neutro, E = sw._E
+            for (const key in H) E[key] += (H[key] - E[key]) * 0.2          // transição rápida e forte entre emoções
+            sw._bk *= 0.86; sw.intensidade *= 0.97
+            if (now > sw._proxPisca) { sw._pisca = now; sw._proxPisca = now + 2.2 + Math.random() * 3.8 }
+            if (sw.phase === "forming") {
+                sw._prog = Math.min(1, T / sw.formTime)
+                if (T >= sw.formTime && !sw._emitted) {
+                    sw._emitted = true
+                    sw.phase = sw.kind === "holo" ? "screen" : "hold"
+                    sw.formed()
+                }
+            } else if (sw.phase === "reveal" && now - sw.tRev > 1.25) {
+                if (sw._prog < 2) { sw._prog = 2; sw.revealed() }
+            } else if (sw.phase === "release" && now - sw.tRel > 1.15) {
+                sw.phase = "core"; sw._prog = 0; sw.released()
+            }
+            base.requestPaint(); cv.requestPaint()
+            if (veu.visible && (sw.phase !== "screen" || veu.sujo)) veu.requestPaint()
+        }
+    }
+
+    // ---------------- véu preto do app (sem brilho): abre célula por célula mostrando a janela real ----------------
+    Canvas {
+        id: veu
+        width: sw.width * sw.esc; height: sw.height * sw.esc; scale: 1 / sw.esc; transformOrigin: Item.TopLeft; smooth: true
+        property bool sujo: true
+        readonly property bool vidro: sw.kind === "holo" && (sw.phase === "forming" || sw.phase === "screen" || sw.phase === "release")
+        visible: sw.cobreTela || vidro
+        renderStrategy: Canvas.Cooperative
+        onPaint: {
+            const c = getContext("2d")
+            c.reset(); c.setTransform(sw.esc, 0, 0, sw.esc, 0, 0)
+            if (sw.phase === "screen") sujo = false                       // vidro parado: não precisa redesenhar a cada quadro
+            if (vidro) {                                                   // vidro escuro da holo-tela (fora do brilho)
+                const t = sw._now(), T = t - sw.t0, r = sw.target, cw = r.width / sw.cols, ch = r.height / sw.rows
+                const relT = sw.phase === "release" ? t - sw.tRel : 0
+                c.fillStyle = "rgba(3,10,14,0.88)"
+                for (let i = 0; i < sw.pts.length; i++) {
+                    const p = sw.pts[i]
+                    if (p.cell < 0) continue
+                    if (sw.phase === "forming" && T - p.delay - sw.flight < 0) continue
+                    if (sw.phase === "release" && relT - p.ext > 0.25) continue
+                    c.fillRect(p.tx - cw / 2, p.ty - ch / 2, cw, ch)
+                }
+                return
+            }
+            c.fillStyle = "#000000"; c.fillRect(0, 0, sw.width, sw.height)
+            if (sw.phase !== "reveal") return
+            const T = sw._now() - sw.tRev, r = sw.target, cw = r.width / sw.cols, ch = r.height / sw.rows
+            for (let i = 0; i < sw.pts.length; i++) {
+                const p = sw.pts[i]
+                if (p.cell < 0 || T < p.rv) continue
+                const s = Math.min(1, (T - p.rv) / 0.22)                 // a célula "derrete" do centro para as bordas
+                const w = cw * s, h = ch * s
+                c.clearRect(p.tx - w / 2 - 0.5, p.ty - h / 2 - 0.5, w + 1, h + 1)
+            }
+            if (T > 1.1) c.clearRect(0, 0, sw.width, sw.height)            // garante a janela inteira no fim
+        }
+    }
+
+    Item {
+        id: fxSrc
+        anchors.fill: parent
+        visible: false
+
+        // ---------------- base (sem rastro): células, vidro, moldura, lasers ----------------
+        Canvas {
+            id: base
+            width: sw.width * sw.esc; height: sw.height * sw.esc; scale: 1 / sw.esc; transformOrigin: Item.TopLeft; smooth: true
+            renderStrategy: Canvas.Cooperative
+            onPaint: {
+                const c = getContext("2d"); c.reset(); c.setTransform(sw.esc, 0, 0, sw.esc, 0, 0)
+                const t = sw._now(), ph = sw.phase, r = sw.target
+                if (ph === "core" || r.width <= 0) return
+                const T = t - sw.t0, cw = r.width / sw.cols, ch = r.height / sw.rows
+                const relT = ph === "release" ? t - sw.tRel : 0
+                // ---- lasers do núcleo aos cantos + contorno sendo traçado
+                const corners = [[r.x, r.y], [r.x + r.width, r.y], [r.x + r.width, r.y + r.height], [r.x, r.y + r.height]]
+                if (ph === "forming" && T < 1.2) {
+                    const g = sw.ease(Math.min(1, T / 0.45)), fade = T < 0.8 ? 1 : Math.max(0, 1 - (T - 0.8) / 0.4)
+                    for (const k of corners) {
+                        const ex = sw.coreX + (k[0] - sw.coreX) * g, ey = sw.coreY + (k[1] - sw.coreY) * g
+                        c.strokeStyle = Qt.rgba(1, 0.6, 0.2, 0.55 * fade); c.lineWidth = 1.5
+                        c.beginPath(); c.moveTo(sw.coreX, sw.coreY); c.lineTo(ex, ey); c.stroke()
+                        c.fillStyle = Qt.rgba(1, 1, 1, 0.95 * fade); c.fillRect(ex - 3, ey - 3, 6, 6)
+                    }
+                }
+                let traco = ph === "forming" ? Math.max(0, Math.min(1, (T - 0.4) / 0.55)) : (ph === "release" ? Math.max(0, 1 - relT / 0.7) : 1)
+                traco = sw.easeIO(traco)
+                if (traco > 0) {                                           // cada canto traça metade das arestas vizinhas
+                    c.strokeStyle = Qt.rgba(0.56, 0.91, 1, 0.9); c.lineWidth = 1.6
+                    const hw = r.width / 2 * traco, hh = r.height / 2 * traco
+                    c.beginPath()
+                    c.moveTo(r.x, r.y + hh); c.lineTo(r.x, r.y); c.lineTo(r.x + hw, r.y)
+                    c.moveTo(r.x + r.width - hw, r.y); c.lineTo(r.x + r.width, r.y); c.lineTo(r.x + r.width, r.y + hh)
+                    c.moveTo(r.x + r.width, r.y + r.height - hh); c.lineTo(r.x + r.width, r.y + r.height); c.lineTo(r.x + r.width - hw, r.y + r.height)
+                    c.moveTo(r.x + hw, r.y + r.height); c.lineTo(r.x, r.y + r.height); c.lineTo(r.x, r.y + r.height - hh)
+                    c.stroke()
+                    if (traco < 1) {                                       // cabeças brilhantes do traço
+                        c.fillStyle = "#ffffff"
+                        for (const q of [[r.x + hw, r.y], [r.x + r.width, r.y + hh], [r.x + r.width - hw, r.y + r.height], [r.x, r.y + r.height - hh]])
+                            c.fillRect(q[0] - 2.5, q[1] - 2.5, 5, 5)
+                    }
+                }
+                // ---- células
+                const isApp = sw.kind === "app"
+                let acesas = 0
+                for (let i = 0; i < sw.pts.length; i++) {
+                    const p = sw.pts[i]
+                    if (p.cell < 0) continue
+                    const age = (ph === "forming" ? T : (ph === "release" ? 99 : T)) - p.delay - sw.flight
+                    if (age < 0) continue
+                    acesas++
+                    let a, flash = Math.exp(-age * 6)
+                    if (ph === "release") {
+                        const e = relT - p.ext
+                        if (e > 0.25) continue
+                        flash = e > 0 ? 1 - e / 0.25 : 0; a = isApp ? 0.08 * (e > 0 ? 1 - e / 0.25 : 1) : 0     // holo: o vidro está no canvas de baixo
+                    } else if (ph === "reveal") {
+                        const e = t - sw.tRev - p.rv
+                        if (e > 0.3) continue
+                        a = e > 0 ? 0 : 0.22; flash = e > 0 ? 1 - e / 0.3 : 0
+                    } else if (isApp) {
+                        a = ph === "hold" ? 0.05 + 0.05 * Math.max(0, Math.sin(t * 5 + p.glint)) : 0.08    // andaime "planta técnica"
+                    } else {
+                        a = 0                                              // vidro escuro: canvas sem brilho (veu)
+                    }
+                    const x = p.tx - cw / 2, y = p.ty - ch / 2
+                    if (a > 0.01) {
+                        c.fillStyle = Qt.rgba(0.35, 0.8, 1, a)
+                        c.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1)
+                        c.strokeStyle = Qt.rgba(0.56, 0.91, 1, 0.22 + a); c.lineWidth = 1
+                        c.strokeRect(x + 1.5, y + 1.5, cw - 3, ch - 3)
+                    }
+                    if (flash > 0.04) {
+                        c.fillStyle = Qt.rgba(0.75, 0.97, 1, 0.55 * flash); c.fillRect(x + 1, y + 1, cw - 2, ch - 2)
+                        c.strokeStyle = flash > 0.5 ? Qt.rgba(1, 1, 1, flash) : Qt.rgba(1, 0.55, 0.15, flash * 1.6); c.lineWidth = 1
+                        c.strokeRect(x + 1.5, y + 1.5, cw - 3, ch - 3)
+                    }
+                }
+                if (ph === "forming") sw._prog = Math.min(sw._prog, 1)
+                // ---- holo-tela formada: grade, varredura, cometas na moldura, cantoneiras
+                if (!isApp && (ph === "screen" || ph === "forming" || ph === "release")) {
+                    const vis = ph === "release" ? Math.max(0, 1 - relT / 0.5) : (ph === "forming" ? acesas / (sw.cols * sw.rows) : 1)
+                    c.strokeStyle = Qt.rgba(0.56, 0.91, 1, 0.07 * vis); c.lineWidth = 1
+                    c.beginPath()
+                    for (let k = 1; k < sw.cols; k++) { c.moveTo(r.x + k * cw, r.y); c.lineTo(r.x + k * cw, r.y + r.height) }
+                    for (let k = 1; k < sw.rows; k++) { c.moveTo(r.x, r.y + k * ch); c.lineTo(r.x + r.width, r.y + k * ch) }
+                    c.stroke()
+                    if (ph === "screen") {
+                        const sy = r.y + ((t * 0.18) % 1) * r.height
+                        const g = c.createLinearGradient(0, sy - 70, 0, sy)
+                        g.addColorStop(0, Qt.rgba(0.56, 0.91, 1, 0)); g.addColorStop(1, Qt.rgba(0.56, 0.91, 1, 0.10))
+                        c.fillStyle = g; c.fillRect(r.x, sy - 70, r.width, 70)
+                        c.fillStyle = Qt.rgba(0.85, 0.98, 1, 0.35); c.fillRect(r.x, sy, r.width, 1)
+                        for (let k = 0; k < 4; k++) {                      // cometas de luz correndo na moldura
+                            const u = (t * 0.09 + k / 4) % 1
+                            for (let j = 0; j < 14; j++) {
+                                const q = sw.perim(u - j * 0.0035, r), al = (1 - j / 14)
+                                c.fillStyle = k % 2 ? Qt.rgba(1, 0.6, 0.2, al) : Qt.rgba(0.8, 0.97, 1, al)
+                                c.fillRect(q[0] - 2, q[1] - 2, 4, 4)
+                            }
+                        }
+                        for (let i = 0; i < sw.pts.length; i += 9) {        // brilhos de dados aleatórios
+                            const p = sw.pts[i]
+                            if (p.cell < 0) continue
+                            const k = (t * 1.1 + p.glint) % 30
+                            if (k < 0.45) { c.fillStyle = Qt.rgba(0.56, 0.91, 1, 0.16 * (1 - k / 0.45)); c.fillRect(p.tx - cw / 2 + 1, p.ty - ch / 2 + 1, cw - 2, ch - 2) }
+                        }
+                    }
+                    const L = 34 * vis                                     // cantoneiras laranja
+                    c.strokeStyle = Qt.rgba(1, 0.54, 0.12, vis); c.lineWidth = 3
+                    c.beginPath()
+                    c.moveTo(r.x - 4, r.y - 4 + L); c.lineTo(r.x - 4, r.y - 4); c.lineTo(r.x - 4 + L, r.y - 4)
+                    c.moveTo(r.x + r.width + 4 - L, r.y - 4); c.lineTo(r.x + r.width + 4, r.y - 4); c.lineTo(r.x + r.width + 4, r.y - 4 + L)
+                    c.moveTo(r.x + r.width + 4, r.y + r.height + 4 - L); c.lineTo(r.x + r.width + 4, r.y + r.height + 4); c.lineTo(r.x + r.width + 4 - L, r.y + r.height + 4)
+                    c.moveTo(r.x - 4 + L, r.y + r.height + 4); c.lineTo(r.x - 4, r.y + r.height + 4); c.lineTo(r.x - 4, r.y + r.height + 4 - L)
+                    c.stroke()
+                }
+                // ---- app esperando a janela: scanner varrendo o andaime
+                if (isApp && ph === "hold") {
+                    const sy = r.y + ((t * 0.55) % 1) * r.height
+                    const g = c.createLinearGradient(0, sy - 90, 0, sy)
+                    g.addColorStop(0, Qt.rgba(1, 0.55, 0.12, 0)); g.addColorStop(1, Qt.rgba(1, 0.55, 0.12, 0.22))
+                    c.fillStyle = g; c.fillRect(r.x, sy - 90, r.width, 90)
+                    c.fillStyle = Qt.rgba(1, 0.8, 0.5, 0.7); c.fillRect(r.x, sy, r.width, 2)
+                }
+            }
+        }
+
+        // ---------------- partículas (com rastro), núcleo, faíscas ----------------
+        Canvas {
+            id: cv
+            width: sw.width * sw.esc; height: sw.height * sw.esc; scale: 1 / sw.esc; transformOrigin: Item.TopLeft; smooth: true
+            renderStrategy: Canvas.Cooperative
+            onPaint: {
+                const c = getContext("2d")
+                c.setTransform(sw.esc, 0, 0, sw.esc, 0, 0)
+                const t = sw._now(), ph = sw.phase, r = sw.target, N = sw.pts.length
+                const T = t - sw.t0
+                // rastro: apaga só uma parte do quadro anterior
+                c.globalCompositeOperation = "destination-out"
+                c.fillStyle = Qt.rgba(0, 0, 0, ph === "core" ? 0.55 : 0.32)
+                c.fillRect(0, 0, sw.width, sw.height)
+                c.globalCompositeOperation = "lighter"                       // brilho aditivo
+                const coreA = ph === "core" ? 1 : (ph === "release" ? Math.min(1, (t - sw.tRel) / 0.8) : 0.18)
+                const R = sw.radius * (1 + sw.pulse * 0.22)
+                // ---- núcleo: brilho central
+                if (coreA > 0.02) {
+                    // anel de voz (forma de onda circular)
+                    c.strokeStyle = Qt.rgba(1, 0.6, 0.2, (0.35 + sw.pulse * 0.6) * coreA); c.lineWidth = 1.6
+                    c.beginPath()
+                    for (let k = 0; k <= 128; k++) {
+                        const a = k / 128 * 6.283
+                        const amp = sw.pulse * (0.10 + 0.14 * Math.sin(a * 6 + t * 7) * Math.sin(a * 3 - t * 4.3))
+                        const rr = R * 1.42 * (1 + amp)
+                        const x = sw.coreX + Math.cos(a) * rr, y = sw.coreY + Math.sin(a) * rr
+                        if (k === 0) c.moveTo(x, y); else c.lineTo(x, y)
+                    }
+                    c.stroke()
+                    // régua giratória
+                    c.strokeStyle = Qt.rgba(0.56, 0.91, 1, 0.35 * coreA); c.lineWidth = 1
+                    c.beginPath()
+                    const rot = t * 0.08
+                    for (let k = 0; k < 72; k++) {
+                        const a = k / 72 * 6.283 + rot, r1 = R * 2.05, r2 = R * (k % 6 === 0 ? 2.2 : 2.11)
+                        c.moveTo(sw.coreX + Math.cos(a) * r1, sw.coreY + Math.sin(a) * r1); c.lineTo(sw.coreX + Math.cos(a) * r2, sw.coreY + Math.sin(a) * r2)
+                    }
+                    c.stroke()
+                    // arcos laranja girando em sentidos opostos
+                    c.strokeStyle = Qt.rgba(1, 0.54, 0.12, 0.75 * coreA); c.lineWidth = 2.2
+                    c.beginPath(); c.arc(sw.coreX, sw.coreY, R * 1.78, -t * 0.4, -t * 0.4 + 1.3); c.stroke()
+                    c.beginPath(); c.arc(sw.coreX, sw.coreY, R * 1.78, -t * 0.4 + 3.14, -t * 0.4 + 3.14 + 0.7); c.stroke()
+                    c.strokeStyle = Qt.rgba(1, 1, 1, 0.4 * coreA); c.lineWidth = 1
+                    c.beginPath(); c.arc(sw.coreX, sw.coreY, R * 1.92, t * 0.25, t * 0.25 + 2.2); c.stroke()
+                }
+                // ---- posições das partículas
+                const P = new Array(N)
+                for (let i = 0; i < N; i++) {
+                    const p = sw.pts[i], k = sw.corePos(p, i, t)
+                    let x = k[0], y = k[1], z = k[2], vis = 1, viaja = 0
+                    if (ph === "forming" || ((ph === "screen" || ph === "hold") && p.cell >= 0)) {
+                        const s = Math.max(0, Math.min(1, ((ph === "forming" ? T : 99) - p.delay) / sw.flight))
+                        if (ph === "forming" && s < 1) {
+                            const e = sw.easeIO(s)
+                            const mx = (k[0] + p.tx) / 2, my = (k[1] + p.ty) / 2, dx = p.tx - k[0], dy = p.ty - k[1], dl = Math.hypot(dx, dy) || 1
+                            const cx_ = mx - dy / dl * p.arc * p.sw, cy_ = my + dx / dl * p.arc * p.sw
+                            x = sw.bez(k[0], cx_, p.tx, e); y = sw.bez(k[1], cy_, p.ty, e); z = 1; viaja = s > 0 ? 1 : 0
+                        } else if (s >= 1 || ph !== "forming") {
+                            x = p.tx; y = p.ty; z = 1
+                            if (ph === "hold" || (ph === "forming" && sw.kind === "app")) { x += Math.sin(t * 5 + p.glint) * 2; y += Math.cos(t * 4 + p.glint) * 2 }
+                        }
+                        if (ph === "screen" && sw.kind === "holo") {           // na holo-tela, as partículas vão para a moldura e circulam
+                            const s2 = Math.min(1, (t - sw.t0 - sw.formTime) / 0.9), e2 = sw.ease(Math.max(0, s2))
+                            const q = sw.perim(i / N + t * 0.016, r)
+                            x = p.tx + (q[0] - p.tx) * e2; y = p.ty + (q[1] - p.ty) * e2
+                        }
+                    } else if (ph === "screen" && p.cell < 0) {
+                        const q = sw.perim(i / N + t * 0.016, r); x = q[0]; y = q[1]; z = 1
+                    } else if (ph === "reveal") {
+                        const e = t - sw.tRev - p.rv
+                        if (p.cell >= 0 && e > 0) { x = p.tx + p.vx * e; y = p.ty + p.vy * e + 40 * e * e; vis = Math.max(0, 1 - e / 0.6) }
+                        else if (p.cell >= 0) { x = p.tx; y = p.ty }
+                        else { vis = Math.max(0, 1 - (t - sw.tRev) / 0.5) }
+                        z = 1
+                    } else if (ph === "release") {
+                        const s = Math.max(0, Math.min(1, (t - sw.tRel - p.delay) / 0.7)), e = sw.easeIO(s)
+                        x = p.sx + (k[0] - p.sx) * e; y = p.sy + (k[1] - p.sy) * e; viaja = s > 0 && s < 1 ? 1 : 0
+                        if (s < 1) z = 1
+                    }
+                    p.lx = x; p.ly = y
+                    P[i] = [x, y, z, vis, viaja]
+                }
+                // ---- malha do plexo (só no núcleo): arestas fixas, 4 intensidades por profundidade -> 4 traços por quadro
+                if (coreA > 0.05) {
+                    const perto = (sw.radius * 1.8) * (sw.radius * 1.8), NB = 4, grupos = [[], [], [], []], M = sw.malha
+                    const maxL2 = (sw.radius * 0.42) * (sw.radius * 0.42)
+                    for (let k = 0; k < M.length; k += 2) {
+                        const a = P[M[k]], b = P[M[k + 1]]
+                        const dx = a[0] - sw.coreX, dy = a[1] - sw.coreY
+                        if (dx * dx + dy * dy > perto) continue
+                        const ex = a[0] - b[0], ey = a[1] - b[1]
+                        if (ex * ex + ey * ey > maxL2) continue                  // aresta esticada pela vibração da voz: não desenha
+                        grupos[Math.min(NB - 1, Math.floor((a[2] + b[2]) / 2 * NB))].push(a[0], a[1], b[0], b[1])
+                    }
+                    c.lineWidth = 1
+                    const ganho = (0.16 + sw.pulse * 0.38) * coreA * (1 - sw.rostoK * 0.85)
+                    for (let g = 0; g < NB; g++) {
+                        const L = grupos[g]
+                        if (!L.length) continue
+                        c.strokeStyle = Qt.rgba(0.56, 0.91, 1, (0.25 + g / NB) * ganho)
+                        c.beginPath()
+                        for (let m = 0; m < L.length; m += 4) { c.moveTo(L[m], L[m + 1]); c.lineTo(L[m + 2], L[m + 3]) }
+                        c.stroke()
+                    }
+                }
+                // ---- traços do rosto (ligam as partículas de cada feição)
+                const fk = sw.rostoK * coreA
+                if (fk > 0.05) {
+                    const linha = (a, b, fecha) => { c.moveTo(P[a][0], P[a][1]); for (let j = a + 1; j < b; j++) c.lineTo(P[j][0], P[j][1]); if (fecha) c.closePath() }
+                    c.lineWidth = 1; c.strokeStyle = Qt.rgba(0.56, 0.91, 1, 0.22 * fk)
+                    c.beginPath(); linha(0, 70, true); c.stroke()                                  // cabeça
+                    c.lineWidth = 2.4; c.strokeStyle = Qt.rgba(0.7, 0.96, 1, (0.65 + sw._bk * 2) * fk)
+                    c.beginPath(); linha(70, 82, false); linha(82, 94, false); c.stroke()          // sobrancelhas
+                    c.lineWidth = 1.6; c.strokeStyle = Qt.rgba(0.7, 0.96, 1, 0.75 * fk)
+                    c.beginPath(); linha(94, 105, true); linha(105, 116, true); c.stroke()          // olhos
+                    const fal = sw.mode === "speaking"
+                    c.lineWidth = 2; c.strokeStyle = fal ? Qt.rgba(1, 0.62, 0.22, (0.6 + sw.level * 0.4) * fk) : Qt.rgba(0.7, 0.96, 1, 0.7 * fk)
+                    c.beginPath(); linha(116, 133, false); c.lineTo(P[149][0], P[149][1]); for (let j = 148; j >= 133; j--) c.lineTo(P[j][0], P[j][1]); c.closePath(); c.stroke()
+                    if (sw.level > 0.08 && fal) { c.fillStyle = Qt.rgba(1, 0.55, 0.15, sw.level * 0.35 * fk); c.fill() }   // boca acesa por dentro
+                    // pupilas (seguem o olhar) e brilho nos olhos
+                    const FR = sw.radius * 1.3
+                    for (const d of [-1, 1]) {
+                        const ex = (P[d < 0 ? 94 : 105][0] + P[d < 0 ? 99 : 110][0]) / 2, ey = (P[d < 0 ? 96 : 107][1] + P[d < 0 ? 101 : 112][1]) / 2
+                        const px = ex + sw.lookX * FR * 0.05 + (sw.mode === "thinking" ? -FR * 0.05 : 0), py = ey + sw.lookY * FR * 0.03 + (sw.mode === "thinking" ? -FR * 0.03 : 0)
+                        const g = c.createRadialGradient(px, py, 0, px, py, FR * 0.07)
+                        g.addColorStop(0, Qt.rgba(1, 1, 1, 0.95 * fk)); g.addColorStop(0.4, Qt.rgba(1, 0.6, 0.2, 0.6 * fk)); g.addColorStop(1, Qt.rgba(1, 0.5, 0.1, 0))
+                        c.fillStyle = g; c.beginPath(); c.arc(px, py, FR * 0.07, 0, 6.283); c.fill()
+                    }
+                    // varredura holográfica descendo pelo rosto
+                    const vy = sw.coreY - FR * 1.1 + ((t * 0.35) % 1) * FR * 2.2
+                    c.fillStyle = Qt.rgba(0.56, 0.91, 1, 0.07 * fk); c.fillRect(sw.coreX - FR * 0.9, vy, FR * 1.8, 3)
+                }
+                // ---- partículas: agrupadas por cor e 8 intensidades -> ~16 preenchimentos por quadro (antes: 1 por partícula)
+                const NA = 8, lotes = []
+                for (let k = 0; k < NA * 2; k++) lotes.push([])
+                for (let i = 0; i < N; i++) {
+                    const q = P[i]
+                    if (q[3] <= 0.01) continue
+                    const emNucleo = !(q[4] || ph === "screen" || ph === "hold" || ph === "reveal" || (ph === "forming" && q[2] === 1))
+                    const sz = emNucleo ? 0.8 + q[2] * 2.4 + sw.pulse * 1.2 : (q[4] ? 2.6 : 1.9)
+                    const al = (emNucleo ? (0.25 + q[2] * 0.75) * Math.max(coreA, 0.25) : 0.95) * q[3]
+                    lotes[(i % 13 === 0 ? NA : 0) + Math.min(NA - 1, Math.floor(al * NA))].push(q[0] - sz / 2, q[1] - sz / 2, sz)
+                }
+                for (let k = 0; k < lotes.length; k++) {
+                    const L = lotes[k]
+                    if (!L.length) continue
+                    const al = ((k % NA) + 0.5) / NA
+                    c.fillStyle = k >= NA ? Qt.rgba(1, 0.6, 0.2, al) : Qt.rgba(0.72, 0.95, 1, al)
+                    c.beginPath()
+                    for (let m = 0; m < L.length; m += 3) c.rect(L[m], L[m + 1], L[m + 2], L[m + 2])
+                    c.fill()
+                }
+                // ---- onda de choque ao começar a formar
+                if (ph === "forming" && T < 0.9) {
+                    const s = T / 0.9
+                    c.strokeStyle = Qt.rgba(0.56, 0.91, 1, (1 - s) * 0.9); c.lineWidth = 2
+                    c.beginPath(); c.arc(sw.coreX, sw.coreY, sw.radius * (1 + s * 7), 0, 6.283); c.stroke()
+                    c.strokeStyle = Qt.rgba(1, 0.6, 0.2, (1 - s) * 0.6); c.lineWidth = 1
+                    c.beginPath(); c.arc(sw.coreX, sw.coreY, sw.radius * (1 + s * 4.5), 0, 6.283); c.stroke()
+                }
+                // ---- faíscas
+                const vivas = []
+                for (const f of sw.faiscas) {
+                    f.t += 0.033; f.x += f.vx * 0.033; f.y += f.vy * 0.033; f.vx *= 0.94; f.vy *= 0.94
+                    if (f.t < 0.7) {
+                        vivas.push(f)
+                        c.fillStyle = Qt.rgba(1, 0.75, 0.4, 1 - f.t / 0.7); c.fillRect(f.x - 1.5, f.y - 1.5, 3, 3)
+                    }
+                }
+                sw.faiscas = vivas
+                c.globalCompositeOperation = "source-over"
+            }
+        }
+    }
+
+    // brilho do núcleo (GPU: sprite radial ampliado; respira com a voz)
+    Item {
+        id: nucleoBrilho
+        readonly property real nr: sw.radius * (0.55 + sw.pulse * 0.45)
+        property real coreA: sw.phase === "core" ? 1 : 0.18
+        Behavior on coreA { NumberAnimation { duration: 600 } }
+        Image { source: "qrc:///particleresources/glowdot.png"; smooth: true; width: nucleoBrilho.nr * 5.2; height: width
+                x: sw.coreX - width / 2; y: sw.coreY - height / 2; opacity: 0.55 * nucleoBrilho.coreA * (1 - sw.rostoK * 0.6) }
+        Image { source: "qrc:///particleresources/glowdot.png"; smooth: true; width: nucleoBrilho.nr * 1.6; height: width
+                x: sw.coreX - width / 2; y: sw.coreY - height / 2; opacity: 0.9 * nucleoBrilho.coreA * (1 - sw.rostoK * 0.85) }
+    }
+
+    // brilho holográfico por GPU (bloom): a base e as partículas ganham halo ciano
+    MultiEffect {
+        anchors.fill: fxSrc
+        source: fxSrc
+        shadowEnabled: true
+        shadowColor: "#8fe9ff"
+        shadowBlur: 0.85
+        shadowOpacity: 0.95
+        shadowHorizontalOffset: 0
+        shadowVerticalOffset: 0
+        blurMax: 40
+        brightness: 0.06
+    }
+
+    // ---------------- textos (fora do brilho) ----------------
+    Text {
+        x: sw.coreX - width / 2; y: sw.coreY + sw.radius * 2.45
+        opacity: sw.phase === "core" ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 300 } }
+        text: sw.mode === "speaking" ? "F.R.I.D.A.Y.  ·  FALANDO" : sw.mode === "listening" ? "F.R.I.D.A.Y.  ·  OUVINDO"
+              : sw.mode === "thinking" ? "F.R.I.D.A.Y.  ·  PROCESSANDO" : "F.R.I.D.A.Y.  ·  ONLINE"
+        color: "#ffffff"; font.pixelSize: 13; font.letterSpacing: 6; font.bold: true
+        Rectangle { anchors { top: parent.bottom; topMargin: 6; horizontalCenter: parent.horizontalCenter } width: parent.width * 0.6; height: 2; color: sw.cHot }
+    }
+    Column {        // HUD da emoção simulada
+        x: sw.coreX + sw.radius * 1.5; y: sw.coreY - sw.radius * 1.6; spacing: 4
+        opacity: (sw.phase === "core" ? 0.9 : 0) * sw.rostoK
+        Text { text: "◈ EMOÇÃO · " + sw.humor.toUpperCase(); color: "#ffb070"; font.pixelSize: 10; font.letterSpacing: 3; font.family: "monospace" }
+        Rectangle { width: 120; height: 3; color: "#2a8fe9ff"
+            Rectangle { width: parent.width * Math.min(1, 0.25 + sw.intensidade * 0.75); height: 3; color: sw.cHot } }
+        Text { text: "SOBR " + (sw._E.bt >= 0 ? "+" : "") + sw._E.bt.toFixed(2) + "  OLHO " + sw._E.eo.toFixed(2) + "  BOCA " + sw.level.toFixed(2)
+               color: "#668fe9ff"; font.pixelSize: 9; font.letterSpacing: 1; font.family: "monospace" }
+    }
+    Text {
+        x: Math.max(8, sw.target.x); y: Math.max(6, sw.target.y - 26)
+        visible: sw.phase === "forming" || sw.phase === "screen" || sw.phase === "hold"
+        text: (sw.phase === "forming" ? (sw.kind === "app" ? "◈ MONTANDO JANELA " : "◈ COMPILANDO HOLO-TELA ") + Math.round(sw.progress * 100) + "%"
+               : sw.phase === "hold" ? "◈ AGUARDANDO A JANELA DO APP" : "◈ HOLO-TELA ATIVA") + (sw.label ? "  ·  " + sw.label.toUpperCase() : "")
+        color: "#ffb070"; font.pixelSize: 11; font.letterSpacing: 3; font.family: "monospace"
+    }
+    Text {
+        x: Math.min(sw.width - width - 8, sw.target.x + sw.target.width - width); y: Math.min(sw.height - 20, sw.target.y + sw.target.height + 10)
+        visible: sw.phase === "screen" || sw.phase === "forming" || sw.phase === "hold"
+        text: "NANO " + sw.nTotal + "  ·  GRADE " + sw.cols + "×" + sw.rows + "  ·  " + Math.round(sw.target.width) + "×" + Math.round(sw.target.height)
+        color: "#668fe9ff"; font.pixelSize: 9; font.letterSpacing: 2; font.family: "monospace"
+    }
+}

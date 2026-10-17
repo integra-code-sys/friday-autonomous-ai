@@ -1,0 +1,344 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+
+// Prometheus — rosto animado como wallpaper (camada Bottom: abaixo das janelas e da barra).
+// PROMETHEUS_WINDOW=1 abre em janela normal para teste.
+ShellRoot {
+    id: root
+
+    // ---- estado vindo do daemon ----
+    property string state: "idle"       // idle | listening | thinking | speaking
+    property string mood: "neutro"      // neutro | alegre | serio | curioso | pensativo | surpreso
+    property bool online: false
+
+    // ---- alvos por humor ----
+    readonly property var moods: ({
+        neutro:    { smile: 0.10, browL: 0.00, browR: 0.00, brist: 0.00, cheek: 0.05 },
+        alegre:    { smile: 0.95, browL: 0.25, browR: 0.25, brist: 0.00, cheek: 0.90 },
+        serio:     { smile: -0.15, browL: -0.35, browR: -0.35, brist: 0.55, cheek: 0.00 },
+        curioso:   { smile: 0.20, browL: 0.70, browR: 0.10, brist: 0.00, cheek: 0.15 },
+        pensativo: { smile: 0.00, browL: 0.20, browR: -0.15, brist: -0.30, cheek: 0.00 },
+        amigavel:  { smile: 0.45, browL: 0.12, browR: 0.12, brist: 0.00, cheek: 0.30 },
+        surpreso:  { smile: 0.10, browL: 1.00, browR: 1.00, brist: 0.00, cheek: 0.10 }
+    })
+    readonly property var cur: moods[flash !== "" ? flash : (state === "idle" && present && mood === "neutro" ? "amigavel" : mood)] || moods.neutro
+
+    property real tSmile: cur.smile + (state === "listening" ? 0.10 : 0)
+    property real tBrowL: cur.browL + (state === "listening" ? 0.20 : 0)
+    property real tBrowR: cur.browR + (state === "listening" ? 0.20 : 0)
+    property real tBrist: cur.brist + (state === "thinking" ? -0.35 : 0)
+    property real tCheek: cur.cheek
+
+    property real vSmile: tSmile;  Behavior on vSmile { NumberAnimation { duration: 380; easing.type: Easing.InOutQuad } }
+    property real vBrowL: tBrowL;  Behavior on vBrowL { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+    property real vBrowR: tBrowR;  Behavior on vBrowR { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+    property real vBrist: tBrist;  Behavior on vBrist { NumberAnimation { duration: 320; easing.type: Easing.InOutQuad } }
+    property real vCheek: tCheek;  Behavior on vCheek { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
+
+    property real mouth: 0
+    property real blink: 0
+    property real lookX: 0
+    property real lookY: 0
+    property bool present: false
+    property bool lipSync: false
+    property double lastMouth: 0
+    property bool camOn: true
+    property double lastRx: 0
+    property string flash: ""
+    property real yaw: 0
+    property real pitch: 0
+    property real roll: 0
+    property real lipW: 0
+    Behavior on roll { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
+    Behavior on lipW { NumberAnimation { duration: 90 } }
+    Behavior on yaw { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+    Behavior on pitch { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+    property real glow: state === "idle" ? 0.2 : (state === "thinking" ? 0.9 : 0.6)
+    property real clock: 0
+
+    // relógio (shader)
+    NumberAnimation on clock { from: 0; to: 100000; duration: 100000000; loops: Animation.Infinite; running: true }
+
+    // fala: boca oscila por sílabas pseudo-aleatórias
+    Timer {
+        interval: 85; repeat: true; running: root.state === "speaking" && (Date.now() - root.lastMouth > 1500)
+        onTriggered: {
+            const open = Math.random() < 0.72
+            root.mouth = open ? 0.25 + Math.random() * 0.75 : 0.05
+        }
+        onRunningChanged: if (!running) root.mouth = 0
+    }
+    Behavior on mouth { NumberAnimation { duration: 70 } }
+
+    // personalidade: microexpressões espontâneas quando ocioso
+    Timer {
+        interval: 7000; running: true; repeat: true
+        onTriggered: {
+            interval = 14000 + Math.random() * 16000
+            if (root.state !== "idle") return
+            const opts = root.present ? ["amigavel", "curioso"] : ["pensativo", "neutro"]
+            root.flash = opts[Math.floor(Math.random() * opts.length)]
+            flashOff.restart()
+        }
+    }
+    Timer { id: flashOff; interval: 1400; onTriggered: root.flash = "" }
+    // cabeça acompanha a fala e a escuta
+    property real nod: 0
+    SequentialAnimation on nod {
+        running: root.state === "speaking" || root.state === "listening"; loops: Animation.Infinite
+        NumberAnimation { to: 0.35; duration: 520; easing.type: Easing.InOutSine }
+        NumberAnimation { to: -0.15; duration: 640; easing.type: Easing.InOutSine }
+    }
+
+    // visemas: a largura/arredondamento dos lábios varia por sílaba
+    Timer {
+        interval: 110; repeat: true; running: root.state === "speaking"
+        onTriggered: root.lipW = [-0.8, 0.7, 0.2, -0.4, 0.9, 0.0][Math.floor(Math.random() * 6)]
+        onRunningChanged: if (!running) root.lipW = 0
+    }
+    // cabeça viva: deriva suave quando não há ninguém na câmera
+    Timer {
+        interval: 3500; repeat: true; running: true
+        onTriggered: {
+            interval = 9000 + Math.random() * 9000
+            if (root.present) return
+            root.yaw = (Math.random() - 0.5) * 0.16
+            root.pitch = (Math.random() - 0.5) * 0.08
+            root.roll = (Math.random() - 0.5) * 0.03
+        }
+    }
+
+    // piscar
+    Timer {
+        id: blinkT; interval: 2800; running: true; repeat: true
+        onTriggered: { blinkAnim.restart(); interval = 1800 + Math.random() * 4200 }
+    }
+    SequentialAnimation {
+        id: blinkAnim
+        NumberAnimation { target: root; property: "blink"; to: 1; duration: 70 }
+        NumberAnimation { target: root; property: "blink"; to: 0; duration: 130 }
+    }
+
+    // olhar: vagueia; ao pensar olha para cima
+    Timer {
+        interval: 3200; running: true; repeat: true
+        onTriggered: {
+            if (root.present) return
+            if (root.state === "thinking") { root.lookX = 0.6 * (Math.random() > 0.5 ? 1 : -1); root.lookY = 0.8 }
+            else if (root.state === "listening") { root.lookX = 0; root.lookY = 0 }
+            else { root.lookX = (Math.random() - 0.5) * 0.5; root.lookY = (Math.random() - 0.5) * 0.25 }
+        }
+    }
+    Behavior on lookX { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+    Behavior on lookY { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+
+    // ---- corpo: braços e tronco ----
+    property real aLs: 0.10; property real aLa: 0.06; property real aLe: 0.15
+    property real aRs: 0.10; property real aRa: 0.06; property real aRe: 0.15
+    property real tLean: 0; property real tSway: 0; property real tTwist: 0
+    Behavior on aLs { NumberAnimation { duration: 320; easing.type: Easing.InOutSine } }
+    Behavior on aLa { NumberAnimation { duration: 320; easing.type: Easing.InOutSine } }
+    Behavior on aLe { NumberAnimation { duration: 280; easing.type: Easing.InOutSine } }
+    Behavior on aRs { NumberAnimation { duration: 320; easing.type: Easing.InOutSine } }
+    Behavior on aRa { NumberAnimation { duration: 320; easing.type: Easing.InOutSine } }
+    Behavior on aRe { NumberAnimation { duration: 280; easing.type: Easing.InOutSine } }
+    Behavior on tLean { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+    Behavior on tSway { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+    Behavior on tTwist { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
+
+    property int waveCount: 0
+    property bool gestureRight: true
+    function armsRest() { aLs = 0.10; aLa = 0.06; aLe = 0.15; aRs = 0.10; aRa = 0.06; aRe = 0.15 }
+
+    // cumprimento: acena com o braço direito quando alguém aparece
+    onPresentChanged: if (present && state === "idle") { waveCount = 6; waveTimer.restart() }
+    Timer {
+        id: waveTimer; interval: 330; repeat: true
+        onTriggered: {
+            if (root.waveCount <= 0) { root.armsRest(); stop(); return }
+            root.aRs = 0.55; root.aRa = 0.50
+            root.aRe = (root.waveCount % 2 === 0) ? 1.15 : 0.55
+            root.waveCount--
+        }
+    }
+
+    // gestos conforme o estado
+    Timer {
+        interval: 700; running: true; repeat: true
+        onTriggered: {
+            if (waveTimer.running) return
+            // tronco: inclina para o usuário, gira junto com a cabeça
+            root.tTwist = root.yaw * 0.10
+            root.tSway = root.present ? -root.lookX * 0.025 : 0
+            if (root.state === "speaking") {
+                root.tLean = 0.035
+                const amp = 0.35 + 0.65 * Math.min(1, root.mouth + 0.2)
+                const right = Math.random() < 0.55
+                const both = Math.random() < 0.18
+                const s = (0.25 + Math.random() * 0.45) * amp
+                const e = (0.45 + Math.random() * 0.7) * amp
+                if (right || both) { root.aRs = 0.15 + s; root.aRa = 0.12 + Math.random() * 0.25; root.aRe = 0.25 + e }
+                else { root.aRs = 0.10; root.aRa = 0.06; root.aRe = 0.15 }
+                if (!right || both) { root.aLs = 0.15 + s * 0.9; root.aLa = 0.12 + Math.random() * 0.25; root.aLe = 0.25 + e }
+                else { root.aLs = 0.10; root.aLa = 0.06; root.aLe = 0.15 }
+            } else if (root.state === "thinking") {
+                // mão direita junto ao queixo
+                root.tLean = 0.0
+                root.aRs = 0.90; root.aRa = -0.50; root.aRe = 2.00
+                root.aLs = 0.12; root.aLa = 0.06; root.aLe = 0.2
+            } else if (root.state === "listening") {
+                root.tLean = 0.05
+                root.armsRest()
+            } else {
+                root.tLean = root.present ? 0.02 : 0
+                // respiração/inquietude discreta nos braços
+                const k = Math.sin(root.clock * 0.5) * 0.03
+                root.aLs = 0.10 + k; root.aRs = 0.10 - k; root.aLe = 0.15 + k; root.aRe = 0.15 - k
+                root.aLa = 0.06; root.aRa = 0.06
+            }
+        }
+    }
+
+    // ---- conexão com o daemon (JSON por linha) ----
+    Component {
+      id: sockComp
+      Socket {
+        path: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/prometheus.sock"
+        connected: true
+        onConnectedChanged: root.online = connected
+        onError: root.online = false
+        parser: SplitParser {
+            onRead: line => {
+                try {
+                    root.lastRx = Date.now()
+                    const m = JSON.parse(line)
+                    if (m.type === "mouth") { root.lastMouth = Date.now(); root.mouth = m.v > 0.05 ? Math.min(1, 0.10 + m.v * 1.30) : 0 }
+                    if (m.type === "camera") { root.camOn = m.on; if (!m.on) { root.present = false; root.yaw = 0; root.pitch = 0; root.roll = 0 } }
+                    if (m.type === "gaze") {
+                        root.present = m.present
+                        if (m.present) { root.lookX = m.x; root.lookY = m.y; root.yaw = Math.max(-1.0, Math.min(1.0, m.x * 1.1)); root.pitch = Math.max(-0.6, Math.min(0.6, m.y * 0.8)) }
+                        else { root.yaw = 0; root.pitch = 0 }
+                    }
+                    if (m.type === "state") {
+                        if (m.state) root.state = m.state
+                        if (m.mood) root.mood = m.mood
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+    }
+    Loader { id: sockLoader; active: true; sourceComponent: sockComp }
+    function reconnect() { online = false; sockLoader.active = false; retry.restart() }
+    Timer {   // reconecta se o daemon cair/reiniciar: destrói e recria o Socket
+        interval: 2500; running: !root.online; repeat: true
+        onTriggered: root.reconnect()
+    }
+    Timer { id: retry; interval: 300; onTriggered: sockLoader.active = true }
+    Timer {   // vigia: sem mensagens (ou ping) do daemon por 7 s -> força reconexão
+        interval: 3000; running: true; repeat: true
+        onTriggered: if (Date.now() - root.lastRx > 7000) root.reconnect()
+    }
+
+    Component {
+        id: faceComp
+        Item {
+            id: fc
+            anchors.fill: parent
+            property real aspectR: width / Math.max(1, height)
+            Image { id: headImg; source: Qt.resolvedUrl("head.png"); visible: false; smooth: true; mipmap: true }
+            Image { id: volHead; source: Qt.resolvedUrl("assets/head.png"); visible: false; smooth: true; cache: true }
+            Image { id: volNeck; source: Qt.resolvedUrl("assets/neck.png"); visible: false; smooth: true; cache: true }
+            Image { id: volBust; source: Qt.resolvedUrl("assets/bust.png"); visible: false; smooth: true; cache: true }
+            Image { id: volArmLu; source: Qt.resolvedUrl("assets/armLu.png"); visible: false; smooth: true }
+            Image { id: volArmLf; source: Qt.resolvedUrl("assets/armLf.png"); visible: false; smooth: true }
+            Image { id: volArmRu; source: Qt.resolvedUrl("assets/armRu.png"); visible: false; smooth: true }
+            Image { id: volArmRf; source: Qt.resolvedUrl("assets/armRf.png"); visible: false; smooth: true }
+            Image { id: texWeave; source: Qt.resolvedUrl("assets/tex_weave.jpg"); visible: false; smooth: true; mipmap: true }
+            Image { id: texPlates; source: Qt.resolvedUrl("assets/tex_plates.jpg"); visible: false; smooth: true; mipmap: true }
+
+            // passo 1: cena 3D (SDF) em resolução reduzida
+            ShaderEffect {
+                id: scene3d
+                width: 960; height: Math.max(1, Math.round(960 / fc.aspectR))
+                property real time: root.clock
+                property real aspect: fc.aspectR
+                property real mouth: root.mouth
+                property real smile: root.vSmile
+                property real browL: root.vBrowL
+                property real browR: root.vBrowR
+                property real blink: root.blink
+                property real cheek: root.vCheek
+                property real lookX: root.lookX
+                property real lookY: root.lookY
+                property real brist: root.vBrist
+                property real yaw: root.yaw
+                property real pitch: root.pitch + (root.state === "speaking" ? root.nod * 0.25 * root.mouth : root.state === "listening" ? root.nod * 0.2 : 0)
+                property real roll: root.roll + (root.state === "listening" ? 0.04 : 0)
+                property real lipW: root.lipW
+                property variant tHead: volHead
+                property variant tNeck: volNeck
+                property variant tBust: volBust
+                property variant tArmLu: volArmLu
+                property variant tArmLf: volArmLf
+                property variant tArmRu: volArmRu
+                property variant tArmRf: volArmRf
+                property real armLs: root.aLs
+                property real armLa: root.aLa
+                property real armLe: root.aLe
+                property real armRs: root.aRs
+                property real armRa: root.aRa
+                property real armRe: root.aRe
+                property real lean: root.tLean
+                property real sway: root.tSway
+                property real twist: root.tTwist
+                property variant tWeave: texWeave
+                property variant tPlates: texPlates
+                fragmentShader: Qt.resolvedUrl("scene3d.frag.qsb")
+            }
+            ShaderEffectSource {
+                id: sceneTex
+                sourceItem: scene3d
+                hideSource: true
+                live: true
+                smooth: true
+                textureSize: Qt.size(scene3d.width, scene3d.height)
+            }
+            // passo 2: malha de pontos + fundo
+            ShaderEffect {
+                anchors.fill: parent
+                property real time: root.clock
+                property real aspect: fc.aspectR
+                property real glow: root.glow
+                property variant scene: sceneTex
+                property variant tex: headImg
+                fragmentShader: Qt.resolvedUrl("face.frag.qsb")
+            }
+        }
+    }
+
+    Variants {
+        model: Quickshell.env("PROMETHEUS_WINDOW") === "1" ? [] : Quickshell.screens
+        PanelWindow {
+            required property var modelData
+            screen: modelData
+            color: "black"
+            anchors { top: true; bottom: true; left: true; right: true }
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Bottom
+            WlrLayershell.namespace: "prometheus"
+            Loader { anchors.fill: parent; sourceComponent: faceComp }
+        }
+    }
+
+    LazyLoader {
+        active: Quickshell.env("PROMETHEUS_WINDOW") === "1"
+        FloatingWindow {
+            color: "black"
+            implicitWidth: 1280; implicitHeight: 720
+            Loader { anchors.fill: parent; sourceComponent: faceComp }
+        }
+    }
+}

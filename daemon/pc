@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""pc — controle visível do PC (cursor/teclado) para o Prometheus.
+  pc shot [arq]            captura a tela COM cursor (padrão /tmp/prometheus-shot.png)
+  pc size                  resolução lógica (LxA)
+  pc move X Y              desliza o cursor até X,Y
+  pc click [left|right|middle|double]
+  pc type "texto"          digita no campo focado
+  pc key ctrl+l | enter | alt+left ...
+  pc scroll N              rodinha (N>0 desce)
+  pc windows               lista janelas (niri)
+  pc hot topleft|bottomleft  vai ao canto ativo (workspaces / launcher de apps)
+  pc launch NOME           abre um app de forma visível (launcher: canto inferior esquerdo + nome + Enter)
+  pc goto URL|busca        no navegador em foco: ctrl+l, digita e Enter
+  pc clickat X Y           desliza o cursor até X,Y e clica (com o marcador PROMETHEUS)
+Depois de 'move', faça 'shot' e confira onde o cursor ficou antes de clicar."""
+import os, re, subprocess, sys, time, json
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import win_compat
+
+os.environ.setdefault("YDOTOOL_SOCKET", f"/run/user/{os.getuid() if hasattr(os, 'getuid') else 1000}/.ydotool_socket")
+os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid() if hasattr(os, 'getuid') else 1000}")
+os.environ.setdefault("WAYLAND_DISPLAY", "wayland-1")
+
+KEYS = {"esc": 1, "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10, "0": 11, "backspace": 14,
+        "tab": 15, "q": 16, "w": 17, "e": 18, "r": 19, "t": 20, "y": 21, "u": 22, "i": 23, "o": 24, "p": 25,
+        "enter": 28, "return": 28, "ctrl": 29, "a": 30, "s": 31, "d": 32, "f": 33, "g": 34, "h": 35, "j": 36, "k": 37,
+        "l": 38, "shift": 42, "z": 44, "x": 45, "c": 46, "v": 47, "b": 48, "n": 49, "m": 50, "alt": 56, "space": 57,
+        "f1": 59, "f2": 60, "f3": 61, "f4": 62, "f5": 63, "f6": 64, "f7": 65, "f8": 66, "f9": 67, "f10": 68, "f11": 87,
+        "f12": 88, "home": 102, "up": 103, "pgup": 104, "left": 105, "right": 106, "end": 107, "down": 108,
+        "pgdn": 109, "delete": 111, "super": 125, "meta": 125}
+
+
+def yd(*a):
+    subprocess.run(["ydotool", *map(str, a)], check=False)
+
+
+def sh(*a):
+    return subprocess.run(a, capture_output=True, text=True).stdout
+
+
+def size():
+    if win_compat.IS_WINDOWS:
+        return win_compat.obter_tamanho_tela()
+    try:
+        d = json.loads(sh("niri", "msg", "--json", "outputs"))
+        o = next(iter(d.values()))["logical"]
+        return o["width"], o["height"]
+    except Exception:
+        return 1920, 1080
+
+
+def mark(x, y, act="move", sock=None):
+    """avisa o overlay do Prometheus (cursor visível) — melhor esforço, nunca atrapalha o comando."""
+    try:
+        c = sock or win_compat.connect_ipc()
+        c.sendall((json.dumps({"type": "cursor", "x": int(x), "y": int(y), "act": act}) + "\n").encode())
+        if sock is None:
+            time.sleep(0.05)
+            c.close()
+    except Exception:
+        pass
+    return None
+
+
+POS_FILE = os.path.join(win_compat.get_temp_dir(), "prometheus-pc-pos.json")
+_last = {"x": 960, "y": 540}
+try:
+    _last.update(json.load(open(POS_FILE)))
+except Exception:
+    pass
+
+
+def _save_pos():
+    try:
+        json.dump(_last, open(POS_FILE, "w"))
+    except Exception:
+        pass
+
+
+def sync_corner():
+    """posição conhecida: empurra o cursor para o canto INFERIOR ESQUERDO (é o launcher, que queremos de qualquer jeito) e parte dali.
+    NUNCA para o inferior direito: lá fica o hot corner da Central de Controle (abria sozinha e o launcher não abria)."""
+    w, h = size()
+    yd("mousemove", "-x", -9000, "-y", 9000)
+    time.sleep(0.05)
+    _last.update(x=0, y=h - 1, sync=time.time())
+    _save_pos()
+
+
+def launcher_open():
+    """o launcher do Noctalia é o painel 'noctalia-panel' na camada Top (visto em `niri msg layers`)."""
+    try:
+        return "Namespace: \"noctalia-panel\"" in sh("niri", "msg", "layers")
+    except Exception:
+        return False
+
+
+_ALT = [1080]
+
+
+def _bezier(p0, p1, p2, p3, t):
+    u = 1 - t
+    return (u**3 * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t**3 * p3[0],
+            u**3 * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t**3 * p3[1])
+
+
+def _move_path(sx, sy, x, y, dur):
+    """um movimento humano: curva de Bézier com arqueio, velocidade em sino (acelera, desacelera) e tremor de 1 px."""
+    import random, math
+    d = math.hypot(x - sx, y - sy)
+    if d < 2:
+        return sx, sy
+    nx, ny = -(y - sy) / d, (x - sx) / d                       # perpendicular
+    bow = random.choice((-1, 1)) * d * random.uniform(0.05, 0.16)
+    p1 = (sx + (x - sx) * 0.28 + nx * bow, sy + (y - sy) * 0.28 + ny * bow)
+    p2 = (sx + (x - sx) * 0.72 - nx * bow * 0.55, sy + (y - sy) * 0.72 - ny * bow * 0.55)
+    steps = max(8, int(dur / 0.011))
+    cx, cy = sx, sy
+    for i in range(1, steps + 1):
+        t = i / steps
+        t = t * t * t * (t * (6 * t - 15) + 10)                # smootherstep (humano: lento-rápido-lento)
+        px, py = _bezier((sx, sy), p1, p2, (x, y), t)
+        if i < steps - 3:
+            px += random.uniform(-0.8, 0.8); py += random.uniform(-0.8, 0.8)
+        px, py = int(round(px)), int(round(py))
+        if os.environ.get("PC_BORDA_OK") != "1":
+            py = min(py, _ALT[0] - 45)                         # a trajetória também não encosta no dock
+            px, py = max(px, 8), max(py, 8)                    # nem no canto superior esquerdo (canto quente = visão geral do niri)
+        dx, dy = px - cx, py - cy
+        if dx or dy:
+            yd("mousemove", "-x", dx, "-y", dy)
+            cx, cy = px, py
+        if i % 6 == 0 or i == steps:
+            mark(px, py, "move")
+        time.sleep(0.011 + random.uniform(0, 0.004))
+    return cx, cy
+
+
+def glide(x, y, steps=None):
+    """movimento de mouse como um HUMANO (modelo de Fitts + submovimentos):
+    tempo de reação -> fase balística rápida (curva, errando o alvo por ~2% da distância) -> 1-3 correções curtas e lentas
+    -> assenta no alvo. Velocidade em sino, tremor de mão suave, às vezes ultrapassa e volta.
+    Só movimentos RELATIVOS (aceleração off no niri): 'mousemove --absolute' passa por (0,0) e dispara a hot corner/Overview."""
+    import random, math
+    w, h = size()
+    _ALT[0] = h
+    x, y = max(0, min(w - 1, int(x))), max(0, min(h - 1, int(y)))
+    if x > w - 260 and y < 90:           # canto superior direito = botão de desligar/reiniciar/sair: NUNCA passar nem clicar ali
+        y = 110
+    if x > w - 120 and y > h - 120:      # canto inferior direito = hot corner da Central de Controle
+        x, y = w - 140, h - 140
+    if y > h - 45 and os.environ.get("PC_BORDA_OK") != "1":    # faixa de baixo revela o DOCK (abria apps sem querer)
+        y = h - 45
+    if os.environ.get("PC_BORDA_OK") != "1":
+        x, y = max(x, 8), max(y, 8)                            # canto superior esquerdo = visão geral do niri
+    try:
+        with open("/tmp/friday-cursor.log", "a") as _lg:
+            _lg.write(f"{time.strftime('%H:%M:%S')} glide {_last.get('x')},{_last.get('y')} -> {x},{y} pai={os.getppid()} {' '.join(sys.argv[1:3])}\n")
+    except Exception:
+        pass
+    # recalibrar = empurrar o cursor ao canto inferior esquerdo, que ABRE O LANÇADOR por cima de tudo. Com o daemon acompanhando o mouse
+    # físico (mouse_real_thread grava "user"), a posição já é conhecida: só recalibra sem rastreio e com posição velha (> 25 s).
+    rastreado = "user" in _last or os.environ.get("PC_TRUST_POS") == "1"
+    if "x" not in _last or (not rastreado and time.time() - float(_last.get("sync", 0)) > 25):
+        sync_corner()
+    sx, sy = int(_last["x"]), int(_last["y"])
+    d = math.hypot(x - sx, y - sy)
+    if d < 3:
+        return sx, sy
+    if d > 60:
+        time.sleep(random.uniform(0.14, 0.38))                  # tempo de reação / decidir para onde ir
+    cx, cy = sx, sy
+    # ---- fase balística: ~90-100% da distância, com erro proporcional à distância
+    erro = d * random.uniform(0.01, 0.045)
+    ang = random.uniform(0, 2 * math.pi)
+    tx = x + math.cos(ang) * erro * random.choice((0.4, 1.0))
+    ty = y + math.sin(ang) * erro * random.choice((0.4, 1.0))
+    if d > 380 and random.random() < 0.45:                      # ultrapassa o alvo
+        k = random.uniform(0.02, 0.05)
+        tx, ty = x + (x - sx) * k, y + (y - sy) * k
+    tx, ty = max(0, min(w - 1, tx)), max(0, min(h - 46, ty))
+    dur = 0.20 + 0.15 * math.log2(1 + d / 60.0) + random.uniform(0, 0.08)      # Fitts
+    cx, cy = _move_path(cx, cy, int(tx), int(ty), dur)
+    # ---- correções (cada vez mais curtas e mais lentas), até pousar exatamente
+    for i in range(3):
+        dd = math.hypot(x - cx, y - cy)
+        if dd <= 1.5:
+            break
+        time.sleep(random.uniform(0.05, 0.14))                  # percebe o erro
+        if i < 2 and dd > 6:
+            e2 = dd * random.uniform(0.05, 0.15)
+            gx_ = x + random.uniform(-e2, e2); gy_ = y + random.uniform(-e2, e2)
+        else:
+            gx_, gy_ = x, y
+        cx, cy = _move_path(cx, cy, int(round(gx_)), int(round(gy_)), random.uniform(0.07, 0.16) + dd / 900)
+    if (cx, cy) != (x, y):
+        cx, cy = _move_path(cx, cy, x, y, 0.06)
+    _last.update(x=cx, y=cy)
+    _save_pos()
+    return cx, cy
+
+
+_VIZ = {}
+for _row in ("qwertyuiop", "asdfghjkl", "zxcvbnm"):
+    for _i, _ch in enumerate(_row):
+        _VIZ[_ch] = [(_row[_i + d]) for d in (-1, 1) if 0 <= _i + d < len(_row)]
+
+
+def human_type(text):
+    """digita como gente: ritmo irregular (mais lento em letras raras/maiúsculas), pausas nas palavras e frases, 'pensa' às vezes,
+    e ocasionalmente erra uma tecla vizinha, percebe e corrige com backspace."""
+    import random
+    # ydotool digita keycodes US: no teclado ABNT2 saem trocados (: -> Ç, / -> ;, ? -> :). Só letras/dígitos/espaço vão tecla a tecla;
+    # qualquer pontuação ou acento vai por colagem (wl-copy + ctrl+v).
+    ascii_ok = all(c.isascii() and (c.isalnum() or c == " ") for c in text)
+    if not ascii_ok and subprocess.run(["which", "wl-copy"], capture_output=True).returncode == 0:
+        # acentos (ã, ç, é...) não saem pelo ydotool/wtype no ABNT2: cola da área de transferência (ctrl+v)
+        subprocess.run(["wl-copy", "--", text], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(0.15)   # DEVNULL: o wl-copy fica em segundo plano e segurava o pipe do chamador (60 s)
+        yd("key", "29:1", "47:1", "47:0", "29:0"); time.sleep(0.2)
+        return
+
+    def press(ch):
+        if ch == " ":
+            yd("key", "57:1", "57:0")                            # barra de espaço (ydotool type " " perde o espaço)
+        elif ascii_ok:
+            yd("type", "--key-delay", 1, ch)
+        else:
+            subprocess.run(["wtype", ch])
+
+    rate = random.uniform(0.85, 1.2)                             # "velocidade do dia"
+    for i, ch in enumerate(text):
+        if ch.isalpha() and ch.lower() in _VIZ and random.random() < 0.025 and i > 0 and i < len(text) - 1:
+            press(random.choice(_VIZ[ch.lower()]))               # erra a tecla
+            time.sleep(random.uniform(0.12, 0.38) * rate)        # percebe
+            if random.random() < 0.5:                            # às vezes digita mais uma letra antes de notar
+                press(random.choice("aeiosrn")); time.sleep(random.uniform(0.08, 0.2))
+                yd("key", "14:1", "14:0"); time.sleep(random.uniform(0.05, 0.12))
+            yd("key", "14:1", "14:0"); time.sleep(random.uniform(0.06, 0.16))
+        press(ch)
+        base = random.gauss(0.085, 0.028) * rate
+        if ch.isupper() or ch in "@#$%&*()_+{}|:\"<>?!":
+            base += random.uniform(0.04, 0.1)                     # shift
+        if ch in " ":
+            base += random.uniform(0.02, 0.1) + (random.uniform(0.15, 0.45) if random.random() < 0.12 else 0)
+        elif ch in ".,;:!?":
+            base += random.uniform(0.12, 0.35)
+        if random.random() < 0.02:
+            base += random.uniform(0.3, 0.8)                      # hesitação ("pensando")
+        time.sleep(max(0.02, base))
+
+
+cmd, args = (sys.argv[1] if len(sys.argv) > 1 else "help"), sys.argv[2:]
+if cmd == "shot":
+    p = args[0] if args else "/tmp/prometheus-shot.png"
+    subprocess.run(["grim", "-c", p]); w, h = size()
+    print(f"{p} ({w}x{h}) — abra a imagem com Read para ver a tela e o cursor")
+elif cmd == "size":
+    print("%dx%d" % size())
+elif cmd == "move":
+    x, y = glide(int(args[0]), int(args[1])); print(f"cursor -> {x},{y}")
+elif cmd == "hot":
+    os.environ["PC_BORDA_OK"] = "1"
+    w, h = size()
+    x, y = {"topleft": (0, 0), "bottomleft": (0, h - 1)}[args[0]]
+    glide(x, y); print("canto", args[0])
+elif cmd == "click":
+    kind = args[0] if args else "left"
+    code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}.get(kind, "0xC0")
+    mark(_last["x"], _last["y"], "click")
+    import random; time.sleep(random.uniform(0.08, 0.22))
+    down, up = {"0xC0": ("0x40", "0x80"), "0xC1": ("0x41", "0x81"), "0xC2": ("0x42", "0x82")}[code]
+    yd("click", down); time.sleep(random.uniform(0.055, 0.13)); yd("click", up)
+    if kind == "double":
+        time.sleep(random.uniform(0.09, 0.17)); yd("click", down); time.sleep(random.uniform(0.05, 0.11)); yd("click", up)
+    print("click", kind)
+elif cmd == "type":
+    human_type(" ".join(args))
+    print("digitado")
+elif cmd == "key":
+    for combo in args:
+        ks = [KEYS[k.lower()] for k in combo.split("+")]
+        yd("key", *([f"{k}:1" for k in ks] + [f"{k}:0" for k in reversed(ks)])); time.sleep(0.05)
+    print("tecla", " ".join(args))
+elif cmd == "scroll":
+    yd("mousemove", "--wheel", "-x", 0, "-y", -int(args[0]) if args else -3); print("scroll")
+elif cmd == "launch":
+    # abre um app de forma VISÍVEL: cursor vai ao canto inferior esquerdo (launcher); só digita se o launcher abriu de verdade
+    os.environ["PC_BORDA_OK"] = "1"
+    w, h = size()
+    if launcher_open():                                   # algum painel (launcher/central) já aberto: fecha antes, p/ não digitar nele
+        yd("key", "1:1", "1:0"); time.sleep(0.4)
+    glide(0, h - 1)
+    time.sleep(0.15)
+    if not launcher_open():
+        subprocess.run(["noctalia", "msg", "panel-open", "launcher"], check=False)
+    for _ in range(15):
+        if launcher_open():
+            break
+        time.sleep(0.1)
+    else:
+        print("erro: launcher não abriu"); sys.exit(1)
+    time.sleep(0.25)
+    human_type(" ".join(args)); time.sleep(0.4)
+    yd("key", "28:1", "28:0"); print("launcher:", " ".join(args))
+elif cmd == "goto":
+    # navegador já em foco: ctrl+l, digita a URL/busca, Enter. Recusa se o foco não for um navegador (já digitou URL no terminal do dono)
+    try:
+        _fw = json.loads(sh("niri", "msg", "--json", "focused-window") or "null") or {}
+    except Exception:
+        _fw = {}
+    if not re.search(r"chrom|firefox|brave|zen|librewolf", str(_fw.get("app_id", "")), re.I):
+        print("erro: navegador não está em foco (" + str(_fw.get("app_id")) + "); não digitei nada"); sys.exit(2)
+    yd("key", "29:1", "38:1", "38:0", "29:0"); time.sleep(0.25)
+    human_type(" ".join(args)); time.sleep(0.2)
+    yd("key", "28:1", "28:0"); print("goto:", " ".join(args))
+elif cmd == "clickat":
+    import random
+    x, y = glide(int(args[0]), int(args[1])); time.sleep(random.uniform(0.12, 0.28))
+    yd("mousemove", "-x", 1, "-y", 0); yd("mousemove", "-x", -1, "-y", 0)     # micro-movimento: o Chromium (Wayland) às vezes ignora o clique sem um evento de movimento recente
+    mark(x, y, "click")
+    yd("click", "0x40"); time.sleep(random.uniform(0.055, 0.13)); yd("click", "0x80"); print(f"clique em {x},{y}")
+elif cmd == "windows":
+    print(sh("niri", "msg", "windows"))
+else:
+    print(__doc__)

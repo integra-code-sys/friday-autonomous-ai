@@ -1,0 +1,404 @@
+import QtQuick
+
+// Núcleo holográfico da F.R.I.D.A.Y. em estilo HUD Stark.
+// Plexo 3D de partículas + anel de onda de voz + anéis graduados/segmentados + radar + satélites
+// + telemetria lateral (sistema, sensores, fluxo de dados). Sequência de boot ao aparecer.
+// Interativo: passar o mouse inclina a esfera (paralaxe 3D) e destaca o anel; clicar dispara onda de choque.
+// explode() espalha tudo (painel abrindo) e regroup() reagrupa.
+Item {
+    id: core
+    property real level: 0              // amplitude da fala
+    property string mode: "idle"       // idle | listening | thinking | speaking
+    property bool exploded: false
+    property color cHolo: "#00d2ff"      // partes holográficas: ciano Stark
+    property color cHot: "#ff8a1f"       // destaque da interface: laranja
+    property int count: 240
+    property real radius: Math.min(width, height) * 0.16
+    // telemetria (vinda do shell)
+    property real cpu: 0
+    property real ram: 0
+    property real gpu: 0
+    property real vram: 0
+    property int temp: 0
+    property bool online: true
+    property int pessoas: 0
+    property int objetos: 0
+    property string clock: ""
+    property string date: ""
+    property alias hit: hitArea          // região clicável (mask do PanelWindow)
+
+    property var pts: []
+    property real burst: 0               // 0 = agrupado, 1 = explodido
+    property real pulse: 0
+    property real boot: 0                // 0..1 sequência de inicialização
+    property real spin: 1                // multiplicador de rotação (clique acelera)
+    property real tiltX: 0               // paralaxe do mouse (-1..1)
+    property real tiltY: 0
+    property real hover: 0
+    readonly property color cState: mode === "speaking" ? "#ffffff" : mode === "listening" ? "#5ff0ff" : mode === "thinking" ? cHot : cHolo
+    readonly property real spinBase: mode === "thinking" ? 3.2 : mode === "listening" ? 1.6 : mode === "speaking" ? 1.3 : 1
+    readonly property real fade: (1 - burst) * boot
+    Behavior on burst { NumberAnimation { duration: core.exploded ? 650 : 1400; easing.type: core.exploded ? Easing.OutExpo : Easing.InOutCubic } }
+    Behavior on hover { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
+
+    function explode() { exploded = true; burst = 1 }
+    function regroup() { exploded = false; burst = 0 }
+    function shock() { spin = 7; wave.restart() }
+
+    NumberAnimation on boot { from: 0; to: 1; duration: 2200; easing.type: Easing.OutCubic; running: true }
+
+    Component.onCompleted: {
+        const a = []
+        for (let i = 0; i < count; i++) {
+            const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, r = Math.cbrt(Math.random())
+            const s = Math.sqrt(Math.max(0, 1 - u * u))
+            a.push({ x: s * Math.cos(th) * r, y: u * r, z: s * Math.sin(th) * r,
+                     sp: 0.25 + Math.random() * 0.7, ph: Math.random() * 6.28,
+                     dx: Math.cos(th) * (2 + Math.random() * 3), dy: (Math.random() * 2 - 1) * 2.5 })
+        }
+        pts = a
+    }
+
+    property real ang: 0
+    Timer {
+        interval: 33; running: core.visible; repeat: true          // 30 qps suave
+        onTriggered: {
+            const target = core.mode === "speaking" ? 0.35 + core.level * 1.2 : (core.mode === "listening" ? 0.25 : (core.mode === "thinking" ? 0.18 : 0.06))
+            core.pulse += (target - core.pulse) * 0.32
+            core.spin += (core.spinBase - core.spin) * 0.05
+            core.ang += 0.033 * 0.25 * core.spin
+            if (!hitArea.containsMouse) { core.tiltX *= 0.94; core.tiltY *= 0.94 }
+            cv.requestPaint()
+        }
+    }
+
+    readonly property real cx: width / 2
+    readonly property real cy: height / 2
+
+    // ---------- grade hexagonal de fundo (estática, some na borda) ----------
+    Canvas {
+        id: hex
+        anchors.centerIn: parent
+        width: core.radius * 6; height: width
+        opacity: core.fade * (0.45 + core.hover * 0.4)
+        onWidthChanged: requestPaint()
+        onPaint: {
+            const c = getContext("2d"); c.reset()
+            const s = 18, h = s * Math.sqrt(3), R = width / 2
+            c.lineWidth = 1
+            for (let y = -h; y < height + h; y += h) for (let x = -s * 3; x < width + s * 3; x += s * 3) {
+                for (let k = 0; k < 2; k++) {
+                    const px = x + k * s * 1.5, py = y + k * h / 2
+                    const d = Math.hypot(px - R, py - R) / R
+                    if (d > 1) continue
+                    c.strokeStyle = Qt.rgba(0, 0.82, 1, Math.pow(1 - d, 2) * 0.16)
+                    c.beginPath()
+                    for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i; c.lineTo(px + s * 0.92 * Math.cos(a), py + s * 0.92 * Math.sin(a)) }
+                    c.closePath(); c.stroke()
+                }
+            }
+        }
+    }
+
+    // brilho de fundo
+    Rectangle {
+        anchors.centerIn: parent
+        width: core.radius * (3.2 + core.pulse + core.hover * 0.4); height: width; radius: width / 2
+        opacity: core.fade * (0.12 + core.pulse * 0.22)
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#338fe9ff" }
+            GradientStop { position: 0.5; color: "#108fe9ff" }
+            GradientStop { position: 1.0; color: "#008fe9ff" }
+        }
+    }
+
+    // ---------- anel graduado externo (régua com 180 marcas) ----------
+    Canvas {
+        id: ticks
+        anchors.centerIn: parent
+        width: core.radius * 3.9 * (0.6 + core.boot * 0.4); height: width
+        opacity: core.fade * 0.85
+        rotation: core.ang * 18
+        onWidthChanged: requestPaint()
+        onPaint: {
+            const c = getContext("2d"); c.reset()
+            const R = width / 2 - 2
+            for (let i = 0; i < 180; i++) {
+                const a = i / 180 * Math.PI * 2, big = i % 15 === 0, mid = i % 5 === 0
+                const l = big ? 14 : mid ? 8 : 4
+                c.strokeStyle = big ? "#ff8a1f" : mid ? "rgba(255,255,255,0.7)" : "rgba(0,210,255,0.45)"
+                c.lineWidth = big ? 2 : 1
+                c.beginPath(); c.moveTo(R + Math.cos(a) * R, R + Math.sin(a) * R)
+                c.lineTo(R + Math.cos(a) * (R - l), R + Math.sin(a) * (R - l)); c.stroke()
+            }
+            c.strokeStyle = "rgba(0,210,255,0.25)"; c.lineWidth = 1
+            c.beginPath(); c.arc(R, R, R - 18, 0, Math.PI * 2); c.stroke()
+        }
+    }
+
+    // ---------- arcos segmentados (contra-rotação, velocidade depende do estado) ----------
+    Repeater {
+        model: [ { r: 3.25, seg: [[0, 70], [95, 150], [180, 200], [230, 330]], w: 3, col: "#ff8a1f", dir: -1, sp: 30 },
+                 { r: 2.95, seg: [[10, 40], [60, 62], [70, 72], [120, 250], [290, 340]], w: 1.5, col: "#ffffff", dir: 1, sp: 45 },
+                 { r: 2.62, seg: [[0, 120], [140, 145], [160, 300]], w: 6, col: "#3300d2ff", dir: -1, sp: 22 } ]
+        Canvas {
+            required property var modelData
+            anchors.centerIn: parent
+            width: core.radius * modelData.r * (0.5 + core.boot * 0.5) * (1 + core.pulse * 0.06 + core.hover * 0.03); height: width
+            opacity: core.fade
+            rotation: core.ang * modelData.sp * modelData.dir
+            onWidthChanged: requestPaint()
+            onPaint: {
+                const c = getContext("2d"); c.reset()
+                const R = width / 2 - modelData.w
+                c.lineWidth = modelData.w; c.strokeStyle = modelData.col; c.lineCap = "butt"
+                modelData.seg.forEach(s => { c.beginPath(); c.arc(width / 2, width / 2, R, s[0] * Math.PI / 180, s[1] * Math.PI / 180); c.stroke() })
+            }
+        }
+    }
+
+    // ---------- radar (varredura cônica ao ouvir/pensar) ----------
+    Item {
+        anchors.centerIn: parent
+        width: core.radius * 2.55; height: width
+        opacity: core.fade * (core.mode === "listening" || core.mode === "thinking" ? 0.9 : 0.18 + core.hover * 0.5)
+        Behavior on opacity { NumberAnimation { duration: 500 } }
+        rotation: core.ang * 140
+        Canvas {        // cunha de 50° com rastro esmaecendo
+            anchors.fill: parent
+            property bool quente: core.mode === "thinking"
+            onQuenteChanged: requestPaint()
+            onWidthChanged: requestPaint()
+            onPaint: {
+                const c = getContext("2d"); c.reset()
+                const R = width / 2
+                for (let k = 0; k < 25; k++) {
+                    c.fillStyle = quente ? Qt.rgba(1, 0.54, 0.12, 0.012 * (25 - k)) : Qt.rgba(0, 0.82, 1, 0.012 * (25 - k))
+                    c.beginPath(); c.moveTo(R, R); c.arc(R, R, R, -k * 2 * Math.PI / 180, -(k + 1) * 2 * Math.PI / 180, true); c.closePath(); c.fill()
+                }
+            }
+        }
+        Rectangle { x: parent.width / 2; y: parent.height / 2 - 1; width: parent.width / 2; height: 2; color: core.cState; opacity: 0.8 }
+    }
+
+    // ---------- satélites orbitando ----------
+    Repeater {
+        model: 5
+        Item {
+            anchors.centerIn: parent
+            width: core.radius * (2.1 + index * 0.33); height: width
+            opacity: core.fade
+            rotation: core.ang * (60 + index * 23) * (index % 2 ? -1 : 1) + index * 72
+            Rectangle {
+                x: parent.width / 2 - width / 2; y: -height / 2
+                width: index === 2 ? 9 : 5; height: width; radius: width / 2
+                color: index % 2 ? "#ffffff" : core.cHot
+                Rectangle { anchors.centerIn: parent; width: parent.width * 3; height: width; radius: width / 2; color: "transparent"; border.color: parent.color; border.width: 1; opacity: 0.4 }
+            }
+        }
+    }
+
+    // ---------- plexo de partículas + onda de voz ----------
+    Canvas {
+        id: cv
+        anchors.fill: parent
+        renderStrategy: Canvas.Cooperative
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.reset()
+            const t = Date.now() / 1000, cx = width / 2, cy = height / 2
+            const R = core.radius * (1 + core.pulse * 0.22) * (0.3 + core.boot * 0.7), b = core.burst
+            const tx = core.tiltX * 0.6, ty = core.tiltY * 0.6
+            const cy2 = Math.cos(ty), sy2 = Math.sin(ty)
+            const P = []
+            for (let i = 0; i < core.pts.length; i++) {
+                const p = core.pts[i]
+                const ang = core.ang * p.sp * 4 + tx
+                const ca = Math.cos(ang), sa = Math.sin(ang)
+                const x = p.x * ca - p.z * sa, z0 = p.x * sa + p.z * ca
+                const y = p.y * cy2 - z0 * sy2, z = p.y * sy2 + z0 * cy2       // inclinação vertical pelo mouse
+                const wob = 1 + core.pulse * 0.35 * Math.sin(t * 9 + p.ph)
+                const px = cx + (x * R * wob) + b * p.dx * core.radius * 2.2
+                const py = cy + (y * R * wob) + b * p.dy * core.radius * 1.4
+                P.push([px, py, (z + 1) / 2])
+            }
+            const maxD = core.radius * 0.55, a0 = (1 - b * 0.9) * core.boot
+            ctx.lineWidth = 1
+            for (let i = 0; i < P.length; i += 2) {
+                for (let j = i + 1; j < P.length; j += 2) {
+                    const dx = P[i][0] - P[j][0], dy = P[i][1] - P[j][1]
+                    if (Math.abs(dx) > maxD || Math.abs(dy) > maxD) continue
+                    const d = Math.sqrt(dx * dx + dy * dy)
+                    if (d < maxD) {
+                        ctx.strokeStyle = Qt.rgba(0.0, 0.85, 1.0, (1 - d / maxD) * (0.28 + core.pulse * 0.55 + core.hover * 0.15) * a0)
+                        ctx.beginPath(); ctx.moveTo(P[i][0], P[i][1]); ctx.lineTo(P[j][0], P[j][1]); ctx.stroke()
+                    }
+                }
+            }
+            for (let i = 0; i < P.length; i++) {
+                const sz = 1.2 + P[i][2] * 2.2 + core.pulse * 1.5
+                ctx.fillStyle = i % 12 === 0 ? Qt.rgba(1.0, 0.54, 0.12, 0.95 * a0) : Qt.rgba(0.0, 0.85, 1.0, (0.45 + P[i][2] * 0.55) * a0)
+                ctx.fillRect(P[i][0] - sz / 2, P[i][1] - sz / 2, sz, sz)
+            }
+            // anel de onda de voz: 120 barras radiais (fala = amplitude; ouvir = ondulação; parado = respiração)
+            const N = 120, r0 = core.radius * 1.42
+            const amp = core.mode === "speaking" ? core.level * core.radius * 0.55 + 3 : core.mode === "listening" ? 7 : core.mode === "thinking" ? 4 : 2
+            ctx.lineWidth = 2
+            for (let i = 0; i < N; i++) {
+                const a = i / N * Math.PI * 2 - Math.PI / 2
+                const n = 0.5 + 0.5 * Math.sin(t * 11 + i * 0.55) * Math.cos(t * 4.3 + i * 0.21)
+                const l = 2 + amp * (core.mode === "thinking" ? (Math.sin(a * 3 - t * 6) > 0.6 ? 1.8 : 0.3) : n)
+                ctx.strokeStyle = i % 10 === 0 ? Qt.rgba(1, 0.54, 0.12, 0.9 * a0) : Qt.rgba(0.5, 0.93, 1, (0.35 + n * 0.55) * a0)
+                ctx.beginPath()
+                ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0)
+                ctx.lineTo(cx + Math.cos(a) * (r0 + l), cy + Math.sin(a) * (r0 + l)); ctx.stroke()
+            }
+        }
+    }
+
+    // ---------- onda de choque (clique) ----------
+    Rectangle {
+        id: shockRing
+        anchors.centerIn: parent; width: 10; height: width; radius: width / 2
+        color: "transparent"; border.color: core.cHot; border.width: 3; opacity: 0
+    }
+    Rectangle {
+        id: shockRing2
+        anchors.centerIn: parent; width: 10; height: width; radius: width / 2
+        color: "transparent"; border.color: "#aaf0ff"; border.width: 2; opacity: 0
+    }
+    ParallelAnimation {
+        id: wave
+        NumberAnimation { target: shockRing; property: "width"; from: core.radius; to: core.radius * 5; duration: 900; easing.type: Easing.OutCubic }
+        NumberAnimation { target: shockRing; property: "opacity"; from: 1; to: 0; duration: 900 }
+        SequentialAnimation {
+            PauseAnimation { duration: 140 }
+            ParallelAnimation {
+                NumberAnimation { target: shockRing2; property: "width"; from: core.radius; to: core.radius * 4; duration: 900; easing.type: Easing.OutCubic }
+                NumberAnimation { target: shockRing2; property: "opacity"; from: 0.9; to: 0; duration: 900 }
+            }
+        }
+    }
+
+    // ---------- área interativa (só o disco do núcleo; o resto do desktop continua livre) ----------
+    MouseArea {
+        id: hitArea
+        anchors.centerIn: parent
+        width: core.radius * 3.4; height: width
+        hoverEnabled: true
+        onEntered: core.hover = 1
+        onExited: core.hover = 0
+        onPositionChanged: m => { core.tiltX = (m.x / width - 0.5) * 2; core.tiltY = (m.y / height - 0.5) * 2 }
+        onClicked: core.shock()
+    }
+
+    // ---------- rótulo de estado ----------
+    Text {
+        id: lbl
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.verticalCenter; topMargin: core.radius * 2.05 }
+        opacity: core.fade
+        text: core.boot < 0.98 ? "INICIALIZANDO  ·  " + Math.round(core.boot * 100) + "%"
+              : core.mode === "speaking" ? "F.R.I.D.A.Y.  ·  FALANDO" : core.mode === "listening" ? "F.R.I.D.A.Y.  ·  OUVINDO"
+              : core.mode === "thinking" ? "F.R.I.D.A.Y.  ·  PROCESSANDO" : "F.R.I.D.A.Y.  ·  ONLINE"
+        color: "#ffffff"; font.pixelSize: 13; font.letterSpacing: 6; font.bold: true
+        Rectangle { anchors { top: parent.bottom; topMargin: 6; horizontalCenter: parent.horizontalCenter } width: parent.width * (0.3 + 0.3 * core.pulse + 0.3 * core.hover); height: 2; color: core.cState
+            Behavior on width { NumberAnimation { duration: 250 } } }
+        Text { anchors { top: parent.bottom; topMargin: 14; horizontalCenter: parent.horizontalCenter }
+            text: core.hover > 0.5 ? "CLIQUE PARA PULSO  ·  MOVA PARA INCLINAR" : (core.online ? "LINK NEURAL ESTÁVEL" : "SEM LINK COM O DAEMON")
+            color: core.online ? "#8fe9ff" : "#ff5f6d"; font.pixelSize: 10; font.letterSpacing: 3; opacity: 0.8 }
+    }
+
+    // ---------- telemetria lateral ----------
+    component Bar: Item {
+        id: bar
+        property string label: ""
+        property real value: 0
+        property real shown: value
+        Behavior on shown { NumberAnimation { duration: 700; easing.type: Easing.OutCubic } }
+        readonly property color tint: value > 85 ? "#ff5f6d" : value > 65 ? "#ffd27f" : "#8fe9ff"
+        width: 210; height: 30
+        Text { text: bar.label; color: "#ff8a1f"; font.pixelSize: 10; font.letterSpacing: 3; font.bold: true }
+        Text { anchors.right: parent.right; text: Math.round(bar.value) + "%"; color: "#ffffff"; font.pixelSize: 11; font.family: "monospace" }
+        Row {
+            y: 16; spacing: 2
+            Repeater {
+                model: 26
+                Rectangle { width: 6; height: 9; color: index / 26 < bar.shown / 100 ? bar.tint : "#1a8fe9ff"
+                    opacity: index / 26 < bar.shown / 100 ? 0.55 + 0.45 * index / 26 : 1 }
+            }
+        }
+    }
+
+    component Bracket: Item {
+        id: br
+        property bool flip: false
+        default property alias content: col.data
+        property string title: ""
+        width: 250; height: col.implicitHeight + 46
+        Rectangle { width: 1; height: parent.height; x: br.flip ? parent.width : 0; color: "#668fe9ff" }
+        Rectangle { width: 28; height: 2; x: br.flip ? parent.width - 28 : 0; color: "#ff8a1f" }
+        Rectangle { width: 28; height: 2; x: br.flip ? parent.width - 28 : 0; y: parent.height - 2; color: "#ff8a1f" }
+        Text { x: br.flip ? parent.width - width - 18 : 18; y: 8; text: br.title; color: "#ffffff"; font.pixelSize: 11; font.letterSpacing: 4; font.bold: true }
+        Column { id: col; width: 210; x: br.flip ? parent.width - 228 : 18; y: 32; spacing: 8 }
+    }
+
+    Column {
+        id: leftCol
+        x: core.cx - core.radius * 2.25 - 270 - (1 - core.boot) * 120
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 22
+        opacity: core.fade
+        Bracket {
+            title: "◢ SISTEMA"
+            Bar { label: "CPU"; value: core.cpu }
+            Bar { label: "RAM"; value: core.ram }
+            Bar { label: "GPU"; value: core.gpu }
+            Bar { label: "VRAM"; value: core.vram }
+        }
+        Bracket {
+            title: "◢ TÉRMICO"
+            Row { spacing: 10
+                Text { text: core.temp > 0 ? core.temp + "°C" : "--"; color: core.temp > 80 ? "#ff5f6d" : "#8fe9ff"; font.pixelSize: 30; font.weight: Font.Light; font.family: "monospace" }
+                Column { anchors.verticalCenter: parent.verticalCenter
+                    Text { text: core.temp > 80 ? "CRÍTICO" : core.temp > 65 ? "ELEVADO" : "NOMINAL"; color: "#ff8a1f"; font.pixelSize: 10; font.letterSpacing: 3 }
+                    Text { text: "NÚCLEO"; color: "#88ffffff"; font.pixelSize: 9; font.letterSpacing: 3 } }
+            }
+        }
+    }
+
+    Column {
+        x: core.cx + core.radius * 2.25 + 20 + (1 - core.boot) * 120
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 22
+        opacity: core.fade
+        Bracket {
+            flip: true; title: "CRONÔMETRO ◣"
+            Text { anchors.right: parent.right; text: core.clock; color: "#ffffff"; font.pixelSize: 34; font.weight: Font.Light; font.family: "monospace" }
+            Text { anchors.right: parent.right; text: core.date; color: "#ff8a1f"; font.pixelSize: 11; font.letterSpacing: 4 }
+        }
+        Bracket {
+            flip: true; title: "SENSORES ◣"
+            Repeater {
+                model: [["PRESENÇAS", core.pessoas], ["OBJETOS", core.objetos], ["MODO", core.mode.toUpperCase()]]
+                Row { anchors.right: parent.right; spacing: 12
+                    Text { text: modelData[0]; color: "#88ffffff"; font.pixelSize: 10; font.letterSpacing: 3; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: String(modelData[1]); color: "#8fe9ff"; font.pixelSize: 15; font.family: "monospace" } }
+            }
+        }
+        Bracket {
+            id: stream
+            flip: true; title: "FLUXO DE DADOS ◣"
+            property var lines: []
+            Timer { interval: 140; running: core.visible; repeat: true
+                onTriggered: {
+                    const hx = () => Math.floor(Math.random() * 0xffff).toString(16).toUpperCase().padStart(4, "0")
+                    const l = stream.lines.slice(-5); l.push("0x" + hx() + hx() + "  " + hx() + "  " + (core.mode === "thinking" ? "PROC" : core.mode === "speaking" ? "VOX" : "SYNC"))
+                    stream.lines = l
+                } }
+            Repeater {
+                model: stream.lines
+                Text { anchors.right: parent.right; text: modelData; color: index === 5 ? "#ffffff" : "#668fe9ff"; font.pixelSize: 10; font.family: "monospace" }
+            }
+        }
+    }
+}

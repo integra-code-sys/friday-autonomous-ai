@@ -1,0 +1,59 @@
+#!/bin/sh
+# prometheus-toggle camera|mic|friday — alterna câmera, microfone (escuta) ou a F.R.I.D.A.Y. (ligar/desligar) lendo o estado REAL do daemon.
+D="$(cd "$(dirname "$0")/.." && pwd)"
+case "$1" in
+  camera) tipo=camera; nome="Câmera" ;;
+  mic)    tipo=voice;  nome="Microfone" ;;
+  friday) tipo=friday; nome="F.R.I.D.A.Y." ;;
+  criacao) tipo=mode_criacao; nome="Modo Criação" ;;
+  mao_livre|mouse) tipo=mode_mouse; nome="Modo Mão Livre" ;;
+  seguranca) tipo=mode_seguranca; nome="Modo Segurança" ;;
+  *) echo "uso: prometheus-toggle camera|mic|friday|criacao|mao_livre|seguranca" >&2; exit 1 ;;
+esac
+"$D/.venv/bin/python" -I - "$tipo" "$nome" <<'PY'
+import json, os, socket, subprocess, sys, time
+tipo, nome = sys.argv[1], sys.argv[2]
+sock = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()), "prometheus.sock")
+s = socket.socket(socket.AF_UNIX); s.settimeout(0.7); s.connect(sock)
+buf = b""; t = time.time(); atual = None
+while time.time() - t < 1.5:
+    try:
+        buf += s.recv(65536)
+    except Exception:
+        break
+
+if tipo.startswith("mode_"):
+    m_key = tipo[5:]
+    for l in buf.decode(errors="ignore").splitlines():
+        try:
+            m = json.loads(l)
+        except Exception:
+            continue
+        if m.get("type") == "modes" and m_key in m:
+            atual = bool(m[m_key])
+    novo = not (atual if atual is not None else False)
+    msg = {"type": "mode", "mode": m_key, "on": novo}
+elif tipo == "friday":
+    for l in buf.decode(errors="ignore").splitlines():
+        try:
+            m = json.loads(l)
+        except Exception:
+            continue
+        if m.get("type") == "friday" and "on" in m:
+            atual = bool(m["on"])
+    novo = not (atual if atual is not None else False)
+    msg = {"type": "heard", "text": "Sexta-Feira, ligar!" if novo else "Sexta-Feira, desligar!"}
+else:
+    for l in buf.decode(errors="ignore").splitlines():
+        try:
+            m = json.loads(l)
+        except Exception:
+            continue
+        if m.get("type") == tipo and "on" in m:
+            atual = bool(m["on"])
+    novo = not (atual if atual is not None else False)
+    msg = {"type": tipo, "on": novo}
+
+s.sendall((json.dumps(msg) + "\n").encode()); time.sleep(0.2)
+subprocess.run(["notify-send", "-t", "1500", "-a", "Prometheus", nome, "ativado" if novo else "desativado"], check=False)
+PY

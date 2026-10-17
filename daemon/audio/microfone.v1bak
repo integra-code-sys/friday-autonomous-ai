@@ -1,0 +1,35 @@
+#!/bin/bash
+# Front-end de áudio da F.R.I.D.A.Y.: fonte "friday_mic" = microfone com eco/ruído cancelados (WebRTC via PipeWire).
+#   microfone iniciar [fonte]   sobe o filtro (fonte padrão: FRIDAY_MIC, memory/voz.json "mic" ou a entrada padrão do sistema)
+#   microfone parar | status | fontes
+#   microfone ganho <0.0-1.0>   volume de captura do microfone bruto (alto demais = clipping)
+D="$(cd "$(dirname "$0")/../.." && pwd)"
+RUN="${XDG_RUNTIME_DIR:-/tmp}"
+PIDF="$RUN/friday-ec.pid"
+mic_escolhido() {
+    [ -n "$FRIDAY_MIC" ] && { echo "$FRIDAY_MIC"; return; }
+    local m; m=$(python3 -c "import json;print(json.load(open('$D/memory/voz.json')).get('mic',''))" 2>/dev/null)
+    [ -n "$m" ] && { echo "$m"; return; }
+    pactl get-default-source
+}
+ativo() { [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; }
+case "$1" in
+  iniciar)
+    ativo && pactl list short sources | grep -q "friday_mic" && { echo "já ativo"; exit 0; }
+    MIC="${2:-$(mic_escolhido)}"
+    [ "$MIC" = "friday_mic" ] && MIC=$(pactl list short sources | awk '$2 ~ /^alsa_input/ {print $2; exit}')
+    sed "s|@MIC@|$MIC|" "$D/daemon/audio/friday-ec.conf" > "$RUN/friday-ec.conf"
+    setsid pipewire -c "$RUN/friday-ec.conf" >"$RUN/friday-ec.log" 2>&1 < /dev/null &
+    echo $! > "$PIDF"
+    for _ in $(seq 1 40); do pactl list short sources | grep -q "friday_mic" && { echo "ativo: $MIC -> friday_mic"; exit 0; }; sleep 0.25; done
+    echo "falhou (veja $RUN/friday-ec.log)"; exit 1 ;;
+  parar)
+    ativo && kill "$(cat "$PIDF")"; rm -f "$PIDF"; echo "parado" ;;
+  status)
+    if ativo && pactl list short sources | grep -q "friday_mic"; then echo "ativo (pid $(cat "$PIDF")) mic=$(grep -o 'target.object = "[^"]*"' "$RUN/friday-ec.conf" | cut -d'"' -f2)"; else echo "inativo"; exit 1; fi ;;
+  fontes)
+    pactl list short sources | awk '{print $2}' | grep -v "monitor$" ;;
+  ganho)
+    pactl set-source-volume "$(mic_escolhido)" "$(python3 -c "print(int(float('$2')*65536))")" && echo "ganho $(mic_escolhido) = $2" ;;
+  *) sed -n '2,6p' "$0"; exit 2 ;;
+esac
