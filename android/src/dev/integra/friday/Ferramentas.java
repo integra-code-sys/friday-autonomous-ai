@@ -77,6 +77,11 @@ final class Ferramentas {
                 case "pesquisar": return pesquisar(a.optString("consulta"), a.optString("onde", "google"));
                 case "pesquisar_links": return extrairResumoWeb(a.optString("consulta"));
                 case "ler_tela": return acesso() == null ? semAcesso() : Acesso.inst.telaTexto(70);
+                case "detectar_dificuldade": return acesso() == null ? semAcesso() : Acesso.inst.detectarDificuldade();
+                case "percepcao_celular": {
+                    String dif = acesso() == null ? "Acessibilidade inativa" : Acesso.inst.detectarDificuldade();
+                    return "Percepção do Celular:\n- " + dif + "\n- Estado: Operacional";
+                }
                 case "tocar": return acesso() == null ? semAcesso() : Acesso.inst.tocarTexto(a.optString("texto")).toString();
                 case "digitar": return digitar(a.optString("texto"), a.optBoolean("enviar", false));
                 case "rolar": return acesso() == null ? semAcesso() : Acesso.inst.rolar("cima".equals(a.optString("direcao"))).toString();

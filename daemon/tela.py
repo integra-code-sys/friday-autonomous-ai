@@ -542,6 +542,88 @@ def efeito(antes, alvo=None, espera=1.5, minimo=4):
             return False, f"a tela não mudou ({b} bits)" if b is not None else "sem captura para conferir"
 
 
+# ------------------------------------------------------------------ detector de dificuldades e erros na tela
+_PADROES_DIFICULDADE = [
+    # (regex, tipo, severidade, sugestao_template)
+    (re.compile(r"Traceback \(most recent call last\):.*?(?:\n[^\n]+){1,6}", re.DOTALL | re.I),
+     "Exceção Python / Stacktrace", "alta", "Identificar a exceção no final da pilha e aplicar a correção no código."),
+    (re.compile(r"(?:ModuleNotFoundError|No module named ['\"]?([a-zA-Z0-9_\-]+)['\"]?)", re.I),
+     "Módulo Python Ausente", "alta", "Instalar o módulo faltante no ambiente virtual (pip install)."),
+    (re.compile(r"(?:SyntaxError|IndentationError):\s*([^\n]+)", re.I),
+     "Erro de Sintaxe / Indentação", "alta", "Revisar a linha com a sintaxe incorreta ou identação inconsistente."),
+    (re.compile(r"(?:NullPointerException|FATAL EXCEPTION|AndroidRuntime:[^\n]+)", re.I),
+     "Crash / Exceção Android / Java", "alta", "Verificar objeto nulo ou chamada de método em referência inválida."),
+    (re.compile(r"(?:Uncaught TypeError:[^\n]+|ReferenceError:[^\n]+|Cannot read properties of (?:undefined|null))", re.I),
+     "Exceção JavaScript / TypeScript", "alta", "Checar verificação condicional (optional chaining '?.' ou guard clause)."),
+    (re.compile(r"(?:npm ERR![^\n]+|yarn error[^\n]+|pnpm ERR![^\n]+)", re.I),
+     "Falha de Dependência / Pacote Node", "alta", "Verificar package.json, versão do Node ou rodar limpeza de cache e reinstall."),
+    (re.compile(r"(?:Build FAILED|Compilation error|error\[E\d+\]|ninja: build stopped: subcommand failed)", re.I),
+     "Falha de Compilação / Build", "alta", "Analisar as mensagens do compilador para corrigir tipos ou dependências ausentes."),
+    (re.compile(r"(?:Segmentation fault|Falha de segmentação|core dumped)", re.I),
+     "Falha Crítica de Memória / Segfault", "alta", "Verificar ponteiros inválidos, estouro de buffer ou incompatibilidade de biblioteca binária."),
+    (re.compile(r"(?:command not found|comando não encontrado|not recognized as an internal or external command)", re.I),
+     "Comando Não Encontrado no Terminal", "media", "Verificar se o binário está instalado ou adicionado ao PATH do sistema."),
+    (re.compile(r"(?:Permission denied|Permissão negada|EACCES)", re.I),
+     "Erro de Permissão de Acesso", "media", "Conferir permissões de arquivo (chmod/chown) ou permissão de execução."),
+    (re.compile(r"(?:Connection refused|ETIMEDOUT|NetworkError|404 Not Found|500 Internal Server Error|502 Bad Gateway)", re.I),
+     "Erro de Rede / Serviço HTTP", "media", "Verificar se o serviço ou servidor de destino está ativo e acessível na rede."),
+    (re.compile(r"(?:Campo obrigatório|Invalid email|Valor inválido|Preencha este campo)", re.I),
+     "Validação de Formulário Pendente", "baixa", "Preencher ou corrigir os campos destacados no formulário.")
+]
+
+
+def detectar_dificuldades(leitura_tela=None, janela_id=None):
+    """Analisa o conteúdo textual e semântico da tela para identificar falhas,
+    erros de código, compilação quebrada ou dificuldades do usuário.
+    -> {"tem_dificuldade": bool, "severidade": str, "tipo": str, "resumo": str, "detalhes": str, "sugestao": str}
+    """
+    if leitura_tela is None:
+        try:
+            leitura_tela = ler(janela_id)
+        except Exception as e:
+            return {"tem_dificuldade": False, "severidade": "baixa", "tipo": "none",
+                    "resumo": f"Não foi possível ler a tela agora: {e}", "detalhes": "", "sugestao": ""}
+
+    itens = (leitura_tela or {}).get("itens", [])
+    textos = []
+    for it in itens:
+        t = (it.get("nome") or it.get("texto") or "").strip()
+        if t and len(t) > 2:
+            textos.append(t)
+
+    corpo_tela = "\n".join(textos)
+    if not corpo_tela:
+        return {"tem_dificuldade": False, "severidade": "baixa", "tipo": "none",
+                "resumo": "Tela sem texto legível detectado.", "detalhes": "", "sugestao": ""}
+
+    for regex, tipo, sev, sugestao in _PADROES_DIFICULDADE:
+        m = regex.search(corpo_tela)
+        if m:
+            detalhe = m.group(0).strip()
+            # Trunca detalhe para caber no contexto
+            if len(detalhe) > 300:
+                detalhe = detalhe[:300] + "..."
+            resumo = f"Detectado na tela: {tipo} ({detalhe.splitlines()[0][:100]})"
+            return {
+                "tem_dificuldade": True,
+                "severidade": sev,
+                "tipo": tipo,
+                "resumo": resumo,
+                "detalhes": detalhe,
+                "sugestao": sugestao,
+                "app": (leitura_tela.get("janela") or {}).get("app_id", "janela")
+            }
+
+    return {
+        "tem_dificuldade": False,
+        "severidade": "baixa",
+        "tipo": "none",
+        "resumo": "Nenhuma dificuldade, erro de compilação ou falha detectada na tela ativa.",
+        "detalhes": "",
+        "sugestao": ""
+    }
+
+
 # ------------------------------------------------------------------ CLI de teste / coleta no python do sistema
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "ler"

@@ -598,6 +598,21 @@ public class Acesso extends AccessibilityService {
         return "app aberto: " + app + "\n" + sb;
     }
 
+    /** analisa o conteúdo visível em busca de falhas, erros ou travamentos no celular */
+    String detectarDificuldade() {
+        String t = telaTexto(100).toLowerCase();
+        if (t.contains("erro") || t.contains("falhou") || t.contains("parou") || t.contains("fechou inesperadamente") || t.contains("anr") || t.contains("crash")) {
+            return "DIFICULDADE DETECTADA: Erro ou falha em aplicativo exibido na tela do celular.";
+        }
+        if (t.contains("sem conexão") || t.contains("sem internet") || t.contains("falha de rede") || t.contains("offline") || t.contains("network error")) {
+            return "DIFICULDADE DETECTADA: Falha de conexão de rede ou internet.";
+        }
+        if (t.contains("obrigatório") || t.contains("inválido") || t.contains("preencha este campo") || t.contains("required")) {
+            return "DIFICULDADE DETECTADA: Validação de campo ou formulário pendente na tela.";
+        }
+        return "Nenhuma dificuldade ou erro detectado na tela do celular.";
+    }
+
     // ------------------------------------------------------------------ transmissão de tela (H.264) ao vivo
     private static final Pattern TELA_INTEIRA = Pattern.compile("(?i).*(tela inteira|a tela inteira|entire screen).*");
     private static final Pattern BOTAO_INICIAR = Pattern.compile(

@@ -2897,6 +2897,7 @@ def autonomy_thread(loop):
     ausente_desde = time.time(); presentes = set(); desconhecido_desde = None; ultimo_proativo = 0.0
     visto_obj = {}; obj_ok = set(); ult_check = time.time(); conhecidos_vistos = {}
     ult_saude_check = 0.0; ult_agenda_check = 0.0; ult_ptz_check = 0.0
+    ult_tela_dif_check = 0.0; ult_emocao_check = 0.0
     while True:
         time.sleep(1.0)
         if not mem.get("autonomia", True):
@@ -2982,6 +2983,33 @@ def autonomy_thread(loop):
         if camera_on and nomes and now - mem.get("ultima_vez", 0) > 1500 and now - ult_check > 1500 and not evento:
             ult_check = now
             evento = "O usuário está aqui há um bom tempo sem falar com você."
+
+        # 6. Dificuldades e falhas de compilação/código na tela
+        if not evento and now - ult_tela_dif_check > 20:
+            ult_tela_dif_check = now
+            try:
+                import tela
+                dif = tela.detectar_dificuldades()
+                if dif.get("tem_dificuldade") and dif.get("severidade") == "alta":
+                    resumo_dif = dif.get("resumo", "")
+                    if resumo_dif != mem.get("ult_dificuldade_tela") and now - mem.get("t_dificuldade_tela", 0) > 300:
+                        mem["ult_dificuldade_tela"] = resumo_dif
+                        mem["t_dificuldade_tela"] = now
+                        evento = f"O usuário está enfrentando uma dificuldade visível na tela: {dif.get('tipo')}. {dif.get('detalhes')[:120]}. Sugestão de apoio: {dif.get('sugestao')}"
+            except Exception:
+                pass
+
+        # 7. Emoção de Frustração ou Tensão Prolongada
+        if not evento and camera_on and scene.get("faces") and now - ult_emocao_check > 30:
+            ult_emocao_check = now
+            try:
+                f0 = scene["faces"][0]
+                if f0.get("emocao") == "frustrado" and f0.get("conf_emocao", 0) >= 0.75:
+                    if now - mem.get("t_frustracao_alerta", 0) > 900:
+                        mem["t_frustracao_alerta"] = now
+                        evento = "O usuário parece com expressão de frustração ou tensão diante do computador."
+            except Exception:
+                pass
 
         if evento and now - ultimo_proativo > 45 and not speaking and not busy.locked() and state["state"] == "idle" \
                 and now - last_voice["t"] > 8:

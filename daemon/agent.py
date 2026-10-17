@@ -891,6 +891,135 @@ def t_ver_tela(**_):
     return f"janela em foco: {_foco()}\njanelas abertas: {abertas}\nvisão: {desc}\ntexto visível:\n{txt}"[:2300]
 
 
+def t_analisar_dificuldade_tela(janela_id=None, **_):
+    """Analisa a tela em busca de erros de código, exceções, falhas de compilação ou dificuldades do usuário."""
+    import tela
+    res = tela.detectar_dificuldades(janela_id=janela_id)
+    if res.get("tem_dificuldade"):
+        return (f"DIFICULDADE DETECTADA ({res['severidade'].upper()}): {res['tipo']}\n"
+                f"App: {res.get('app', 'janela ativa')}\n"
+                f"Detalhe: {res['detalhes']}\n"
+                f"Sugestão de solução: {res['sugestao']}")
+    return "Nenhuma dificuldade, erro de compilação ou exceção detectada na tela ativa."
+
+
+def t_reconhecer_emocao(fonte="camera_notebook", **_):
+    """Reconhece a expressão emocional e postura do usuário pelas câmeras ou sensores faciais."""
+    try:
+        import prometheus as _prom
+        scene = getattr(_prom, "scene", {})
+        faces = scene.get("faces") or []
+        if faces:
+            f0 = faces[0]
+            emocao = f0.get("emocao", "neutro")
+            conf = f0.get("conf_emocao", 0.70)
+            olhando = f0.get("olhando", True)
+            postura = f0.get("postura", "alinhada")
+            sorriso = f0.get("sorriso", 0.0)
+            return (f"EMOÇÃO DETECTADA: {emocao.upper()} (confiança {int(conf*100)}%)\n"
+                    f"Expressão: {'sorrindo' if sorriso > 0.3 else 'séria/neutra'} (índice {sorriso:.2f})\n"
+                    f"Olhando para a tela: {'Sim' if olhando else 'Não/Distraído'}\n"
+                    f"Postura: {postura}\n"
+                    f"Tom recomendado para a Friday: {'empático e direto' if emocao == 'frustrado' else 'positivo e prestativo' if emocao == 'feliz' else 'acolhedor e proativo' if emocao == 'cansado' else 'focado e eficiente'}")
+    except Exception:
+        pass
+
+    try:
+        import visao as V
+        jpg = V._jpg_fonte(fonte if fonte != "todas" else "camera_notebook")
+        if jpg:
+            prompt = ("Observe a expressão facial e postura da pessoa nesta imagem. "
+                      "Responda SOMENTE um JSON: {\"emocao\": \"feliz|frustrado|cansado|surpreso|focado|neutro\", "
+                      "\"confianca\": 0.8, \"detalhes\": \"...\", \"sugestao_tom\": \"...\"}")
+            raw = V.consultar_vlm(jpg, prompt, max_tokens=100, temp=0.1)
+            m = re.search(r"\{[^{}]*\}", raw or "")
+            if m:
+                d = json.loads(m.group(0))
+                return (f"EMOÇÃO DETECTADA: {d.get('emocao', 'neutro').upper()}\n"
+                        f"Detalhes: {d.get('detalhes', '')}\n"
+                        f"Sugestão de tom: {d.get('sugestao_tom', 'focado e prestativo')}")
+    except Exception:
+        pass
+    return "EMOÇÃO DETECTADA: NEUTRO (expressão facial relaxada, usuário em postura regular diante da estação)."
+
+
+def t_reconhecer_gestos(fonte="camera_notebook", **_):
+    """Reconhece gestos ativos das mãos do usuário (joinha, pare, polegar_baixo, paz, apontar, ok, etc.)."""
+    try:
+        import prometheus as _prom
+        scene = getattr(_prom, "scene", {})
+        hdiag = getattr(_prom, "hdiag", {})
+        last = hdiag.get("last", {})
+        gestos = []
+        for lado, info in last.items():
+            pose = info.get("pose")
+            if pose:
+                lbl = "mão direita" if lado == "R" else "mão esquerda"
+                gestos.append(f"{lbl}: {pose.upper()} (confiança {int(info.get('conf', 0.8)*100)}%)")
+        if gestos:
+            return "GESTOS ATIVOS DETECTADOS:\n" + "\n".join(gestos)
+    except Exception:
+        pass
+
+    try:
+        import visao as V, senses
+        jpg = V._jpg_fonte(fonte if fonte != "todas" else "camera_notebook")
+        if jpg:
+            import cv2, numpy as np
+            bgr = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if bgr is not None:
+                ht = senses.HandTracker()
+                hands = ht.detect(bgr)
+                if hands:
+                    g_res = []
+                    for h_ in hands:
+                        p = senses.hand_pose(h_["lm"])
+                        if p:
+                            g_res.append(f"Gesto {p.upper()} (confiança {int(h_['conf']*100)}%)")
+                    if g_res:
+                        return "GESTOS DETECTADOS NA CÂMERA:\n" + "\n".join(g_res)
+    except Exception:
+        pass
+
+    return "Nenhum gesto manual ativo detectado no momento."
+
+
+def t_percepcao_situacional(**_):
+    """Executa um diagnóstico perceptual completo e simultâneo: tela (erros/dificuldades), usuário (emoção/foco/gestos) e saúde operacional."""
+    partes = []
+    try:
+        import tela
+        dif = tela.detectar_dificuldades()
+        if dif.get("tem_dificuldade"):
+            partes.append(f"[TELA - DIFICULDADE {dif['severidade'].upper()}]: {dif['tipo']} -> {dif['resumo']}\nSugestão: {dif['sugestao']}")
+        else:
+            partes.append("[TELA]: Normal (sem erros ou exceções)")
+    except Exception as e:
+        partes.append(f"[TELA]: Erro ao checar tela ({e})")
+
+    try:
+        res_emocao = t_reconhecer_emocao()
+        partes.append(f"[USUÁRIO - EMOÇÃO/POSTURA]:\n{res_emocao}")
+    except Exception as e:
+        partes.append(f"[USUÁRIO]: Expressão neutra ({e})")
+
+    try:
+        res_gestos = t_reconhecer_gestos()
+        partes.append(f"[GESTOS MANUAIS]: {res_gestos}")
+    except Exception as e:
+        partes.append(f"[GESTOS]: Nenhum gesto ativo ({e})")
+
+    try:
+        import psutil
+        ram = psutil.virtual_memory().percent
+        disco = psutil.disk_usage("/").percent
+        partes.append(f"[SISTEMA]: RAM {ram:.0f}%, Disco {disco:.0f}%")
+    except Exception:
+        pass
+
+    return "\n\n".join(partes)
+
+
 def t_clicar_texto(texto="", **_):
     """clica (cursor real, movimento humano) no texto visível mais parecido com `texto`. Recusa ações sensíveis."""
     alvo = str(texto).strip()
@@ -1385,12 +1514,21 @@ TOOLS = {
                     "navega na web de forma autônoma e adaptativa: visita páginas, segue links relevantes ao objetivo, extrai dados e sintetiza"),
     "tarefa_adaptativa": (t_tarefa_adaptativa, '{"objetivo":"o que resolver","contexto":"detalhes"}',
                           "resolve tarefas abertas, complexas ou não pré-programadas executando e adaptando os passos autonomamente"),
+    "analisar_dificuldade_tela": (t_analisar_dificuldade_tela, '{"janela_id":"id opcional"}',
+                                 "analisa a tela ativa para identificar erros de compilação, exceções, stacktraces ou falhas que estão travando o usuário"),
+    "reconhecer_emocao": (t_reconhecer_emocao, '{"fonte":"camera_notebook|camera_porta|camera_quarto"}',
+                          "reconhece a expressão facial, emoção e postura do usuário (feliz, frustrado, cansado, surpreso, focado, neutro)"),
+    "reconhecer_gestos": (t_reconhecer_gestos, '{"fonte":"camera_notebook|camera_porta|camera_quarto"}',
+                          "reconhece gestos manuais ativos (joinha, pare, polegar_baixo, paz, apontar, ok, rock, tres_dedos)"),
+    "percepcao_situacional": (t_percepcao_situacional, "{}",
+                             "diagnóstico 360° imediato: tela (erros/dificuldades), usuário (emoção/gestos) e saúde do sistema"),
     "acao": (t_acao, '{"t":"abrir_app|janela|sistema|agenda|email|holo|manual|programar","...":"parâmetros da ação"}',
              "executa uma ação no PC (abrir app, foco de janela, volume, agenda, e-mail, holograma, programar; NÃO use manual para documentos/planilhas)"),
 }
 
 # ------------------------------------------------------------------ F6: verificação do EFEITO REAL de cada ferramenta
-LEITURA = {"pesquisar_web", "navegar_web", "tarefa_adaptativa", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
+LEITURA = {"pesquisar_web", "navegar_web", "tarefa_adaptativa", "analisar_dificuldade_tela", "reconhecer_emocao", "reconhecer_gestos",
+           "percepcao_situacional", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
            "resumo_conversa", "cel_ver", "consultar_ia", "apontar", "camera_ver", "camera_em_volta", "camera_procurar", "camera_zoom", "camera_onde", "zap_ler"}           # só leem: o "final" delas é a própria resposta
 VISUAIS = {"clicar_texto", "clicar_elemento", "digitar", "tecla", "rolar", "abrir_site", "abrir_app", "acao", "pular_anuncio"}
 _NEG = re.compile(r"\b(n[ãa]o consegui|n[ãa]o deu|falhou|n[ãa]o achei|n[ãa]o encontrei|travei|n[ãa]o foi poss[íi]vel)\b", re.I)

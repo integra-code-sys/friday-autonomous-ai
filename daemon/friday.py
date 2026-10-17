@@ -239,7 +239,7 @@ def _validar_acoes(acoes, text):
     return [{"t": "tarefa", "pedido": text}]          # inválido ou encadeado: o agente faz o pedido inteiro, lendo a tela
 
 
-def think(text, nome="Chefe", ctx="", history=None):
+def think(text, nome="Iann", ctx="", history=None):
     d = llm(SYSTEM.format(nome=nome, ctx=ctx or "—"), text, history=history)
     if not isinstance(d, dict):                          # resposta inválida do modelo: tenta de novo, mais frio, antes de desistir
         d = llm(SYSTEM.format(nome=nome, ctx=ctx or "—"), text, history=history, temperature=0.1)
@@ -304,7 +304,7 @@ def fast_intent(text):
 
     # ---------------- IDENTIDADE DO USUÁRIO: "QUEM SOU EU?" ----------------
     if re.search(r"\b(quem\s+(?:sou\s+eu|eu\s+sou)|sabe\s+quem\s+(?:eu\s+sou|sou\s+eu)|qual\s+[ée]\s+o\s+meu\s+nome|como\s+(?:[ée]\s+que\s+)?eu\s+me\s+chamo|me\s+reconhece)\b", t):
-        return {"fala": f"Você é {nome}, meu chefe.", "acoes": [], "pose": "apresentar", "humor": "confiante"}
+        return {"fala": "Você é o Iann, meu criador e chefe.", "acoes": [], "pose": "apresentar", "humor": "confiante"}
 
     # ---------------- ANTIGRAVITY / IDE ----------------
     if re.search(r"\b(?:abr[aeio]r?|abre|inicie|lance|foc[ae]r?|mostr[ae]|traga)?\s*(?:o\s+)?antigravity\b", t):
@@ -1502,6 +1502,30 @@ class GestureEngine:
                     ev.append(("apontar", {}))
             else:
                 self.point_since = None
+            if pose == "joinha":
+                self.joinha_since = getattr(self, "joinha_since", None) or t
+                if t - self.joinha_since > 0.35 and self._cool("joinha", t, 2.0):
+                    ev.append(("confirmar", {"gesto": "joinha"}))
+            else:
+                self.joinha_since = None
+            if pose == "polegar_baixo":
+                self.pbaixo_since = getattr(self, "pbaixo_since", None) or t
+                if t - self.pbaixo_since > 0.35 and self._cool("polegar_baixo", t, 2.0):
+                    ev.append(("cancelar", {"gesto": "polegar_baixo"}))
+            else:
+                self.pbaixo_since = None
+            if pose == "pare":
+                self.pare_since = getattr(self, "pare_since", None) or t
+                if t - self.pare_since > 0.30 and self._cool("pare", t, 1.5):
+                    ev.append(("silenciar", {"gesto": "pare"}))
+            else:
+                self.pare_since = None
+            if pose == "rock":
+                self.rock_since = getattr(self, "rock_since", None) or t
+                if t - self.rock_since > 0.40 and self._cool("rock", t, 3.0):
+                    ev.append(("midia", {"gesto": "rock"}))
+            else:
+                self.rock_since = None
         return ev
 
 
@@ -1558,6 +1582,29 @@ def gesture_action(kind, data):
         return "Visão Geral", "apresentar"
     if kind == "apontar":
         return "Apontar", "apontar"
+    if kind == "confirmar":
+        try:
+            import remoto
+            remoto.aprovar_acao_pendente()
+        except Exception:
+            pass
+        return "Confirmado (Joinha)", "confirmar"
+    if kind == "cancelar":
+        try:
+            import remoto
+            remoto.cancelar_acao_pendente()
+        except Exception:
+            pass
+        return "Cancelado (Polegar para baixo)", "negar"
+    if kind == "silenciar":
+        try:
+            from prom_ops import _daemon_send
+            _daemon_send({"type": "parar_fala"})
+        except Exception:
+            pass
+        return "Silenciando", "pensativo"
+    if kind == "midia":
+        return "Modo Multimídia", "alegre"
     return kind, "neutro"
 
 

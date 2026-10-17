@@ -71,7 +71,7 @@ class People:
             if sc > best_s:
                 best, best_s = pid, sc
         if len(self.data["pessoas"]) <= 1 and "faces" not in (key if isinstance(key, tuple) else (key,)):
-            thr = thr * 0.80                  # rosto NÃO relaxa (16/10: amigo no quarto virava "Chefe" com 0,29 e a PTZ seguia ele)
+            thr = thr * 0.80                  # rosto NÃO relaxa (16/10: amigo no quarto virava "Iann" com 0,29 e a PTZ seguia ele)
         if best is not None and best_s >= thr:
             return best, best_s
         return None, best_s
@@ -496,26 +496,41 @@ class HandTracker:
 
 
 def hand_pose(lm):
-    """Classifica a forma da mão a partir de 21 pontos (px): aberta | punho | joinha | paz | apontar | ok | None."""
+    """Classifica a forma da mão a partir de 21 pontos (px):
+    aberta | pare | punho | joinha | polegar_baixo | paz | apontar | ok | rock | tres_dedos | None.
+    """
     d = lambda a, b: float(np.linalg.norm(lm[a] - lm[b]))
     palm = max(d(0, 9), 1e-3)                                   # punho -> base do médio
     ext = []
     for tip, pip in ((8, 6), (12, 10), (16, 14), (20, 18)):      # indicador..mindinho esticado?
         ext.append(d(tip, 0) > d(pip, 0) * 1.12)
     thumb_ext = d(4, 5) > d(3, 5) * 1.02 and d(4, 17) > palm * 0.9
+    thumb_up = thumb_ext and (lm[4][1] < lm[0][1] - palm * 0.22)
+    thumb_down = thumb_ext and (lm[4][1] > lm[0][1] + palm * 0.22)
     n = sum(ext)
     pinch = d(4, 8) < palm * 0.35
+
     if pinch and ext[1] and ext[2] and ext[3]:
         return "ok"
-    if n == 0 and thumb_ext and lm[4][1] < lm[0][1] - palm * 0.25:
+    if n == 0 and thumb_up:
         return "joinha"
-    if n == 0:
+    if n == 0 and thumb_down:
+        return "polegar_baixo"
+    if n == 0 and not thumb_ext:
         return "punho"
     if ext[0] and ext[1] and not ext[2] and not ext[3]:
         return "paz"
     if ext[0] and not ext[1] and not ext[2] and not ext[3]:
         return "apontar"
-    if n >= 4 or (n == 3 and thumb_ext):
+    if ext[0] and not ext[1] and not ext[2] and ext[3]:
+        return "rock"
+    if ext[0] and ext[1] and ext[2] and not ext[3]:
+        return "tres_dedos"
+    if n >= 4:
+        if lm[12][1] < lm[0][1] - palm * 0.75:
+            return "pare"
+        return "aberta"
+    if n == 3 and thumb_ext:
         return "aberta"
     return None
 
@@ -612,10 +627,41 @@ def metricas_rosto(linha, estado, W=320, H=240, aspecto=1.0, agora=None):
     olh = estado.get("olhando", True)                          # de frente p/ a tela, com histerese (não pisca na fronteira)
     olh = abs(yaw) < (0.48 if olh else 0.38) and abs(pitch) < (0.52 if olh else 0.40)
     estado["olhando"] = olh
+
+    # Classificação de emoções e postura com calibração geométrica adaptativa:
+    emocao = "neutro"
+    conf_emocao = 0.65
+    if sorriso >= 0.35:
+        emocao = "feliz"
+        conf_emocao = min(0.98, 0.50 + float(sorriso) * 0.50)
+    elif m_v > 0.88 * d and r > 0.88:
+        emocao = "surpreso"
+        conf_emocao = 0.76
+    elif pitch < -0.18 and rs < estado.get("base_r", 0.80) * 0.96 and sorriso < 0.05:
+        emocao = "frustrado"
+        conf_emocao = 0.78
+    elif pitch < -0.32 or (abs(roll) > 0.32 and abs(pitch) > 0.15):
+        emocao = "cansado"
+        conf_emocao = 0.72
+    elif olh and abs(pitch) < 0.25 and abs(yaw) < 0.25:
+        emocao = "focado"
+        conf_emocao = 0.85
+
+    postura = "alinhada"
+    if pitch < -0.28:
+        postura = "cabeca_baixa"
+    elif pitch > 0.28:
+        postura = "cabeca_erguida"
+    elif abs(roll) > 0.25:
+        postura = "inclinada"
+    elif not olh:
+        postura = "distraida"
+
     x0, x1 = _lim(1.0 - (x + w) / W, 0.0, 1.0), _lim(1.0 - x / W, 0.0, 1.0)      # espelha e recorta no quadro
     y0, y1 = _lim(y / H, 0.0, 1.0), _lim((y + h) / H, 0.0, 1.0)
     return {"box": [round(x0, 3), round(y0, 3), round(x1 - x0, 3), round(y1 - y0, 3)], "sorriso": round(sorriso, 3) + 0.0,
-            "yaw": round(yaw, 3) + 0.0, "pitch": round(pitch, 3) + 0.0, "roll": round(roll, 3) + 0.0, "olhando": bool(olh)}   # + 0.0: sem "-0.0"
+            "yaw": round(yaw, 3) + 0.0, "pitch": round(pitch, 3) + 0.0, "roll": round(roll, 3) + 0.0, "olhando": bool(olh),
+            "emocao": emocao, "conf_emocao": round(conf_emocao, 2), "postura": postura}
 
 
 class VisaoRostos:
