@@ -944,9 +944,9 @@ document.addEventListener("click", (e) => {
 });
 $("#bParar").onclick = () => { cmd({ type: "stop" }, "Parando tudo"); };
 const ACOES = [
-  ["☀ CLIMA", { t: "painel", op: "clima" }], ["▦ AGENDA", { t: "painel", op: "agenda" }], ["◎ SISTEMA", { t: "painel", op: "sistema" }],
-  ["⏯ PLAY", { t: "sistema", op: "midia", valor: "play-pause" }], ["⏭ PRÓXIMA", { t: "sistema", op: "midia", valor: "next" }], ["📸 PRINT", { t: "cli", op: "print" }],
-  ["🔉 VOL −", { t: "sistema", op: "volume", valor: "down" }], ["🔊 VOL +", { t: "sistema", op: "volume", valor: "up" }], ["✕ LIMPAR", { t: "painel", op: "fechar" }],
+  ["[ CLIMA HUD ]", { t: "painel", op: "clima" }], ["[ AGENDA FRIDAY ]", { t: "painel", op: "agenda" }], ["[ TELEMETRIA ]", { t: "painel", op: "sistema" }],
+  ["[ PLAY / PAUSA ]", { t: "sistema", op: "midia", valor: "play-pause" }], ["[ PRÓXIMA FAIXA ]", { t: "sistema", op: "midia", valor: "next" }], ["[ PRINT TELA ]", { t: "cli", op: "print" }],
+  ["[ VOLUME − ]", { t: "sistema", op: "volume", valor: "down" }], ["[ VOLUME + ]", { t: "sistema", op: "volume", valor: "up" }], ["[ LIMPAR HUD ]", { t: "painel", op: "fechar" }],
 ];
 for (const [t, a] of ACOES) {
   const b = document.createElement("button"); b.type = "button"; b.className = "bt"; b.textContent = t;

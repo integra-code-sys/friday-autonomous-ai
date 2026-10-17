@@ -131,8 +131,11 @@ final class Ferramentas {
                 case "configuracao": return configuracao(a.optString("tipo"));
                 case "foto": return iniciar(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "câmera aberta");
                 case "lembrar": {
-                    prefs().edit().putString("m:" + a.optString("chave").toLowerCase(Locale.ROOT), a.optString("valor")).apply();
-                    return "guardado: " + a.optString("chave");
+                    String ch = a.optString("chave");
+                    String vl = a.optString("valor");
+                    prefs().edit().putString("m:" + ch.toLowerCase(Locale.ROOT), vl).apply();
+                    Sincronizador.notificarFatoLocal(c, ch, vl);
+                    return "guardado: " + ch;
                 }
                 case "memoria": return memoria(a.optString("busca"));
                 case "pc": return Link.pedirAoPc(c, a.optString("pedido"));

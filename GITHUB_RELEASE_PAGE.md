@@ -85,6 +85,5 @@ A **Integra Code** apresenta o lançamento oficial da edição comercial da **F.
      --title "F.R.I.D.A.Y. Commercial Edition v2.1.0 — Integra Code" \
      --notes-file GITHUB_RELEASE_PAGE.md \
      Instalador_Friday_Comercial_Windows.exe \
-     android/dist/friday-remoto.apk \
-     media/demo_completo_integracode.mp4
+     android/dist/friday-remoto.apk
    ```

@@ -122,11 +122,11 @@ class WindowsFridayHUD:
         f_chips.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 2))
 
         chips = [
-            ("📅 AGENDA", lambda: self._preencher_input("mostre minha agenda de hoje")),
-            ("💻 MODO DEV", lambda: self._preencher_input("ative o modo dev e crie ")),
-            ("🌐 PESQUISAR", lambda: self._preencher_input("pesquise na web sobre ")),
-            ("💬 WHATSAPP", lambda: self._preencher_input("pesquise as notícias de tecnologia e envie no whatsapp para ")),
-            ("📝 CRIAR DOC", lambda: self._preencher_input("crie um arquivo resumo_projeto.md com ")),
+            ("[AGENDA]", lambda: self._preencher_input("mostre minha agenda de hoje")),
+            ("[MODO DEV]", lambda: self._preencher_input("ative o modo dev e crie ")),
+            ("[PESQUISAR]", lambda: self._preencher_input("pesquise na web sobre ")),
+            ("[WHATSAPP]", lambda: self._preencher_input("pesquise as notícias de tecnologia e envie no whatsapp para ")),
+            ("[CRIAR DOC]", lambda: self._preencher_input("crie um arquivo resumo_projeto.md com ")),
         ]
         for rot, fn in chips:
             b = tk.Button(f_chips, text=rot, font=("Segoe UI", 8, "bold"), fg=COR_CYAN, bg="#0d253f",

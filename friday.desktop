@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=F.R.I.D.A.Y.
+Comment=Assistente de IA Pessoal Autônomo Multi-Nó (Integra Code)
+Exec=./run.sh
+Icon=friday.png
+Terminal=false
+Type=Application
+Categories=Utility;Development;AudioVideo;
+StartupNotify=true

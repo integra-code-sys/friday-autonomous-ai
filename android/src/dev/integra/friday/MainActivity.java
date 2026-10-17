@@ -103,6 +103,7 @@ public class MainActivity extends Activity {
             js(tipo, texto);
         });
         Voz.get(this).preparar();                                   // voz Supertonic (a mesma do PC) carrega em 2º plano
+        Sincronizador.iniciarVigia(this);                           // auto-descoberta e sincronização bidirecional do cluster
         assistente(getIntent());
         setContentView(web);
         imersivo();
@@ -250,6 +251,8 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public void agendaSync() { Agenda.sincronizarJa(MainActivity.this); }
         @JavascriptInterface public void agendaFlutuante() { if (Acesso.inst != null) Flutuante.agendaPainel(Acesso.inst); }
+        @JavascriptInterface public void meshSync() { Sincronizador.sincronizarJa(MainActivity.this); }
+        @JavascriptInterface public String meshStatus() { return Sincronizador.status(MainActivity.this); }
 
         // ---- VOZ DO DONO (status e calibração estrita)
         @JavascriptInterface public String vozStatusJson() {

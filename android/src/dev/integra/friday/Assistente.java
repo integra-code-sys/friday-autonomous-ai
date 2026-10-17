@@ -246,22 +246,22 @@ public class Assistente extends VoiceInteractionService {
             LinearLayout atalhos = new LinearLayout(c);
             atalhos.setOrientation(LinearLayout.HORIZONTAL);
             Object[][] chips = {
-                {"📅 Agenda Friday", CIANO, (Runnable) () -> pedir("abre minha agenda")},
-                {"💻 Modo Dev", AMBAR, (Runnable) () -> {
+                {"[AGENDA]", CIANO, (Runnable) () -> pedir("abre minha agenda")},
+                {"[MODO DEV]", AMBAR, (Runnable) () -> {
                     if (Acesso.inst != null) Flutuante.ide(Acesso.inst, true);
                     else c.startActivity(new android.content.Intent(c, MainActivity.class).putExtra("aba", "dev")
                         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP));
                 }},
-                {"🌐 Pesquisar", TEAL, (Runnable) () -> {
+                {"[PESQUISAR]", TEAL, (Runnable) () -> {
                     campo.setText("Pesquise no navegador ");
                     campo.setSelection(campo.getText().length());
                     campo.requestFocus();
                 }},
-                {"📄 Criar PDF", CIANO, (Runnable) () -> {
+                {"[CRIAR DOC]", CIANO, (Runnable) () -> {
                     campo.setText("Pesquise sobre inteligência artificial e crie um documento PDF");
                     campo.setSelection(campo.getText().length());
                 }},
-                {"💬 Pesquisar + Zap", VERDE, (Runnable) () -> {
+                {"[PESQUISA+ZAP]", VERDE, (Runnable) () -> {
                     campo.setText("Pesquise notícias de tecnologia hoje e envie para ");
                     campo.setSelection(campo.getText().length());
                     campo.requestFocus();

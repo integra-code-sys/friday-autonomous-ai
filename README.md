@@ -14,10 +14,10 @@
 
 ![F.R.I.D.A.Y. Commercial Showcase — PC + Android Sync](media/showcase_preview.gif)
 
-**[🎬 Assista ao Vídeo Completo (PC + Android)](media/demo_completo_integracode.mp4)** •
-**[💻 Vídeo Funcionamento no PC](media/demo_pc_integracode.mp4)** •
-**[📱 Vídeo Funcionamento no Android (ADB)](media/demo_android_integracode.mp4)** •
-**[🌐 Abrir Landing Page Comercial](docs/index.html)**
+**[⚡ Demonstração Animada](media/showcase_preview.gif)** •
+**[🌐 Landing Page Comercial](docs/index.html)** •
+**[📱 APK Android (v2.0)](android/dist/friday-remoto.apk)** •
+**[💻 Instalador Windows (.EXE)](Instalador_Friday_Comercial_Windows.exe)**
 
 </div>
 

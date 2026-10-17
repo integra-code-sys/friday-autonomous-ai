@@ -25,5 +25,8 @@ android/friday.keystore
 
 # Binários pesados instalados via auto_deps.py ou hospedados como Assets de Release (>50MB)
 *.exe
+*.mp4
+media/*.mp4
 models/*.onnx
 models/*.gguf
+

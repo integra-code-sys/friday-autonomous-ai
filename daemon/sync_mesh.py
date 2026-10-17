@@ -48,8 +48,7 @@ def obter_token_cluster():
     """Retorna o token compartilhado do cluster (de remoto.json)."""
     try:
         if os.path.exists(REMOTO_CFG):
-            with open(REMOTO_CFG, "r", encoding="utf-8") as f:
-                d = json.load(f)
+            d = json.load(open(REMOTO_CFG))
             if d.get("token"):
                 return d["token"]
     except Exception:
@@ -58,8 +57,7 @@ def obter_token_cluster():
     tok = "prometheus-mesh-" + secrets.token_urlsafe(16)
     try:
         os.makedirs(MEM, exist_ok=True)
-        with open(REMOTO_CFG, "w", encoding="utf-8") as f:
-            json.dump({"token": tok}, f, indent=1)
+        json.dump({"token": tok}, open(REMOTO_CFG, "w"), indent=1)
     except Exception:
         pass
     return tok
@@ -69,8 +67,7 @@ def obter_node_id():
     """Gera ou lê ID único deste nó (ex.: FRIDAY-LINUX-a1b2 ou FRIDAY-WIN-c3d4)."""
     try:
         if os.path.exists(NODE_FILE):
-            with open(NODE_FILE, "r", encoding="utf-8") as f:
-                v = f.read().strip()
+            v = open(NODE_FILE).read().strip()
             if v:
                 return v
     except Exception:
@@ -690,6 +687,18 @@ async def handle_mesh_sync(req):
     sender_id = dados.get("node_id", "desconhecido")
     since_timestamps = dados.get("since", {})
     deltas_recebidos = dados.get("deltas", {})
+
+    client_ip = req.remote
+    if client_ip and sender_id != "desconhecido":
+        with _LOCK:
+            m.active_peers[sender_id] = {
+                "ip": client_ip,
+                "port": int(dados.get("port", 8791 if "ANDROID" in sender_id else DEFAULT_HTTP_PORT)),
+                "hostname": dados.get("hostname", sender_id),
+                "os": dados.get("os", "android" if "ANDROID" in sender_id else "unknown"),
+                "last_seen": time.time()
+            }
+        salvar_peer_configurado(client_ip, int(dados.get("port", 8791 if "ANDROID" in sender_id else DEFAULT_HTTP_PORT)), alias=sender_id)
 
     # 1. Aplica deltas enviados pelo par no nó local
     m.aplicar_deltas(deltas_recebidos)

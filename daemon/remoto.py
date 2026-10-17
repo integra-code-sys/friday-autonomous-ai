@@ -72,6 +72,13 @@ async def _auth(req, handler):
     elif not _ok(req):
         r = web.json_response({"erro": "token inválido"}, status=401)
     else:
+        try:
+            rem = req.remote
+            if rem and rem not in ("127.0.0.1", "::1"):
+                import sync_mesh
+                sync_mesh.salvar_peer_configurado(rem, alias=f"peer-{rem}")
+        except Exception:
+            pass
         r = await handler(req)
     if not isinstance(r, web.WebSocketResponse):
         r.headers["Access-Control-Allow-Origin"] = "*"

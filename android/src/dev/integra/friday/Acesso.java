@@ -79,12 +79,8 @@ public class Acesso extends AccessibilityService {
                 } catch (Exception ignored) {}
             }
         }, "friday-sync").start();
-        new Thread(() -> {                                   // AGENDA PC <-> celular: sincroniza a cada 10 min (e 25 s após ligar)
-            try { Thread.sleep(25000); } catch (Exception ignored) {}
-            while (inst == this) {
-                try { Agenda.sincronizar(this, false); Thread.sleep(600000); } catch (Exception ignored) {}
-            }
-        }, "friday-agenda-sync").start();
+        Sincronizador.iniciarVigia(this);                    // Malha multi-nó: detecta conexão do PC em até 12s e sincroniza agenda, memórias e tarefas
+
         new Thread(() -> {                                   // Friday LOCAL: carrega e aquece o cérebro em 2º plano (1º pedido já rápido)
             try { Thread.sleep(15000); Cerebro.get(this).preparar(); } catch (Exception ignored) {}
         }, "friday-aquece").start();
