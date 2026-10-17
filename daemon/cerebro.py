@@ -115,8 +115,22 @@ def ferramentas():
             sch = {"type": "object", "properties": {"t": {"type": "string"}}, "required": ["t"], "additionalProperties": True}
             desc = ACAO_DESC
         out.append({"type": "function", "function": {"name": nome, "description": desc, "parameters": sch}})
+    try:
+        import camera_manager
+        fontes = camera_manager.fontes_olhar_disponiveis()
+        tem_ptz = camera_manager.tem_camera_ptz()
+    except Exception:
+        fontes = ["tela", "camera_notebook", "camera_porta", "camera_quarto", "maos", "todas"]
+        tem_ptz = True
+
+    import copy
     for nome, (sch, desc) in PROPRIAS.items():
-        out.append({"type": "function", "function": {"name": nome, "description": desc, "parameters": sch}})
+        if nome == "camera" and not tem_ptz:
+            continue
+        sch_copia = copy.deepcopy(sch)
+        if nome == "olhar" and "properties" in sch_copia and "fonte" in sch_copia["properties"]:
+            sch_copia["properties"]["fonte"]["enum"] = fontes
+        out.append({"type": "function", "function": {"name": nome, "description": desc, "parameters": sch_copia}})
     return out
 
 
@@ -182,6 +196,14 @@ def _mosaico(jpgs):
 
 def _olhar(fonte="todas", foco="", **_):
     """-> (texto, jpg). A imagem vai para o modelo como mensagem com 'images'."""
+    try:
+        import camera_manager
+        fonte_res, nota_cam = camera_manager.resolver_fonte_camera(fonte)
+        if fonte_res == "sem_camera":
+            return nota_cam, None
+        fonte = fonte_res
+    except Exception:
+        pass
     if fonte == "maos" or (foco and any(w in foco.lower() for w in ("mão", "mao", "objeto", "segura"))):
         try:
             import prometheus as _prom
@@ -219,6 +241,11 @@ def _camera(fr=None, ops=None, **a):
 
 # ------------------------------------------------------------------ chamada ao modelo
 def _chat(msgs, tools, timeout=120):
+    try:
+        import cloud_providers
+        return cloud_providers.chat_com_ferramentas(msgs, tools, temperature=0.2, max_tokens=600, timeout=timeout)
+    except Exception as e:
+        _log("cloud_providers fallback direto:", e)
     import friday as F
     body = {"model": F.MODEL, "stream": False, "messages": msgs, "tools": tools,
             "options": {"temperature": 0.2, "num_predict": 600, "num_ctx": F.NUM_CTX, "num_gpu": F.NUM_GPU}}

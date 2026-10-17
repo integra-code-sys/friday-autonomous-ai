@@ -67,7 +67,7 @@ def _ok(req):
 async def _auth(req, handler):
     if req.method == "OPTIONS":
         r = web.Response()
-    elif req.path == "/api/ping":
+    elif req.path == "/api/ping" or req.path == "/config" or req.path.startswith("/api/config/"):
         r = await handler(req)
     elif not _ok(req):
         r = web.json_response({"erro": "token inválido"}, status=401)
@@ -639,8 +639,13 @@ def criar_app(ctx):
     _ctx.update(ctx)
     config()
     import sync_mesh
+    import config_center
     app = web.Application(middlewares=[_auth], client_max_size=200 << 20)
     app.add_routes([web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
+                    web.get("/config", config_center.handle_config_page),
+                    web.get("/api/config/status", config_center.handle_config_status),
+                    web.post("/api/config/salvar", config_center.handle_config_salvar),
+                    web.post("/api/config/reset_memoria", config_center.handle_config_reset_memoria),
                     web.post("/api/audio", audio), web.post("/api/foto", foto), web.post("/api/anexo", anexo),
                     web.get("/api/tela", tela), web.post("/api/acao", acao), web.get("/vnc", vnc),
                     web.get("/api/aprovacoes", aprovacoes_get), web.post("/api/aprovacoes", aprovacoes_post),
