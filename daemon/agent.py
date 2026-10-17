@@ -208,6 +208,139 @@ def t_ler_pagina(url="", **_):
     return _texto(_http(str(url)))[:3500]
 
 
+def t_navegar_web(url="", objetivo="", profundidade=2, max_paginas=4, fr=None, **_):
+    """Navegação adaptativa na web: visita páginas, segue links relevantes ao objetivo, extrai informações e sintetiza a resposta."""
+    alvo = str(url or "").strip()
+    obj = str(objetivo or "").strip()
+    if not alvo and not obj:
+        raise ValueError("informe url ou objetivo")
+    if not alvo or not alvo.startswith(("http://", "https://")):
+        q = alvo or obj
+        achados = t_pesquisar_web(consulta=q)
+        links_iniciais = re.findall(r"\|\s*(https?://\S+)", achados)
+        if not links_iniciais:
+            return f"Não encontrei links iniciais para '{q}'."
+        alvo = links_iniciais[0]
+        outros_links = links_iniciais[1:3]
+    else:
+        outros_links = []
+
+    visitados = set()
+    fila = [alvo] + outros_links
+    conteudos = []
+    palavras_obj = set(re.findall(r"\w{3,}", obj.lower()))
+
+    while fila and len(visitados) < max_paginas:
+        u = fila.pop(0)
+        if u in visitados:
+            continue
+        visitados.add(u)
+        try:
+            htm = _http(u, timeout=12)
+            titulo = ""
+            m_tit = re.search(r"(?is)<title[^>]*>(.*?)</title>", htm)
+            if m_tit:
+                titulo = re.sub(r"\s+", " ", html.unescape(m_tit.group(1))).strip()
+
+            txt = _texto(htm)
+            trechos_relevantes = []
+            if palavras_obj:
+                paragrafos = [p.strip() for p in re.split(r"\n{2,}|\.\s+", txt) if len(p.strip()) > 30]
+                for p in paragrafos:
+                    p_low = p.lower()
+                    pts = sum(1 for w in palavras_obj if w in p_low)
+                    if pts >= 1:
+                        trechos_relevantes.append((pts, p))
+                trechos_relevantes.sort(key=lambda x: -x[0])
+                resumo_pg = "\n".join(t for _, t in trechos_relevantes[:5]) or txt[:1200]
+            else:
+                resumo_pg = txt[:1500]
+
+            conteudos.append(f"--- Fonte: {u} ({titulo}) ---\n{resumo_pg}")
+
+            if profundidade > 1 and len(visitados) < max_paginas:
+                links_pg = []
+                for m_a in re.finditer(r"""(?is)<a\s+[^>]*href=["']([^"'#]+)["'][^>]*>(.*?)</a>""", htm):
+                    href = m_a.group(1).strip()
+                    rotulo = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", m_a.group(2))).strip()
+                    if href.startswith("//"):
+                        href = "https:" + href
+                    elif href.startswith("/"):
+                        href = urllib.parse.urljoin(u, href)
+                    elif not href.startswith(("http://", "https://")):
+                        continue
+                    if re.search(r"\.(pdf|png|jpg|jpeg|gif|zip|tar|gz|exe|apk|dmg|mp4|mp3|svg)$", href, re.I):
+                        continue
+                    p_score = sum(1 for w in palavras_obj if w in rotulo.lower() or w in href.lower())
+                    if p_score > 0 and href not in visitados and href not in fila:
+                        links_pg.append((p_score, href))
+                links_pg.sort(key=lambda x: -x[0])
+                for _, h in links_pg[:2]:
+                    if h not in fila:
+                        fila.append(h)
+        except Exception as e:
+            conteudos.append(f"--- Falha ao acessar {u}: {e} ---")
+
+    tudo = "\n\n".join(conteudos)
+    if fr is not None and obj:
+        resp = fr.llm(
+            "Você é a F.R.I.D.A.Y. Você navegou pela web e reuniu informações para o chefe. "
+            "Responda ao objetivo dele de forma direta, clara e precisa em português do Brasil (2 a 4 frases), citando os fatos encontrados.",
+            f"Objetivo: {obj}\n\nMaterial coletado de {len(visitados)} páginas:\n{tudo[:6000]}",
+            None, False, 350, 0.2, 90
+        )
+        if resp and resp.strip():
+            return resp.strip()
+    return tudo[:3500]
+
+
+def t_tarefa_adaptativa(objetivo="", contexto="", fr=None, ops=None, **_):
+    """Executa tarefas autônomas abertas/não pré-programadas: decompõe o objetivo em ações dinâmicas, executa e adapta se falhar."""
+    obj = str(objetivo or "").strip()
+    if not obj:
+        raise ValueError("objetivo não informado")
+    if fr is None:
+        return "sem modelo para execução adaptativa"
+    plano = fr.llm(
+        "Você é o planejador adaptativo da F.R.I.D.A.Y. para tarefas não triviais no computador. "
+        "Dado o objetivo do dono, descreva em JSON uma lista de no máximo 4 ações executáveis: "
+        '{"passos":[{"acao":"terminal|pesquisar_web|navegar_web|ler_arquivo|criar_arquivo","param":"..."}],"explicacao":"curta"}',
+        f"Objetivo: {obj}\nContexto: {contexto}",
+        None, True, 350, 0.1, 60
+    )
+    if not isinstance(plano, dict) or not plano.get("passos"):
+        return t_navegar_web(url="", objetivo=obj, fr=fr)
+
+    resultados = []
+    for p in plano.get("passos", [])[:4]:
+        acao = str(p.get("acao", "")).strip()
+        param = str(p.get("param", "")).strip()
+        try:
+            if acao == "terminal":
+                res = t_terminal(comando=param, motivo=obj, fr=fr, ops=ops)
+            elif acao == "pesquisar_web":
+                res = t_pesquisar_web(consulta=param)
+            elif acao == "navegar_web":
+                res = t_navegar_web(url="", objetivo=param or obj, fr=fr)
+            elif acao == "ler_arquivo":
+                res = t_ler_arquivo(caminho=param)
+            elif acao == "criar_arquivo":
+                res = t_criar_arquivo(caminho=param, conteudo=contexto or obj)
+            else:
+                res = f"ação {acao} não suportada"
+            resultados.append(f"[{acao}]: {str(res)[:600]}")
+        except Exception as e_p:
+            resultados.append(f"[{acao}] erro: {e_p}")
+
+    sintese = fr.llm(
+        "Você é a F.R.I.D.A.Y. Sintetize em 2 frases diretas o resultado da tarefa autônoma executada.",
+        f"Objetivo: {obj}\nResultados:\n" + "\n".join(resultados),
+        None, False, 200, 0.2, 45
+    )
+    return (sintese or "\n".join(resultados)).strip()
+
+
+
 _BLOQ = re.compile(r"(\.env|\.pem|\.pfx|\.p12|\.key|id_rsa|secrets?|senha|password|\.kdbx|credenciais?)", re.I)
 
 
@@ -1248,12 +1381,16 @@ TOOLS = {
     "cel_rolar": (lambda n=3, **_: _cel().rolar(n), '{"n":3}', "CELULAR: rola (n>0 desce, n<0 sobe)"),
     "cel_espelhar": (lambda on=True, **_: _cel_espelhar(on), '{"on":true}', "CELULAR: mostra/fecha a tela do celular ao vivo no holograma"),
     "cel_abrir_app": (lambda nome="", **_: _cel().abrir_app(nome), '{"nome":"WhatsApp|Instagram|Configurações|..."}', "CELULAR: abre um app nativo pelo nome"),
+    "navegar_web": (t_navegar_web, '{"url":"https://...","objetivo":"o que encontrar ou pesquisar"}',
+                    "navega na web de forma autônoma e adaptativa: visita páginas, segue links relevantes ao objetivo, extrai dados e sintetiza"),
+    "tarefa_adaptativa": (t_tarefa_adaptativa, '{"objetivo":"o que resolver","contexto":"detalhes"}',
+                          "resolve tarefas abertas, complexas ou não pré-programadas executando e adaptando os passos autonomamente"),
     "acao": (t_acao, '{"t":"abrir_app|janela|sistema|agenda|email|holo|manual|programar","...":"parâmetros da ação"}',
              "executa uma ação no PC (abrir app, foco de janela, volume, agenda, e-mail, holograma, programar; NÃO use manual para documentos/planilhas)"),
 }
 
 # ------------------------------------------------------------------ F6: verificação do EFEITO REAL de cada ferramenta
-LEITURA = {"pesquisar_web", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
+LEITURA = {"pesquisar_web", "navegar_web", "tarefa_adaptativa", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
            "resumo_conversa", "cel_ver", "consultar_ia", "apontar", "camera_ver", "camera_em_volta", "camera_procurar", "camera_zoom", "camera_onde", "zap_ler"}           # só leem: o "final" delas é a própria resposta
 VISUAIS = {"clicar_texto", "clicar_elemento", "digitar", "tecla", "rolar", "abrir_site", "abrir_app", "acao", "pular_anuncio"}
 _NEG = re.compile(r"\b(n[ãa]o consegui|n[ãa]o deu|falhou|n[ãa]o achei|n[ãa]o encontrei|travei|n[ãa]o foi poss[íi]vel)\b", re.I)

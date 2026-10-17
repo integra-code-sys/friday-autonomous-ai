@@ -2190,8 +2190,13 @@ def cam_ptz_thread():
                 falhas = 0
                 print("câmera PTZ conectada:", url_ptz.split("@")[-1] if "@" in url_ptz else url_ptz, flush=True)
             except Exception as e:
-                print("câmera PTZ falha conexão:", repr(e), flush=True)
-                cap = None; time.sleep(10); continue
+                cap = None
+                if os.path.exists("/tmp/friday-cam-ptz.jpg"):
+                    try:
+                        os.unlink("/tmp/friday-cam-ptz.jpg")
+                    except OSError:
+                        pass
+                time.sleep(10); continue
 
         if _PTZ_HD["pedido"] and time.time() - _PTZ_HD["pedido"] < 6:      # "ver longe": troca a ÚNICA sessão p/ o onvif1 por ~2 s
             _PTZ_HD["pedido"] = 0.0
@@ -2888,51 +2893,96 @@ def vision_memory_thread():
 
 
 def autonomy_thread(loop):
-    """Iniciativa própria: reage a chegadas, desconhecidos, objetos novos e silêncio longo (com cooldown)."""
+    """Iniciativa própria: saúde do sistema, lembretes de agenda, auto-recuperação da PTZ, chegadas e objetos."""
     ausente_desde = time.time(); presentes = set(); desconhecido_desde = None; ultimo_proativo = 0.0
     visto_obj = {}; obj_ok = set(); ult_check = time.time(); conhecidos_vistos = {}
+    ult_saude_check = 0.0; ult_agenda_check = 0.0; ult_ptz_check = 0.0
     while True:
         time.sleep(1.0)
-        if not mem.get("autonomia", True) or not camera_on:
+        if not mem.get("autonomia", True):
             continue
         now = time.time()
-        fresh = now - scene["t"] < 4
-        nomes = {f["nome"] for f in scene["faces"] if f["nome"]} if fresh else set()
-        unk = sum(1 for f in scene["faces"] if not f["nome"]) if fresh else 0
         evento = None
-        for n in nomes - presentes:
-            if False and now - conhecidos_vistos.get(n, 0) > 120:        # (desligado: a 'mente' cuida de chegadas, com histerese)
-                evento = f"{n} acabou de chegar/voltar para a frente da câmera."
-        for n in nomes:
-            conhecidos_vistos[n] = now
-        presentes = nomes
-        if unk and not nomes:
-            desconhecido_desde = desconhecido_desde or now
-            if now - desconhecido_desde > 4 and now - mem.get("t_unk", 0) > 600:
-                mem["t_unk"] = now                     # só registra em 2º plano (pedido do dono: sem falar nem interromper)
-                try:
-                    with open("/tmp/friday-desconhecidos.log", "a") as f_:
-                        f_.write(time.strftime("%d/%m %H:%M:%S") + f" pessoa desconhecida na câmera ({unk})\n")
-                except OSError:
-                    pass
-        else:
-            desconhecido_desde = None
-        # objeto novo estável
-        if now - scene["t_obj"] < 5:
-            for o in scene["objetos"]:
-                visto_obj[o] = visto_obj.get(o, 0) + 1
-            for o in list(visto_obj):
-                if o not in scene["objetos"]:
-                    visto_obj[o] = 0
-            novos = [o for o, c in visto_obj.items() if c >= 5 and o not in obj_ok]
-            if False and novos and nomes and not evento and now - mem.get("t_obj_ev", 0) > 180:
-                mem["t_obj_ev"] = now
-                evento = f"Apareceu um objeto novo na cena: {', '.join(novos)}."
-            obj_ok.update(novos)
-            obj_ok.intersection_update({o for o, c in visto_obj.items() if c > 0})
-        if nomes and now - mem.get("ultima_vez", 0) > 1500 and now - ult_check > 1500 and not evento:
+        nomes = set()
+
+        # 1. Proatividade Visual (somente quando a câmera estiver ligada)
+        if camera_on:
+            fresh = now - scene["t"] < 4
+            nomes = {f["nome"] for f in scene["faces"] if f["nome"]} if fresh else set()
+            unk = sum(1 for f in scene["faces"] if not f["nome"]) if fresh else 0
+            for n in nomes:
+                conhecidos_vistos[n] = now
+            presentes = nomes
+            if unk and not nomes:
+                desconhecido_desde = desconhecido_desde or now
+                if now - desconhecido_desde > 4 and now - mem.get("t_unk", 0) > 600:
+                    mem["t_unk"] = now
+                    try:
+                        with open("/tmp/friday-desconhecidos.log", "a") as f_:
+                            f_.write(time.strftime("%d/%m %H:%M:%S") + f" pessoa desconhecida na câmera ({unk})\n")
+                    except OSError:
+                        pass
+            else:
+                desconhecido_desde = None
+            if now - scene["t_obj"] < 5:
+                for o in scene["objetos"]:
+                    visto_obj[o] = visto_obj.get(o, 0) + 1
+                for o in list(visto_obj):
+                    if o not in scene["objetos"]:
+                        visto_obj[o] = 0
+                novos = [o for o, c in visto_obj.items() if c >= 5 and o not in obj_ok]
+                obj_ok.update(novos)
+                obj_ok.intersection_update({o for o, c in visto_obj.items() if c > 0})
+
+        # 2. Saúde Proativa do Sistema (executa independente de câmera)
+        if now - ult_saude_check > 120:
+            ult_saude_check = now
+            try:
+                import psutil
+                disco = psutil.disk_usage("/").percent
+                ram = psutil.virtual_memory().percent
+                if disco >= 93 and now - mem.get("t_alerta_disco", 0) > 3600:
+                    mem["t_alerta_disco"] = now
+                    evento = f"Alerta de sistema: o disco principal está em {disco:.0f}% de uso."
+                elif ram >= 94 and now - mem.get("t_alerta_ram", 0) > 1800:
+                    mem["t_alerta_ram"] = now
+                    evento = f"Alerta de sistema: o uso de memória RAM está muito alto, em {ram:.0f}%."
+                bat = psutil.sensors_battery() if hasattr(psutil, "sensors_battery") else None
+                if bat and not bat.power_plugged and bat.percent <= 15 and now - mem.get("t_alerta_bat", 0) > 600:
+                    mem["t_alerta_bat"] = now
+                    evento = f"Atenção: a bateria está em {bat.percent:.0f}% e descarregando. Conecte o carregador."
+            except Exception:
+                pass
+
+        # 3. Lembretes Proativos da Agenda (15 min antes de compromissos)
+        if not evento and ops is not None and now - ult_agenda_check > 60:
+            ult_agenda_check = now
+            try:
+                for it in ops.agenda_due_reminders():
+                    faltam = int((it["inicio"] - now) / 60)
+                    if faltam <= 15:
+                        msg = f"Lembrete de agenda: {it['titulo']} em {max(1, faltam)} minutos" + (f" em {it['local']}" if it.get("local") else "") + "."
+                        ops.agenda_mark(it["id"], avisado=True)
+                        evento = msg
+                        break
+            except Exception:
+                pass
+
+        # 4. Auto-recuperação da Câmera PTZ se estiver offline
+        if ipcam is not None and camera_on and now - ult_ptz_check > 25:
+            ult_ptz_check = now
+            try:
+                c_ip = ipcam.atual()
+                if c_ip is None or not c_ip.ok:
+                    ipcam.obter(forcar=False)
+            except Exception:
+                pass
+
+        # 5. Silêncio longo quando o usuário está presente
+        if camera_on and nomes and now - mem.get("ultima_vez", 0) > 1500 and now - ult_check > 1500 and not evento:
             ult_check = now
             evento = "O usuário está aqui há um bom tempo sem falar com você."
+
         if evento and now - ultimo_proativo > 45 and not speaking and not busy.locked() and state["state"] == "idle" \
                 and now - last_voice["t"] > 8:
             ultimo_proativo = now
@@ -2979,7 +3029,7 @@ COMANDOS_AJUDA = ("Posso: abrir apps, pesquisar e tocar música no YouTube, pula
 
 
 def _owner_name():
-    return str(mem.get("nome") or "Chefe").strip()
+    return str(mem.get("nome") or "Iann").strip()
 
 
 def _is_owner_voice():
@@ -3118,12 +3168,12 @@ async def _security_loop():
                 ops.audit("seguranca.intruso", "", f"rosto estranho às {hora}", "bloqueio+suspensão")
             except Exception:
                 pass
-            await broadcast({"type": "text", "role": "assistant", "text": f"🔒 Modo segurança: outra pessoa detectada às {hora}. Bloqueando o PC."})
+            await broadcast({"type": "text", "role": "assistant", "text": f"[SEGURANÇA] Modo segurança: outra pessoa detectada às {hora}. Bloqueando o PC."})
             try:
                 cfg = zap_cfg()
                 contato = cfg.get("contato_seguranca") or cfg.get("contato_comando") or "Integra Code"
                 await asyncio.to_thread(zapmod.send, contato,
-                                        f"🔒 Modo segurança: rosto não reconhecido às {hora}. PC bloqueado e suspenso (pede a senha ao voltar).")
+                                        f"[SEGURANÇA] Modo segurança: rosto não reconhecido às {hora}. PC bloqueado e suspenso (pede a senha ao voltar).")
             except Exception:
                 pass
             if not await asyncio.to_thread(_noctalia, "session", "lock-and-suspend"):
@@ -3570,7 +3620,7 @@ async def _cont_loop():
         fala = str(res.get("fala") or "").strip() or "passo executado"
         continuo["notes"].append(f"#{continuo['iter']}: {fala[:200]}")
         _cont_doc(fala[:300]); _cont_save()
-        await broadcast({"type": "text", "role": "assistant", "text": f"🔁 #{continuo['iter']}: {fala}"})
+        await broadcast({"type": "text", "role": "assistant", "text": f"[LOOP] #{continuo['iter']}: {fala}"})
         if fala.upper().startswith("CONCLU"):
             continuo["ativo"] = False; _cont_save()
             await speak("Terminei a tarefa, chefe. " + fala.split(":", 1)[-1].strip()[:200])
@@ -3883,14 +3933,23 @@ async def mind_think(reason: str, extra: str = ""):
             "mostra a MESMA falha 2+ vezes, ofereça se aprimorar: tarefa = \"aprimore-se: corrija <a falha, com detalhes>\".\n"
             f"ESTADO: {json.dumps(estado, ensure_ascii=False)}\n{extra}\n"
             "humor = a emoção da sua frase, coerente com o momento do usuário (ex.: ele frustrado = preocupado; conquista = empolgado).\n"
-            'Responda SÓ JSON: {"acao":"nada"|"falar"|"lembrar"|"responder"|"oferecer","texto":"frase a falar ou resposta","tarefa":"",'
+            'Responda SÓ JSON: {"acao":"nada"|"falar"|"lembrar"|"responder"|"oferecer"|"executar","texto":"frase a falar ou resposta","tarefa":"",'
             '"humor":"neutro|alegre|empolgado|carinhoso|confiante|curioso|surpreso|pensativo|serio|preocupado|triste|irritado|assustado",'
             '"chave":"","valor":"","id":""}')
         d = await llm_json(prompt)
         if not d:
             return
         acao = d.get("acao")
-        if acao == "responder" and ops is not None and d.get("id") and str(d.get("texto", "")).strip():
+        if acao == "executar" and str(d.get("tarefa", "")).strip():
+            tarefa = str(d["tarefa"]).strip()[:300]
+            txt = str(d.get("texto") or "").strip()[:240]
+            print(f"mente autônoma: executando tarefa '{tarefa}'", flush=True)
+            if txt and not speaking and state["state"] == "idle":
+                await broadcast({"type": "text", "role": "assistant", "text": txt})
+                log_turn("prometheus", txt)
+                await speak(txt)
+            asyncio.create_task(run_task({"id": f"auto_{int(now)}", "origem": "autonomia", "descricao": tarefa, "texto": tarefa}))
+        elif acao == "responder" and ops is not None and d.get("id") and str(d.get("texto", "")).strip():
             notif = next((n for n in await asyncio.to_thread(ops.phone_notifs) if n["id"] == str(d["id"])), None)
             if notif and notif.get("reply_id"):
                 await asyncio.to_thread(ops.gated, "wa.reply", notif.get("titulo") or "", f"responder {notif.get('titulo')}: {str(d['texto'])[:100]}",
@@ -4068,7 +4127,7 @@ async def extract_agenda(txt: str, origem: str = "ambiente"):
         if aid and msg == "ok":
             novos.append(f"{it.get('titulo')} — {it.get('quando')}")
     if novos:
-        txt_ok = "📅 Anotei na agenda: " + "; ".join(novos)
+        txt_ok = "[AGENDA] Anotei na agenda: " + "; ".join(novos)
         await broadcast({"type": "text", "role": "assistant", "text": txt_ok})
         log_turn("prometheus", txt_ok)
 
@@ -4084,7 +4143,7 @@ async def agenda_tick():
         quando = f"em {faltam} minutos" if faltam > 1 else "agora"
         msg = f"Lembrete: {it['titulo']} {quando}" + (f", em {it['local']}" if it.get("local") else "") + "."
         ops.agenda_mark(it["id"], avisado=True)
-        await broadcast({"type": "text", "role": "assistant", "text": "⏰ " + msg})
+        await broadcast({"type": "text", "role": "assistant", "text": "[LEMBRETE] " + msg})
         log_turn("prometheus", msg)
         if present and not speaking and state["state"] == "idle":
             await speak(msg); conv["t"] = time.time()
@@ -4704,28 +4763,28 @@ def _zap_cmd_work(chat, items):
             dest = os.path.join("/tmp", "friday-zap-%d.ogg" % int(time.time()))
             r = zapmod.fetch_audio(it["id"], dest)
             if not r.get("ok"):
-                zapmod.send(chat, "🤖 Não consegui baixar seu áudio: " + str(r.get("motivo", ""))[:100]); continue
+                zapmod.send(chat, "[FRIDAY] Não consegui baixar seu áudio: " + str(r.get("motivo", ""))[:100]); continue
             try:
                 txt = _zap_transcribe(dest)
             finally:
                 try: os.remove(dest)
                 except OSError: pass
             if not txt:
-                zapmod.send(chat, "🤖 Não entendi o áudio, chefe. Pode repetir?"); continue
+                zapmod.send(chat, "[FRIDAY] Não entendi o áudio, chefe. Pode repetir?"); continue
         ops.audit("zap.comando", chat, txt[:120], "recebido")
         try:
             lp = _main.get("loop")
             if lp is not None and (CONT_STOP.search(txt) or re.match(r"^\W*(?:sexta[\s-]*feira[,!. ]*)?(pare|parar|chega|cancela)\W*$", txt, re.I)):
                 continuo_stop(); cancel_all()
-                zapmod.send(chat, "🤖 Parei a tarefa contínua e o que estava fazendo."); continue
+                zapmod.send(chat, "[FRIDAY] Parei a tarefa contínua e o que estava fazendo."); continue
             if lp is not None and CONT_START.search(txt) and not re.search(r"\bmodo\b", txt, re.I):
                 ok_c, msg_c = asyncio.run_coroutine_threadsafe(continuo_start(txt), lp).result(timeout=20)
-                zapmod.send(chat, "🤖 " + msg_c + " Mando atualizações por aqui; diga 'pare a tarefa' para encerrar."); continue
+                zapmod.send(chat, "[FRIDAY] " + msg_c + " Mando atualizações por aqui; diga 'pare a tarefa' para encerrar."); continue
             res = _ag.run(txt, _friday_ctx(), fr, ops, None)
             resp = res.get("fala") or "Feito."
         except Exception as e:
             resp = "Falhei ao executar: " + str(e)[:100]
-        zapmod.send(chat, "🤖 Ouvi: “" + txt[:120] + "”\n" + resp[:600])
+        zapmod.send(chat, "[FRIDAY] Ouvi: “" + txt[:120] + "”\n" + resp[:600])
         ops.audit("zap.comando", chat, txt[:120], "respondido")
 
 
@@ -4780,7 +4839,7 @@ async def zap_analyze(chats, cfg):
         r = res.get(k, {})
         urg = int(r.get("urgencia", 1) or 0)
         resumo = str(r.get("resumo") or c["previa"])[:160]
-        linha = f"💬 {c['nome']}" + (f" ({c['nao_lidas']})" if c["nao_lidas"] > 1 else "") + f": {resumo}"
+        linha = f"[WHATSAPP] {c['nome']}" + (f" ({c['nao_lidas']})" if c["nao_lidas"] > 1 else "") + f": {resumo}"
         await broadcast({"type": "text", "role": "assistant", "text": linha})
         log_turn("prometheus", linha)
         ops.audit("wa.analise", c["nome"], resumo, f"urgencia={urg}")
@@ -4804,7 +4863,7 @@ async def zap_analyze(chats, cfg):
                     ok, msg = await asyncio.to_thread(ops.gated, "wa.send_chat", c["nome"], resumo_ap, {"nome": c["nome"], "texto": txt})
                     if ok:
                         zap_state["auto_envios"].append(now)
-                        await broadcast({"type": "text", "role": "assistant", "text": f"✅ Respondi {c['nome']}: {txt}"})
+                        await broadcast({"type": "text", "role": "assistant", "text": f"[OK] Respondi {c['nome']}: {txt}"})
                         log_turn("prometheus", f"respondi {c['nome']}: {txt}")
                 else:           # sensível / incerto / grupo / limite por hora: pergunta ao dono
                     await asyncio.to_thread(ops.request_approval, "wa.send_chat", c["nome"], resumo_ap, {"nome": c["nome"], "texto": txt})
@@ -5133,7 +5192,7 @@ async def friday_ask(text: str, files=None, proactive=False):
             busy.release()          # ela continua ouvindo ("pare", "aprovado") enquanto age
             try:
                 return await asyncio.to_thread(_cer.run, pedido, ctx_, fr, ops, _friday_history(6),
-                                               lambda s_: asyncio.run_coroutine_threadsafe(speak(s_), _lp), mem.get("nome") or "Chefe")
+                                               lambda s_: asyncio.run_coroutine_threadsafe(speak(s_), _lp), mem.get("nome") or "Iann")
             finally:
                 agente_ativo[0] = False
                 _proxima_da_fila()
@@ -5339,7 +5398,7 @@ async def friday_ask(text: str, files=None, proactive=False):
                 if locals().get("_ri") == "acao_simples":
                     # comando direto: histórico velho ancorava ("não tenho porta três") e ela respondia sem agir (15/10)
                     h_conv = []
-                res = await asyncio.to_thread(fr.think, text, mem.get("nome") or "Chefe", ctx, h_conv)
+                res = await asyncio.to_thread(fr.think, text, mem.get("nome") or "Iann", ctx, h_conv)
                 _dec.append("think")
                 tarefa = next((x for x in res.get("acoes", []) if isinstance(x, dict) and x.get("t") == "tarefa"), None)
                 if tarefa and _ag is not None:
@@ -6454,12 +6513,7 @@ def _foco_voz(audio, loop=None):
         else:
             info["faixa"] = "descarta"
     else:
-        alone = len(scene.get("faces", [])) <= 1
-        info["faixa"] = "plena"
-        # Quando a Friday está ligada ou conversando com o dono a sós, não descarta falas naturais (score >= 0.08)
-        if not ok and (friday_state.get("on") or dono_recente) and alone and sc >= 0.08:
-            ok = True
-            info["motivo"] = "dono (tolerância sozinho/ativo)"
+        info["faixa"] = "plena" if ok else "descarta"
     voz.log(f"{'ACEITA' if ok else 'IGNORA'} score={sc:.2f} lim={lim:.2f} dur={info.get('dur')}s faixa={info.get('faixa')} {info.get('motivo', '')} {info.get('janelas', '')}")
     _voz_ult.update(faixa=info.get("faixa"), score=sc, titanet=bool(voz_dono.pronto), t=time.time())
     if ok and voz_dono.pronto and sc >= lim - 0.06 and (not v2 or info["faixa"] == "plena"):
@@ -6643,8 +6697,8 @@ def _evento_autonomo(desc, loop=None, tipo="geral"):
                 return
             agente_ativo[0] = True
             try:
-                r_ = await asyncio.to_thread(_c.run, _c.EVENTO.format(desc=desc, nome=mem.get("nome") or "Chefe"), _friday_ctx(), fr, ops,
-                                             None, None, mem.get("nome") or "Chefe")
+                r_ = await asyncio.to_thread(_c.run, _c.EVENTO.format(desc=desc, nome=mem.get("nome") or "Iann"), _friday_ctx(), fr, ops,
+                                             None, None, mem.get("nome") or "Iann")
             finally:
                 agente_ativo[0] = False
                 _proxima_da_fila()
@@ -6797,7 +6851,7 @@ def voice_thread(loop):
                 if voiced == 12 and not _fala_agora:              # ~0,4 s de voz: aquece o prefixo do cérebro na GPU enquanto ele fala/STT roda
                     try:
                         import cerebro as _cq
-                        _cq.aquecer(mem.get("nome") or "Chefe")
+                        _cq.aquecer(mem.get("nome") or "Iann")
                     except Exception:
                         pass
                 if voiced > 55 and voiced % 130 == 0:             # fala longa: acena de leve (escuta ativa)
@@ -7264,17 +7318,7 @@ async def main():
     if os.environ.get("PROMETHEUS_SONS", "1") == "1":
         threading.Thread(target=som_thread, args=(asyncio.get_running_loop(),), daemon=True, name="ouvido").start()
     threading.Thread(target=mouse_real_thread, args=(asyncio.get_running_loop(),), daemon=True, name="mouse-real").start()
-    try:
-        import camera_manager as _cm_boot
-        _cen_cam = _cm_boot.obter_cenario_cameras()
-        _qtd_cam = _cen_cam.get("qtd_cameras", 0)
-        _tem_ptz_boot = _cen_cam.get("tem_ptz", False)
-        print(f"[CAMERAS] Cenário ativo: {_cen_cam.get('modo')} ({_qtd_cam} câmera(s), PTZ={_tem_ptz_boot})", flush=True)
-    except Exception as _ec:
-        print("camera_manager:", _ec, flush=True)
-        _qtd_cam, _tem_ptz_boot = 1, False
-    if _tem_ptz_boot:
-        _ptz_iniciar(asyncio.get_running_loop())
+    _ptz_iniciar(asyncio.get_running_loop())
     if dev is not None:
         _loop_dev = asyncio.get_running_loop()
         dev.iniciar(lambda ev: asyncio.run_coroutine_threadsafe(broadcast(dict(ev, type="dev", tipo_ev=ev.get("tipo"))), _loop_dev))
@@ -7283,24 +7327,21 @@ async def main():
         _cb0.SENTIDOS[0] = _sentidos
     except Exception as e:
         print("cérebro (sentidos):", e, flush=True)
-    if _qtd_cam >= 2:
-        threading.Thread(target=cam_ambiente_thread, daemon=True, name="cam-ambiente").start()
-    if _tem_ptz_boot:
-        threading.Thread(target=cam_ptz_thread, daemon=True, name="cam-ptz").start()
-    if _qtd_cam >= 2 and os.environ.get("PROMETHEUS_MUNDO", "1") == "1":
+    threading.Thread(target=cam_ambiente_thread, daemon=True, name="cam-ambiente").start()
+    threading.Thread(target=cam_ptz_thread, daemon=True, name="cam-ptz").start()
+    if os.environ.get("PROMETHEUS_MUNDO", "1") == "1":                # câmeras fixas localizam, a PTZ aponta (mundo.py)
         threading.Thread(target=cam_porta_thread, daemon=True, name="cam-porta").start()
-        if _tem_ptz_boot:
-            threading.Thread(target=mundo_thread, daemon=True, name="mundo").start()
+        threading.Thread(target=mundo_thread, daemon=True, name="mundo").start()
     try:                                                              # visao.py lê os quadros em memória (não reabre /dev/video com a câmera ligada)
         import visao as _vs0
-        _vs0.registrar_fonte("nativa", lambda: _shared.get("frame") if time.time() - _shared.get("frame_t", 0) < 2.0 else None, lambda: CAMERA and camera_on and _qtd_cam >= 1)
-        _vs0.registrar_fonte("porta", lambda: _shared.get("frame_porta") if time.time() - _shared.get("porta_t", 0) < 2.0 else None, lambda: camera_on and _qtd_cam >= 2)
-        _vs0.registrar_fonte("usb", lambda: _shared.get("frame_amb") if time.time() - _shared.get("amb_t", 0) < 2.0 else None, lambda: camera_on and _qtd_cam >= 2)
-        _vs0.registrar_fonte("ptz", lambda: _shared.get("frame_ptz") if time.time() - _shared.get("ptz_t", 0) < 2.0 else None, lambda: camera_on and _tem_ptz_boot)
-        _vs0.registrar_fonte("externa", lambda: _shared.get("frame_amb") if time.time() - _shared.get("amb_t", 0) < 2.0 else _shared.get("frame_ptz"), lambda: camera_on and _qtd_cam >= 2)
+        _vs0.registrar_fonte("nativa", lambda: _shared.get("frame") if time.time() - _shared.get("frame_t", 0) < 2.0 else None, lambda: CAMERA and camera_on)
+        _vs0.registrar_fonte("porta", lambda: _shared.get("frame_porta") if time.time() - _shared.get("porta_t", 0) < 2.0 else None, lambda: camera_on)
+        _vs0.registrar_fonte("usb", lambda: _shared.get("frame_amb") if time.time() - _shared.get("amb_t", 0) < 2.0 else None, lambda: camera_on)
+        _vs0.registrar_fonte("ptz", lambda: _shared.get("frame_ptz") if time.time() - _shared.get("ptz_t", 0) < 2.0 else None, lambda: camera_on)
+        _vs0.registrar_fonte("externa", lambda: _shared.get("frame_amb") if time.time() - _shared.get("amb_t", 0) < 2.0 else _shared.get("frame_ptz"), lambda: camera_on)
     except Exception as e:
         print("visão (fontes):", e, flush=True)
-    if CAMERA and _qtd_cam >= 1:
+    if CAMERA:
         threading.Thread(target=camera_thread, args=(asyncio.get_running_loop(),), daemon=True).start()
         if os.environ.get("PROMETHEUS_POSE2D", "0") == "1":          # opcional: pesado; aceno vem da câmera e braços da mão
             threading.Thread(target=pose_thread, args=(asyncio.get_running_loop(),), daemon=True).start()
@@ -7308,9 +7349,6 @@ async def main():
             threading.Thread(target=object_thread, daemon=True).start()
         if os.environ.get("PROMETHEUS_VLM_BG", "0") == "1":        # descrição contínua da cena expulsava o modelo de conversa da GPU (atraso enorme)
             threading.Thread(target=vlm_thread, daemon=True).start()
-        threading.Thread(target=hand_thread, args=(asyncio.get_running_loop(),), daemon=True).start()
-        threading.Thread(target=vision_memory_thread, daemon=True).start()
-    if CAMERA:
         if fr is not None:
             threading.Thread(target=fr.warm, daemon=True, name="warm-llm").start()
             import visao; threading.Thread(target=visao.preparar, daemon=True, name="warm-vlm").start()
@@ -7321,6 +7359,8 @@ async def main():
                                      asyncio.run_coroutine_threadsafe(speak(m_), _lp0)))
         except Exception as e:
             print("construtor:", e, flush=True)
+        threading.Thread(target=hand_thread, args=(asyncio.get_running_loop(),), daemon=True).start()
+        threading.Thread(target=vision_memory_thread, daemon=True).start()
         try:                                     # memória própria (repertório do PC + linha do tempo) e dados do fundo animado
             import memoria
 

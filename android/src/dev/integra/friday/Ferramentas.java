@@ -276,6 +276,13 @@ final class Ferramentas {
     private String ver(Uri u, String ok) { return iniciar(new Intent(Intent.ACTION_VIEW, u), ok); }
 
     private String abrirApp(String nome) throws Exception {
+        String alvoNorm = Agenda.norm(nome).replaceAll("[^a-z0-9]", "");
+        if (alvoNorm.equals("agenda") || alvoNorm.equals("calendario") || alvoNorm.equals("minhaagenda")) {
+            return abrirTela("agenda");
+        }
+        if (alvoNorm.equals("dev") || alvoNorm.equals("mododev") || alvoNorm.equals("ide")) {
+            return abrirTela("dev");
+        }
         if (acesso() != null) {
             Map<String, String> q = new HashMap<>(); q.put("nome", nome);
             JSONObject r = Acesso.inst.rotear("/abrir", q);

@@ -546,6 +546,8 @@ class PTZ:
         senão vai à ponta mais perto e cruza o curso todo (olhar em volta: fotos em ordem). -> fotos [(pan_s, frame)]."""
         c = _conf()
         cam = self.cam
+        if cam is None or not cam.ok:
+            return []
         total = c["pan_total_s"]
         self._integrar()
         meio_t = c["tilt_horizonte"] if tilt is None else tilt
@@ -567,6 +569,9 @@ class PTZ:
                 if self._parar_tarefa.is_set():
                     break
                 pan0 = self.pan
+                cam = self.cam
+                if cam is None:
+                    break
                 cam.mover(sinal, 0)
                 t_ini = time.time()
                 self._pausa_var = 0.0                       # tempo parado conferindo uma pessoa (teste freia e retoma)
@@ -589,15 +594,19 @@ class PTZ:
                     if a_cada_quadro and a_cada_quadro(fr, t):
                         parou = True
                         break
-                cam.mover(0, 0)
+                if cam is not None and getattr(cam, "ok", False):
+                    cam.mover(0, 0)
                 time.sleep(0.4)
                 self._integrar()
                 andou_tot += dist
                 if parou:
                     break
         finally:
-            if cam.vel != (0.0, 0.0):
-                cam.mover(0, 0)
+            if cam is not None and getattr(cam, "vel", (0.0, 0.0)) != (0.0, 0.0):
+                try:
+                    cam.mover(0, 0)
+                except Exception:
+                    pass
             self._integrar()
         return fotos
 
@@ -1481,6 +1490,8 @@ class PTZ:
 
     def _medir(self, vx, vy, dur):
         cam = self.cam
+        if cam is None or not getattr(cam, "ok", False):
+            return None
         a = self._quadro_apos(time.time())
         cam.pulso(vx, vy, dur)
         time.sleep(dur + 0.2)
@@ -1491,6 +1502,8 @@ class PTZ:
         """gira até o fim de curso com "homem-morto": o motor só segue enquanto o VÍDEO confirma que está andando.
         -> (segundos de motor andando, None) ou (None, None)."""
         cam = self.cam
+        if cam is None or not getattr(cam, "ok", False):
+            return None, None
         eixo = 0 if vx else 1
         ant = self._quadro_apos(time.time())
         if ant is None:

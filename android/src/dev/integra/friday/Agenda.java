@@ -7,6 +7,12 @@ import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.os.Build;
 import android.provider.CalendarContract;
 
 import org.json.JSONArray;
@@ -58,6 +64,45 @@ final class Agenda {
     static volatile Runnable aoMudar;                         // a tela da agenda se redesenha quando a sincronização traz novidade
 
     private Agenda() {}
+
+    private static final Set<String> lembrados = new HashSet<>();
+
+    public static void verificarLembretes(Context c) {
+        if (c == null) return;
+        long agora = System.currentTimeMillis();
+        long ate = agora + 15 * 60 * 1000L;
+        List<Item> proximos = itens(c, agora, ate);
+        for (Item it : proximos) {
+            if (it.feito || it.removido) continue;
+            String chave = it.id + "_" + (it.ini / 60000);
+            if (lembrados.contains(chave)) continue;
+            lembrados.add(chave);
+            int faltamMin = (int) Math.max(1, (it.ini - agora) / 60000);
+            String aviso = "Lembrete: " + it.titulo + " em " + faltamMin + " min" + (it.local.isEmpty() ? "" : " em " + it.local);
+            notificar(c, "Lembrete de Agenda", aviso);
+            try {
+                if (Voz.get(c) != null) Voz.get(c).falar(aviso);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public static void notificar(Context c, String tit, String txt) {
+        try {
+            NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            String chId = "friday_agenda_alerts";
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel ch = new NotificationChannel(chId, "Lembretes da Sexta-Feira", NotificationManager.IMPORTANCE_HIGH);
+                nm.createNotificationChannel(ch);
+            }
+            Intent intent = new Intent(c, MainActivity.class).putExtra("aba", "agenda");
+            PendingIntent pi = PendingIntent.getActivity(c, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, chId) : new Notification.Builder(c);
+            b.setContentTitle(tit).setContentText(txt).setSmallIcon(android.R.drawable.ic_dialog_info)
+             .setContentIntent(pi).setAutoCancel(true);
+            nm.notify((int) (System.currentTimeMillis() % 100000), b.build());
+        } catch (Exception ignored) {}
+    }
 
     // ------------------------------------------------------------------ arquivos
     private static File arq(Context c, String n) { return new File(c.getFilesDir(), n); }

@@ -53,43 +53,79 @@ def salvar_conf(**kw):
 
 
 # ------------------------------------------------------------------ rede
-def _porta(ip, p, t=0.35):
-    s = socket.socket()
-    s.settimeout(t)
-    try:
-        return s.connect_ex((ip, p)) == 0
-    except Exception:
-        return False
-    finally:
-        s.close()
-
-
-def _redes_locais():
-    """[(ip_local, prefixo /24)] das interfaces IPv4 (sem lo/tailscale/docker)."""
+def _ips_locais():
+    """[(dev, ip_local, prefixo /24)] das interfaces IPv4 ativas."""
     out = []
     try:
         txt = subprocess.run(["ip", "-4", "-o", "addr"], capture_output=True, text=True, timeout=2).stdout
         for ln in txt.splitlines():
-            m = re.search(r"^\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+)\.(\d+)/", ln)
+            m = re.search(r"^\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)/", ln)
             if m and not re.match(r"(lo|tailscale|docker|br-|veth|virbr)", m.group(1)):
-                out.append((m.group(1), m.group(2) + "."))
+                dev = m.group(1)
+                ip = m.group(2)
+                pref = ip.rsplit(".", 1)[0] + "."
+                out.append((dev, ip, pref))
     except Exception:
         pass
     return out
 
 
+def _redes_locais():
+    """[(dev, prefixo /24)] das interfaces IPv4."""
+    return [(dev, pref) for dev, _, pref in _ips_locais()]
+
+
+def _porta(ip, p, t=0.35):
+    s = socket.socket()
+    s.settimeout(t)
+    try:
+        if s.connect_ex((ip, p)) == 0:
+            return True
+    except Exception:
+        pass
+    finally:
+        s.close()
+    for _, loc_ip, _ in _ips_locais():
+        s = socket.socket()
+        s.settimeout(t)
+        try:
+            s.bind((loc_ip, 0))
+            if s.connect_ex((ip, p)) == 0:
+                return True
+        except Exception:
+            pass
+        finally:
+            s.close()
+    return False
+
+
 def rtsp_status(ip, caminho="onvif1", t=2.0):
     """código da resposta ao DESCRIBE (200 = vídeo liberado; 401 = pede senha; 405 = câmera esperando o app)."""
-    try:
-        s = socket.create_connection((ip, 554), t)
-        s.settimeout(t)
-        s.sendall(f"DESCRIBE rtsp://{ip}:554/{caminho} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode())
-        d = s.recv(300).decode(errors="ignore")
-        s.close()
-        m = re.match(r"RTSP/1\.0 (\d+)", d)
-        return int(m.group(1)) if m else 0
-    except Exception:
-        return 0
+    for bind_ip in [None] + [loc[1] for loc in _ips_locais()]:
+        s = None
+        try:
+            s = socket.socket()
+            s.settimeout(t)
+            if bind_ip:
+                try:
+                    s.bind((bind_ip, 0))
+                except Exception:
+                    continue
+            s.connect((ip, 554))
+            s.sendall(f"DESCRIBE rtsp://{ip}:554/{caminho} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode())
+            d = s.recv(300).decode(errors="ignore")
+            m = re.match(r"RTSP/1\.0 (\d+)", d)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        finally:
+            if s:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+    return 0
 
 
 def candidatos():
@@ -140,6 +176,19 @@ class CameraIP:
         self._falhas = 0
         self.hist = []                                       # [[t_liga, t_desliga|None, vx, vy]] já com a inversão: o ptz.py prevê o giro
         self.vel = (0.0, 0.0)                                # velocidade contínua em curso (modo mover)
+        self.bind_ip = None
+        for _, loc_ip, _ in _ips_locais():
+            s = socket.socket()
+            s.settimeout(0.25)
+            try:
+                s.bind((loc_ip, 0))
+                if s.connect_ex((ip, 554)) == 0:
+                    self.bind_ip = loc_ip
+                    break
+            except Exception:
+                pass
+            finally:
+                s.close()
 
     # ---- SOAP cru (requests mandava cabeçalhos que esse gSOAP às vezes recusa)
     def _sec(self):
@@ -164,8 +213,14 @@ class CameraIP:
         req = (f"POST /onvif/ptz_service HTTP/1.1\r\nHost: {self.ip}:5000\r\nContent-Type: application/soap+xml; charset=utf-8\r\n"
                f"Content-Length: {len(env)}\r\nConnection: close\r\n\r\n").encode() + env
         self._ult_post = time.time()
-        s = socket.create_connection((self.ip, 5000), t)
+        s = socket.socket()
         s.settimeout(t)
+        if self.bind_ip:
+            try:
+                s.bind((self.bind_ip, 0))
+            except Exception:
+                pass
+        s.connect((self.ip, 5000))
         try:
             s.sendall(req)
             d = b""

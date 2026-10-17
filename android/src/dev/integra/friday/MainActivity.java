@@ -108,7 +108,8 @@ public class MainActivity extends Activity {
         setContentView(web);
         imersivo();
         if (!temPermissoes()) pedirPermissoes();
-        web.loadUrl(ORIGEM + "index.html");
+        String abaIni = getIntent() != null ? getIntent().getStringExtra("aba") : null;
+        web.loadUrl(ORIGEM + "index.html" + (abaIni != null && !abaIni.isEmpty() ? "?aba=" + abaIni : ""));
     }
 
     /** chamada como assistente (gesto do sistema / botão) ou com aba direta (agenda/dev): abre a aba certa */
@@ -117,7 +118,9 @@ public class MainActivity extends Activity {
         String aba = i.getStringExtra("aba");
         if (aba != null && !aba.isEmpty()) {
             final String a = aba;
-            web.postDelayed(() -> web.evaluateJavascript("window.abrirAba&&abrirAba(" + org.json.JSONObject.quote(a) + ")", null), 350);
+            for (long delay : new long[]{200, 500, 1000}) {
+                web.postDelayed(() -> web.evaluateJavascript("window.abrirAba&&abrirAba(" + org.json.JSONObject.quote(a) + ")", null), delay);
+            }
             return;
         }
         boolean asst = i.getBooleanExtra("assistente", false) || Intent.ACTION_ASSIST.equals(i.getAction())

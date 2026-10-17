@@ -60,6 +60,10 @@ def config():
 
 def _ok(req):
     tok = req.headers.get("X-Token") or req.query.get("t") or ""
+    if not tok:
+        auth_hdr = req.headers.get("Authorization", "")
+        if auth_hdr.startswith("Bearer "):
+            tok = auth_hdr[7:].strip()
     return secrets.compare_digest(tok, config()["token"])
 
 

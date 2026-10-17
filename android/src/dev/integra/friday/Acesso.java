@@ -9,6 +9,8 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.os.BatteryManager;
+import android.content.IntentFilter;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -84,6 +86,37 @@ public class Acesso extends AccessibilityService {
         new Thread(() -> {                                   // Friday LOCAL: carrega e aquece o cérebro em 2º plano (1º pedido já rápido)
             try { Thread.sleep(15000); Cerebro.get(this).preparar(); } catch (Exception ignored) {}
         }, "friday-aquece").start();
+
+        new Thread(() -> {                                   // Autonomia adaptativa proativa no Android (agenda e bateria)
+            while (inst == this) {
+                try {
+                    Thread.sleep(60000);
+                    Agenda.verificarLembretes(this);
+                    verificarSaudeBateria();
+                } catch (Exception ignored) {}
+            }
+        }, "friday-autonomia-android").start();
+    }
+
+    private long ultAlertaBateria = 0;
+    private void verificarSaudeBateria() {
+        try {
+            IntentFilter ifilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+            Intent b = registerReceiver(null, ifilter);
+            if (b == null) return;
+            int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+            int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+            boolean carregando = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL);
+            float pct = (level * 100f) / (float) scale;
+            long agora = System.currentTimeMillis();
+            if (!carregando && pct <= 15 && agora - ultAlertaBateria > 900000L) {
+                ultAlertaBateria = agora;
+                String msg = "Atenção: bateria do celular em " + (int) pct + "% e descarregando. Conecte o carregador.";
+                Agenda.notificar(this, "Bateria Crítica", msg);
+                try { Voz.get(this).falar(msg); } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -441,6 +474,22 @@ public class Acesso extends AccessibilityService {
     private JSONObject abrir(String nome) throws Exception {
         String alvo = norm(nome);
         if (alvo.isEmpty()) return new JSONObject().put("ok", false).put("erro", "nome vazio");
+        if (alvo.equals("agenda") || alvo.equals("calendario") || alvo.equals("minhaagenda") || alvo.contains("agendafriday")) {
+            Intent i = new Intent(this, MainActivity.class)
+                .putExtra("aba", "agenda")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+            try { Flutuante.agendaPainel(this); } catch (Exception ignored) {}
+            return new JSONObject().put("ok", true).put("app", "Agenda da Sexta-Feira").put("pacote", getPackageName());
+        }
+        if (alvo.equals("dev") || alvo.equals("mododev") || alvo.equals("ide")) {
+            Intent i = new Intent(this, MainActivity.class)
+                .putExtra("aba", "dev")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+            try { Flutuante.ide(this, true); } catch (Exception ignored) {}
+            return new JSONObject().put("ok", true).put("app", "Modo Dev IDE").put("pacote", getPackageName());
+        }
         String[] melhor = null; int nota = 0;
         for (String[] ap : apps()) {
             String n = norm(ap[0]), pk = ap[1].toLowerCase(java.util.Locale.ROOT);
