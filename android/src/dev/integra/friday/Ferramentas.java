@@ -37,7 +37,7 @@ final class Ferramentas {
         "flutuante{tipo: agenda|bolha|texto|fechar, titulo, texto} — mostra uma janela flutuante por cima de tudo (agenda dos próximos dias, nota, resultado)\n" +
         "abrir_site{url}\n" +
         "pesquisar{consulta, onde: google|google_us|ebay|amazon|mercadolivre|youtube|maps|playstore|spotify}\n" +
-        "pesquisar_links{consulta} — busca na web e devolve links clicáveis no chat\n" +
+        "pesquisar_links{consulta} — pesquisa na internet e devolve os resultados: use para RESPONDER perguntas (quem, qual, quanto custa...)\n" +
         "ler_tela{} — lê o texto e os botões do app aberto\n" +
         "tocar{texto} — toca no botão/item com esse texto na tela\n" +
         "digitar{texto, enviar: true|false} — escreve no campo em foco\n" +
@@ -49,7 +49,7 @@ final class Ferramentas {
         "agenda{op: novo|hoje|amanha|nivel|concluir|prioridade, titulo, quando: texto como 'amanhã 15h', prioridade: alta|normal|baixa, duracao_min} — AGENDA DA SEXTA-FEIRA sincronizada com o PC\n" +
         "evento{titulo, data: AAAA-MM-DD, hora: HH:MM, duracao_min} — adiciona evento na Agenda da Sexta-Feira\n" +
         "ligar{numero} — abre o discador com o número\n" +
-        "whatsapp{texto, numero, contato} — prepara a mensagem no WhatsApp (aceita nome do contato ou número)\n" +
+        "whatsapp{contato, texto} — abre a conversa pelo NOME (ou número) e escreve a mensagem; o dono confirma o envio\n" +
         "compartilhar{texto}\n" +
         "lanterna{ligar: true|false}\n" +
         "volume{nivel: 0-100}\n" +
@@ -75,7 +75,7 @@ final class Ferramentas {
                 case "tailscale": return Link.tailscale(c, a.optBoolean("ligar", true));
                 case "abrir_site": return ver(Uri.parse(url(a.optString("url"))), "site aberto: " + a.optString("url"));
                 case "pesquisar": return pesquisar(a.optString("consulta"), a.optString("onde", "google"));
-                case "pesquisar_links": return pesquisarLinks(a.optString("consulta"));
+                case "pesquisar_links": return extrairResumoWeb(a.optString("consulta"));
                 case "ler_tela": return acesso() == null ? semAcesso() : Acesso.inst.telaTexto(70);
                 case "tocar": return acesso() == null ? semAcesso() : Acesso.inst.tocarTexto(a.optString("texto")).toString();
                 case "digitar": return digitar(a.optString("texto"), a.optBoolean("enviar", false));
@@ -106,11 +106,9 @@ final class Ferramentas {
                     return iniciar(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + num)), "discador aberto" + (num.isEmpty() ? "" : " para " + num));
                 }
                 case "whatsapp": {
-                    String alvo = a.optString("numero", a.optString("contato", a.optString("para", "")));
-                    String n = resolverContato(alvo);
+                    String alvo = a.optString("contato", a.optString("para", a.optString("numero", "")));
                     String txt = a.optString("texto", a.optString("mensagem", ""));
-                    String u = "https://wa.me/" + n + "?text=" + URLEncoder.encode(txt, "UTF-8");
-                    return ver(Uri.parse(u), "mensagem pronta no WhatsApp" + (alvo.isEmpty() ? " (escolha o contato)" : " para " + alvo) + "; o dono confirma o envio");
+                    return Zap.preparar(c, this, alvo, txt);                 // abre a conversa e escreve; envia só com o "sim" do dono
                 }
                 case "compartilhar": {
                     Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, a.optString("texto"));
@@ -370,7 +368,11 @@ final class Ferramentas {
         }
     }
 
+    /** texto da busca (Google num WebView invisível; reserva Wikipédia e DuckDuckGo) para RESPONDER perguntas */
     String extrairResumoWeb(String q) {
+        String limpo = limparTermoBusca(q);
+        String t = BuscaWeb.buscar(c, limpo.isEmpty() ? q : limpo, 12000);
+        if (t.length() >= 80) return "Resultados da busca por " + limpo + ":\n" + (t.length() > 2600 ? t.substring(0, 2600) : t);
         return pesquisarLinks(q);
     }
 

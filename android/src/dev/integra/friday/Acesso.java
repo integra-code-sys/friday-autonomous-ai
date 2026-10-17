@@ -227,6 +227,12 @@ public class Acesso extends AccessibilityService {
                 return new JSONObject().put("ok", true).put("estado", Ide.estado()).put("rodada", Ide.rodada());
             }
             case "/falar": Voz.get(this).falar(q.get("txt") == null ? "" : q.get("txt")); return ok(true);
+            case "/log": {                                     // diagnóstico pela ponte (sem ADB): log do próprio app
+                Process pr = Runtime.getRuntime().exec(new String[]{"logcat", "-d", "-v", "time", "-t", String.valueOf(num(q, "n", 120)),
+                    "--pid=" + android.os.Process.myPid()});
+                String txt = new String(pr.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                return new JSONObject().put("ok", true).put("log", txt.length() > 60000 ? txt.substring(txt.length() - 60000) : txt);
+            }
             case "/teste_stt": {                               // diagnóstico: passa files/teste/<arq> (PCM16 16 kHz mono) pelo reconhecimento real
                 java.io.File f = new java.io.File(new java.io.File(getExternalFilesDir(null), "teste"), String.valueOf(q.get("arq")).replaceAll("[^A-Za-z0-9_.-]", ""));
                 byte[] b = java.nio.file.Files.readAllBytes(f.toPath());

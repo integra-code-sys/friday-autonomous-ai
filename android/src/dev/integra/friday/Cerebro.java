@@ -165,6 +165,8 @@ final class Cerebro {
             + "Mensagem para alguém: whatsapp (o dono confirma). Coisas do COMPUTADOR (abrir programa no PC, arquivos do PC, tarefas pesadas) -> pc, "
             + "só se o PC estiver ligado.\n"
             + "Nunca mexa nas Configurações de acessibilidade nem em você mesma. A data e a hora estão entre [ ] no pedido.\n"
+            + "Responda SEMPRE ao pedido ATUAL: nunca copie uma resposta anterior. Perguntas sobre fatos, pessoas, preços ou notícias -> pesquisar_links e responda "
+            + "com a informação encontrada (não só 'pesquisei'). Nunca diga que enviou/fez algo que a ferramenta não confirmou.\n"
             + "FERRAMENTAS:\n" + Ferramentas.LISTA + "\n"
             + "EXEMPLOS:\n"
             + "pedido: que dia é hoje? -> {\"acao\": \"responder\", \"args\": {\"texto\": \"Hoje é sexta, 16 de outubro.\"}}\n"
@@ -245,7 +247,7 @@ final class Cerebro {
                 avisar("passo", "whatsapp " + zapArgs.toString());
                 String rz = ferr.executar("whatsapp", zapArgs);
                 avisar("resultado", rz);
-                String fala = "Pesquisei sobre " + tema + " e já deixei a mensagem pronta no WhatsApp para " + contato + ".";
+                String fala = "Pesquisei sobre " + tema + ". " + rz;
                 List<String[]> ps = new ArrayList<>();
                 ps.add(new String[]{"pesquisar_links", "{\"consulta\":\"" + tema + "\"}"});
                 ps.add(new String[]{"whatsapp", "{\"contato\":\"" + contato + "\"}"});
@@ -296,11 +298,60 @@ final class Cerebro {
         return null;
     }
 
+    // "envie/mande/fala (uma mensagem) para X (no WhatsApp): texto" | "... para X dizendo que ..."
+    private static final java.util.regex.Pattern ENVIAR_ZAP = java.util.regex.Pattern.compile(
+        "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:envi\\w*|mand\\w*|escrev\\w*|fal[ae]\\w*|diz|diga)\\s+(?:uma\\s+)?(?:mensagem\\s+|msg\\s+|um\\s+zap\\s+)?"
+        + "(?:no\\s+whats(?:app)?\\s+|no\\s+zap\\s+|pelo\\s+whats(?:app)?\\s+)?(?:para|pro|pra|ao|à)\\s+(.+?)(?:\\s+(?:no|pelo)\\s+(?:whats(?:app)?|zap))?"
+        + "\\s*(?::|,|\\s+dizendo\\s+(?:que\\s+)?|\\s+falando\\s+(?:que\\s+)?|\\s+avisando\\s+(?:que\\s+)?|\\s+que\\s+)\\s*(.+)$");
+
+    private static final java.util.regex.Pattern PERGUNTA = java.util.regex.Pattern.compile(
+        "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:me\\s+(?:diz|fala|conta)\\s+)?(?:quem|qual|quais|quando|onde|quantos?|quantas?|quanto\\s+(?:custa|vale|est[áa]|t[áa]|é)|o\\s+que\\s+(?:é|são|significa|aconteceu)|como\\s+(?:funciona|faz|fazer|se\\s+faz)|por\\s*qu[eê])\\b.{4,}");
+
+    /** pesquisa na web e RESPONDE com base nos resultados (o modelo resume; não abre o navegador) */
+    private String respostaWeb(String pergunta) {
+        String res = ferr.extrairResumoWeb(pergunta);
+        if (res == null || res.startsWith("falhou") || res.startsWith("Não encontrei")) return null;
+        StringBuilder sn = new StringBuilder();
+        for (String l : res.split("\n")) if (!l.trim().startsWith("http") && !l.startsWith("Encontrei")) sn.append(l.replaceFirst("^•\\s*", "- ")).append('\n');
+        String ctx = sn.length() > 1800 ? sn.substring(0, 1800) : sn.toString();
+        synchronized (this) {
+            ocupada = true;
+            try {
+                if (!preparar()) return null;
+                avisar("passo", "buscar_web {\"consulta\":\"" + pergunta.replace("\"", "'") + "\"}");
+                String p = "<|im_start|>system\n" + (modelo().startsWith("smollm3") ? "/no_think\n" : "")
+                    + "Você é a Sexta-Feira. Responda a pergunta do dono em português do Brasil, em 1 ou 2 frases curtas e diretas, usando SÓ as "
+                    + "informações dos resultados de busca. Se os resultados não trazem a resposta, diga que não encontrou. Não cite links nem diga 'segundo os resultados'.<|im_end|>\n"
+                    + "<|im_start|>user\nPergunta: " + pergunta + "\nResultados da busca:\n" + ctx + "<|im_end|>\n" + assist();
+                long tg = System.currentTimeMillis();
+                String r = Llm.gerar(p, 180, 0.2f, "", null).trim().replaceAll("(?s)<think>.*?</think>", "").trim();
+                android.util.Log.i("friday-cerebro", "respostaWeb: " + p.length() + " chars de prompt, " + (System.currentTimeMillis() - tg) + " ms: " + r);
+                if (r.isEmpty()) return null;
+                List<String[]> ps = new ArrayList<>();
+                ps.add(new String[]{"buscar_web", "{}"});
+                Aprende.registrar(c, pergunta, ps, true, r);
+                historico.add(new String[]{pergunta, r});
+                while (historico.size() > 6) historico.remove(0);
+                avisar("fim", r);
+                return r;
+            } catch (Exception e) {
+                return null;
+            } finally {
+                ocupada = false;
+            }
+        }
+    }
+
     private String atalhoPesquisa(String pedido) {
         if (pedido == null || ehComposto(pedido) || !BUSCA_DIRETA.matcher(pedido).matches()) return null;
         String pl = pedido.toLowerCase(Locale.ROOT);
         if (pl.matches("(?s).*\\b(documento|arquivo|pdf|docx|planilha|whatsapp|zap|agenda|alarme|timer|mem[óo]ria)\\b.*")) return null;
         String termo = Ferramentas.limparTermoBusca(pedido);
+        boolean abrir = pl.matches("(?s).*\\b(abr\\w*|mostr\\w*|no navegador|no google|no chrome|na internet e abr\\w*|ebay|amazon|mercado\\s*livre|you\\s?tube|yutube|maps|mapa|play\\s*store|spotify|sites?\\s+americanos?|lojas?|comprar|pre[çc]o|links?)\\b.*");
+        if (!abrir && termo.length() >= 2) {                         // "pesquise qual é a capital..." = quer a RESPOSTA, não a aba aberta
+            String fw = respostaWeb(termo);
+            if (fw != null) { ultimaBusca = termo; return fw; }
+        }
         if (termo.length() < 2 && !ultimaBusca.isEmpty()) {
             termo = ultimaBusca;
         }
@@ -362,6 +413,24 @@ final class Cerebro {
             avisar("fim", fala);
             return fala;
         }
+        if (Zap.temPendente()) {                                   // "posso enviar?" -> sim / não
+            String pz = Aprende.norm(pedido).replaceFirst("^sexta feira ", "");
+            String fz = pz.matches("^(sim|pode|pode enviar|pode mandar|envia|enviar|envie|manda|mande|confirmo|confirma|isso|ok|beleza|claro|vai)\\b.*") ? Zap.confirmar(c)
+                : pz.matches("^(nao|cancela|cancelar|deixa|esquece|para|pare|nao envia)\\b.*") ? Zap.cancelar() : null;
+            if (fz != null) { avisar("fim", fz); return fz; }
+        }
+        java.util.regex.Matcher mzap = ENVIAR_ZAP.matcher(pedido.trim());
+        if (mzap.matches() && !ehComposto(pedido)) {
+            String contato = mzap.group(1).trim().replaceFirst("(?i)^(o|a|os|as)\\s+", "").replaceFirst("(?i)^(grupo|contato)\\s+(d[oae]s?\\s+)?", "");
+            String msg = mzap.group(2).trim();
+            if (msg.length() > 1 && Character.isLowerCase(msg.charAt(0))) msg = Character.toUpperCase(msg.charAt(0)) + msg.substring(1);
+            avisar("passo", "whatsapp {\"contato\":\"" + contato + "\"}");
+            String fz = Zap.preparar(c, ferr, contato, msg);
+            avisar("resultado", fz);
+            if (fz.startsWith("falhou")) Aprende.falhou(c, "WhatsApp para " + contato + ": " + fz);
+            avisar("fim", fz);
+            return fz;
+        }
         java.util.regex.Matcher mcl = PRO_CLAUDE.matcher(pedido);
         if (modoDev() || mcl.matches()) {                       // MODO DEV / "pede pro Claude ...": direto ao MODO DEV
             String pd = mcl.matches() ? mcl.group(1) : pedido.trim();
@@ -385,6 +454,10 @@ final class Cerebro {
         if (fAg != null) return fAg;
         String fPesq = atalhoPesquisa(pedido);
         if (fPesq != null) return fPesq;
+        if (PERGUNTA.matcher(pedido.trim()).matches() && !Aprende.norm(pedido).matches(".*\\b(agenda|alarme|timer|lanterna|volume|bateria|que horas|que dia|minha|meu|meus|minhas|celular|wifi|bluetooth)\\b.*")) {
+            String fw = respostaWeb(pedido.trim());                  // pergunta de conhecimento/atualidade: responde pela web
+            if (fw != null) return fw;
+        }
         synchronized (this) {
             ocupada = true;
             try {
@@ -476,7 +549,8 @@ final class Cerebro {
         if (rl.startsWith("falhou") || rl.startsWith("não") || rl.contains("não encontrado") || rl.startsWith("sem ") || rl.contains("erro")) return null;
         if (ehComposto(pedido)) return null;
         if (acao.equals("pesquisar") || acao.equals("abrir_site")) return "Pronto, abri no navegador: " + r + ".";
-        if (acao.equals("pesquisar_links")) return r;
+        if (acao.equals("pesquisar_links")) return null;                // o modelo responde com base nos resultados
+        if (acao.equals("whatsapp")) return r;                          // "Mensagem escrita para X... Posso enviar?" (nunca "enviei")
         String pl = pedido.toLowerCase(Locale.ROOT);
         if (pl.split("\\s+").length > 12) return null;
         if (acao.equals("calcular")) { int i = r.lastIndexOf('='); return i > 0 ? "Dá " + r.substring(i + 1).trim() + "." : r; }

@@ -9,6 +9,9 @@
 - Painel do assistente no Android com partículas que reagem ao áudio real da voz e do microfone; agenda flutuante em linha do tempo; IDE do MODO DEV redesenhada.
 
 ### Corrigido
+- Android: **WhatsApp de verdade** — abre a conversa pelo NOME (busca do próprio WhatsApp, inclusive grupos e Business), escreve e só envia após o "sim" do dono; antes abria um link sem número e dizia "enviei" sem enviar.
+- Android: **pesquisa que responde** — perguntas viram busca na web (navegador interno invisível + Wikipédia) e a Friday responde com o resultado; o navegador só abre quando pedido. O DuckDuckGo bloqueava a busca automatizada.
+- Android: permissão de contatos (WhatsApp/ligação pelo nome) e regra contra repetir respostas anteriores.
 - Android: o reconhecedor do sistema ignora áudio entregue pelo app (texto vazio e microfone reaberto em loop) — a fala filtrada agora vai ao Whisper do PC; sem PC, o reconhecedor usa o microfone direto.
 - Cérebro: prefixo do prompt estável (a hora saiu das instruções) — 1º passo de ~3,7 s para ~0,1 s de processamento.
 - O APK comercial não traz mais perfil de voz nem endereço de PC pré-configurados: cada cliente cadastra a própria voz e o próprio PC.
