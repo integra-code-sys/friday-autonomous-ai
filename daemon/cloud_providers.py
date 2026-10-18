@@ -276,9 +276,9 @@ def _chat_ollama(msgs, tools, cfg, temperature, max_tokens, timeout):
         "messages": limpas,
         "tools": tools,
         "think": False,
-        "options": {"temperature": temperature, "num_predict": max(max_tokens, 1500), "num_ctx": 8192, "num_gpu": 99}
+        "options": {"temperature": temperature, "num_predict": int(max_tokens or 600), "num_ctx": 4096, "num_gpu": 99}
     }
-    resp = _http_post_json(url, {}, body, timeout=timeout)
+    resp = _http_post_json(url, {}, body, timeout=max(timeout, 90))
     msg = resp.get("message") or {}
     if not msg.get("content") and msg.get("thinking"):
         msg["content"] = msg["thinking"]

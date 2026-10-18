@@ -1324,6 +1324,9 @@ def _ocr_da_pagina():
 
 def _texto_tela_rapido():
     """Texto da página. OCR do miolo, porque a acessibilidade do Chromium só devolve as abas."""
+    foco = _foco().lower()
+    if not any(nav in foco for nav in ("chromium", "chrome", "firefox", "browser", "brave", "edge", "web")):
+        return ""
     linhas = _ocr_da_pagina()
     if linhas:
         return "\n".join(l["t"] for l in linhas if l.get("t"))
@@ -1332,6 +1335,7 @@ def _texto_tela_rapido():
     except Exception:
         txt = ""
     return txt or ""
+
 
 
 def _dump_legivel(url):

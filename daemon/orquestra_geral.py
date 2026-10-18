@@ -69,7 +69,7 @@ def _modelo(prompt, max_tokens=1000):
             [],
             temperature=0.2,
             max_tokens=max_tokens,
-            timeout=50,
+            timeout=100,
         )
         msg = (r or {}).get("message") or {}
         txt = msg.get("content") or msg.get("thinking") or ""
@@ -94,7 +94,7 @@ def _modelo(prompt, max_tokens=1000):
             data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=40) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             m = data.get("message") or {}
             txt = m.get("content") or m.get("thinking") or ""

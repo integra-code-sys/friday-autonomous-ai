@@ -12,6 +12,7 @@ import android.provider.CalendarContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.OutputStream;
@@ -73,13 +74,18 @@ final class Ferramentas {
         try {
             switch (acao) {
                 case "calcular": return calcular(a.optString("expressao"));
-                case "abrir_app": return abrirApp(a.optString("nome"));
+                case "abrir_app": {
+                    String nome = a.optString("nome", "");
+                    if (nome.isEmpty()) nome = a.optString("name", "");
+                    if (nome.isEmpty()) nome = a.optString("app", "");
+                    return abrirApp(nome);
+                }
                 case "claude": return claude(a.optString("pedido"));
                 case "abrir_tela": return abrirTela(a.optString("tela"));
                 case "flutuante": return flutuar(c, a.optString("tipo", "texto"), a.optString("titulo"), a.optString("texto"));
                 case "tailscale": return Link.tailscale(c, a.optBoolean("ligar", true));
                 case "abrir_site": return ver(Uri.parse(url(a.optString("url"))), "site aberto: " + a.optString("url"));
-                case "pesquisar": return pesquisar(a.optString("consulta"), a.optString("onde", "google"));
+                case "pesquisar": return investigar(a.optString("consulta", a.optString("q", "")), a.optString("onde", "google"));
                 case "pesquisar_links": return extrairResumoWeb(a.optString("consulta"));
                 case "ler_tela": return acesso() == null ? semAcesso() : Acesso.inst.telaTexto(70);
                 case "detectar_dificuldade": return acesso() == null ? semAcesso() : Acesso.inst.detectarDificuldade();
@@ -303,25 +309,41 @@ final class Ferramentas {
     }
 
     private static boolean ehNavegador(String alvo) {
-        return alvo.equals("navegador") || alvo.equals("browser") || alvo.equals("internet") || alvo.equals("web")
-            || alvo.equals("chrome") || alvo.equals("chromium") || alvo.equals("google");
+        if (alvo == null) return false;
+        String a = Acesso.limparNomeApp(alvo);
+        return a.equals("navegador") || a.contains("navegador") || a.equals("browser") || a.contains("browser")
+            || a.equals("internet") || a.equals("web") || a.equals("chrome") || a.contains("chrome")
+            || a.equals("chromium") || a.equals("googlechrome") || a.equals("google")
+            || a.equals("firefox") || a.equals("edge") || a.equals("brave") || a.equals("opera");
     }
 
     private String abrirNavegador() throws Exception {
+        android.content.pm.PackageManager pm = c.getPackageManager();
+        String[] pkgs = {"com.android.chrome", "com.chrome.beta", "org.mozilla.firefox", "com.sec.android.app.sbrowser",
+            "com.android.browser", "com.brave.browser", "com.opera.browser", "com.microsoft.emmx", "com.mi.globalbrowser"};
+        for (String p : pkgs) {
+            Intent i = pm.getLaunchIntentForPackage(p);
+            if (i != null) {
+                return iniciar(i, "navegador aberto");
+            }
+        }
         Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/"));
         view.addCategory(Intent.CATEGORY_BROWSABLE);
-        if (view.resolveActivity(c.getPackageManager()) == null)
+        if (view.resolveActivity(pm) == null)
             return "não achei um navegador que responda a https";
         return iniciar(view, "navegador do sistema aberto");
     }
 
     private String abrirApp(String nome) throws Exception {
+        String alvoLimpo = Acesso.limparNomeApp(nome);
         String alvoNorm = Agenda.norm(nome).replaceAll("[^a-z0-9]", "");
-        if (ehNavegador(alvoNorm)) return abrirNavegador();
-        if (alvoNorm.equals("agenda") || alvoNorm.equals("calendario") || alvoNorm.equals("minhaagenda")) {
+        String chave = alvoLimpo.isEmpty() ? alvoNorm : alvoLimpo;
+
+        if (ehNavegador(chave) || ehNavegador(alvoNorm)) return abrirNavegador();
+        if (chave.equals("agenda") || chave.equals("calendario") || chave.equals("minhaagenda")) {
             return abrirTela("agenda");
         }
-        if (alvoNorm.equals("dev") || alvoNorm.equals("mododev") || alvoNorm.equals("ide")) {
+        if (chave.equals("dev") || chave.equals("mododev") || chave.equals("ide")) {
             return abrirTela("dev");
         }
         if (acesso() != null) {
@@ -330,10 +352,10 @@ final class Ferramentas {
             return r.optBoolean("ok") ? "aberto: " + r.optString("app") : r.optString("erro");
         }
         android.content.pm.PackageManager pm = c.getPackageManager();
-        String alvo = nome.toLowerCase(Locale.ROOT);
+        if (chave.length() < 2) return "falhou: falta o nome do app";
         for (android.content.pm.ApplicationInfo ap : pm.getInstalledApplications(0)) {
-            String l = String.valueOf(pm.getApplicationLabel(ap)).toLowerCase(Locale.ROOT);
-            if (l.contains(alvo)) {
+            String l = Acesso.limparNomeApp(String.valueOf(pm.getApplicationLabel(ap)));
+            if (l.contains(chave) || chave.contains(l)) {
                 Intent i = pm.getLaunchIntentForPackage(ap.packageName);
                 if (i != null) return iniciar(i, "aberto: " + pm.getApplicationLabel(ap));
             }
@@ -347,6 +369,7 @@ final class Ferramentas {
         s = s.replaceAll("(?iu)^\\s*(?:sexta[- ]?feira|friday)[,:\\s]*", "");
         s = s.replaceAll("(?iu)^\\s*(?:por\\s+favor[,:\\s]*)?(?:apenas\\s+|s[óo]\\s+)?(?:abr[ae](?:\\s+o\\s+navegador|\\s+o\\s+chrome|\\s+uma\\s+nova\\s+aba|\\s+nova\\s+aba)?\\s*(?:e\\s+)?)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s*(?:por|sobre|pelo|pela|pelos|pelas)?\\s*", "");
         s = s.replaceAll("(?iu)\\b(?:em\\s+uma\\s+nova\\s+aba|numa\\s+nova\\s+aba|na\\s+nova\\s+aba|em\\s+nova\\s+aba|no\\s+navegador|pelo\\s+navegador|no\\s+chrome|no\\s+google)\\b", " ");
+        s = s.replaceAll("(?iu)\\s+e\\s+(?:depois\\s+)?(?:prepar\\w*|escrev\\w*|redij\\w*|envi\\w*|mand\\w*|encaminh\\w*|repass\\w*)\\b.*$", "");
         s = s.replaceAll("(?iu)\\s*(?:e\\s+)?(?:me\\s+)?(?:mostr\\w+|dig\\w+|fal\\w+|trag\\w+|resum\\w+)\\s+(?:o\\s+que|oque|tudo\\s+que)\\s+(?:achar|encontrar|ver).*$", "");
         s = s.replaceAll("(?iu)\\b(?:em\\s+sites?\\s+americanos?(?:\\s+como\\s+[\\w\\s,e]+)?|(?:no|na|em|nos|nas|como)\\s+(?:ebay(?:\\s+e\\s+amazon(?:\\s+global)?)?|amazon(?:\\s+global|\\s+brasil)?|mercado\\s*livre|mercadolivre|shopee|aliexpress|sites?\\s+americanos?|lojas?\\s+americanas?))\\b", " ");
         s = s.replaceAll("\\s+", " ").replaceAll("^[ ,.!?]+|[ ,.!?]+$", "");
@@ -427,12 +450,172 @@ final class Ferramentas {
         }
     }
 
-    /** texto da busca (Google num WebView invisível; reserva Wikipédia e DuckDuckGo) para RESPONDER perguntas */
-    String extrairResumoWeb(String q) {
+    /** Abre duas fontes e lê o texto delas. Não devolve o snippet da busca como resposta. */
+    String investigar(String q, String onde) {
         String limpo = limparTermoBusca(q);
-        String t = BuscaWeb.buscar(c, limpo.isEmpty() ? q : limpo, 12000);
-        if (t.length() >= 80) return "Resultados da busca por " + limpo + ":\n" + (t.length() > 2600 ? t.substring(0, 2600) : t);
-        return pesquisarLinks(q);
+        if (limpo.isEmpty()) limpo = q == null ? "" : q.trim();
+        String links = pesquisarLinks(limpo);
+        java.util.regex.Matcher mu = java.util.regex.Pattern.compile("https?://[^\\s]+").matcher(links);
+        java.util.ArrayList<String> urls = new java.util.ArrayList<>();
+        while (mu.find() && urls.size() < 2) {
+            String u = mu.group().replaceAll("[),]+$", "");
+            if (u.contains("duckduckgo.com") || u.contains("google.com/search")) continue;
+            if (!urls.contains(u)) urls.add(u);
+        }
+        String lowQ = limpo.toLowerCase(Locale.ROOT);
+        boolean lojaFortnite = lowQ.contains("fortn") && (lowQ.contains("loja") || lowQ.contains("item") || lowQ.contains("skin"));
+        if (lojaFortnite) {
+            urls.clear();
+            urls.add("https://fnbr.co/shop");
+            urls.add("https://fortnite.gg/shop");
+        }
+        if (urls.size() < 2) return "pesquisa incompleta: achei " + urls.size() + " fonte. Não encerro no snippet.";
+        if (!lojaFortnite) {
+            try {
+                ver(Uri.parse("https://www.google.com/search?q=" + URLEncoder.encode(limpo, "UTF-8")), "pesquisa no navegador: " + limpo);
+                Thread.sleep(1600);
+            } catch (Exception ignored) {}
+        }
+        StringBuilder sb = new StringBuilder();
+        if (lojaFortnite) {
+            try {
+                String raw = lerUrl("https://fortnite-api.com/v2/shop");
+                if (raw != null && raw.contains("entries")) {
+                    JSONObject root = new JSONObject(raw);
+                    JSONObject dt = root.optJSONObject("data");
+                    JSONArray entries = dt != null ? dt.optJSONArray("entries") : null;
+                    if (entries != null) {
+                        StringBuilder sbShop = new StringBuilder("Catálogo Oficial da Loja de Itens do Fortnite (Data Atual: 18/10/2026):\n");
+                        int count = 0;
+                        for (int i = 0; i < entries.length() && count < 25; i++) {
+                            JSONObject e = entries.getJSONObject(i);
+                            int preco = e.optInt("finalPrice", 0);
+                            JSONArray br = e.optJSONArray("brItems");
+                            if (br != null && br.length() > 0) {
+                                for (int j = 0; j < br.length(); j++) {
+                                    JSONObject it = br.getJSONObject(j);
+                                    String n = it.optString("name");
+                                    String tp = it.optJSONObject("type") != null ? it.optJSONObject("type").optString("displayValue") : "Item";
+                                    sbShop.append("• ").append(n).append(" [").append(tp).append("]: ").append(preco).append(" V-Bucks\n");
+                                    count++;
+                                }
+                            }
+                        }
+                        if (count > 0) sb.append(sbShop).append("\n");
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        int n = 1;
+        for (String u : urls) {
+            ver(Uri.parse(u), "fonte " + n);
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+            if (acesso() != null) {
+                try { Acesso.inst.fecharAviso(); } catch (Exception ignored) {}
+                String ultimoVis = "";
+                int repeticoes = 0;
+                for (int passo = 0; passo < 12; passo++) {
+                    try {
+                        try { Acesso.inst.fecharAviso(); } catch (Exception ignored) {}
+                        String vis = Acesso.inst.telaTexto(40);
+                        if (vis != null && vis.length() > 40) {
+                            if (vis.equals(ultimoVis)) {
+                                repeticoes++;
+                                if (repeticoes >= 2) break;
+                            } else {
+                                repeticoes = 0;
+                                ultimoVis = vis;
+                                sb.append(vis).append('\n');
+                            }
+                        }
+                        Acesso.inst.rolar(false);
+                        Thread.sleep(450);
+                    } catch (Exception ignored) { break; }
+                }
+            }
+            String corpo = lerUrl(u);
+            String trecho = frasesDaPagina(corpo, limpo);
+            android.util.Log.i("friday-cerebro", "fonte " + n + " " + u);
+            if (!trecho.isEmpty()) {
+                sb.append(trecho).append("\n");
+            }
+            sb.append(u).append("\n");
+            n++;
+        }
+        if (sb.length() < 40) return "pesquisa incompleta: as páginas abriram, mas o texto não tinha o assunto. Não invento resposta.";
+        String achado = sb.toString().trim();
+        flutuar(c, "texto", "Pesquisa", achado.length() > 700 ? achado.substring(0, 700) : achado);
+        return achado;
+    }
+
+    /** Frases da página que falam do assunto. Ignora menu, cookie e o miolo genérico. */
+    static String frasesDaPagina(String corpo, String consulta) {
+        if (corpo == null || corpo.isEmpty()) return "";
+        java.util.ArrayList<String> chaves = new java.util.ArrayList<>();
+        if (consulta != null) {
+            for (String k : consulta.toLowerCase(Locale.ROOT).split("\\s+")) {
+                if (k.length() >= 4) chaves.add(k);
+            }
+        }
+        String[] frases = corpo.split("(?<=[.!?])\\s+");
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (String f : frases) {
+            String t = f.trim();
+            if (t.length() < 30 || t.length() > 300) continue;
+            String low = t.toLowerCase(Locale.ROOT);
+            if (low.contains("cookie") || low.contains("javascript") || low.contains("privacidade")
+                || low.contains("inscreva") || low.contains("aceitar") || low.contains("menu")
+                || low.contains("publicidade") || low.contains("anúncio") || low.contains("anuncio")
+                || low.contains("patrocinado") || low.contains("todos os direitos") || low.contains("política de")
+                || low.contains("politica de") || low.contains("newsletter")) continue;
+            if (!chaves.isEmpty()) {
+                boolean bate = false;
+                for (String k : chaves) if (low.contains(k)) { bate = true; break; }
+                if (!bate) continue;
+            }
+            sb.append(t).append('\n');
+            if (++count >= 6 || sb.length() > 1400) break;
+        }
+        return sb.toString().trim();
+    }
+
+    private String lerUrl(String url) {
+        try {
+            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+            con.setInstanceFollowRedirects(true);
+            con.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36");
+            con.setConnectTimeout(8000);
+            con.setReadTimeout(8000);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            java.io.InputStream in = con.getInputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0 && bos.size() < 160000) bos.write(buf, 0, n);
+            in.close();
+            String h = new String(bos.toByteArray(), StandardCharsets.UTF_8);
+            h = h.replaceAll("(?is)<(script|style|noscript|svg|nav|footer|header|aside|iframe)[^>]*>.*?</\\1>", " ");
+            h = h.replaceAll("(?is)<(div|section|aside)[^>]+(?:class|id)=[\"'][^\"']*\\b(ad|ads|advert|banner|cookie|consent|popup|modal|overlay|sponsor|commercial|promo)\\b[^\"']*[\"'][^>]*>.*?</\\1>", " ");
+            h = h.replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " ").trim();
+            return h.length() > 3500 ? h.substring(0, 3500) : h;
+        } catch (Exception e) {
+            return "não li o corpo: " + e.getClass().getSimpleName();
+        }
+    }
+
+    /** texto da busca para responder: duas fontes lidas, não o snippet */
+    String extrairResumoWeb(String q) {
+        return investigar(q, "google");
+    }
+
+    /** "maria" casa "maria silva". Não casa "ana" dentro de "banana" nem um nome curto dentro da busca. */
+    static boolean nomeBate(String nomeNorm, String busca) {
+        if (nomeNorm == null || busca == null) return false;
+        nomeNorm = nomeNorm.trim();
+        busca = busca.trim();
+        if (nomeNorm.length() < 3 || busca.length() < 3) return false;
+        if (nomeNorm.equals(busca)) return true;
+        return nomeNorm.startsWith(busca + " ") || nomeNorm.endsWith(" " + busca) || nomeNorm.contains(" " + busca + " ");
     }
 
     static boolean ehNumeroFalso(String dig) {
@@ -459,14 +642,13 @@ final class Ferramentas {
         String n = Agenda.norm(limpo.isEmpty() ? alvo : limpo).trim();
         if (n.isEmpty() || ehNumeroFalso(n.replaceAll("[^0-9]", ""))) return "";
 
-        // 1) Procura na memória local da Friday
+        // 1) Memória local: só casa o nome inteiro ou uma palavra do nome, nunca um pedaço solto nem o valor
         for (Map.Entry<String, ?> e : prefs().getAll().entrySet()) {
             if (!e.getKey().startsWith("m:")) continue;
             String k = Agenda.norm(e.getKey().substring(2)), v = String.valueOf(e.getValue());
-            if (k.contains(n) || n.contains(k) || Agenda.norm(v).contains(n)) {
-                String d = v.replaceAll("[^0-9]", "");
-                if (d.length() >= 8 && !ehNumeroFalso(d)) return d;
-            }
+            if (!nomeBate(k, n)) continue;
+            String d = v.replaceAll("[^0-9]", "");
+            if (d.length() >= 8 && !ehNumeroFalso(d)) return d;
         }
 
         // 2) Procura nos contatos do Android se tiver permissão
@@ -479,7 +661,7 @@ final class Ferramentas {
                         null, null, null)) {
                     while (cur != null && cur.moveToNext()) {
                         String nome = Agenda.norm(cur.getString(0) == null ? "" : cur.getString(0));
-                        if (nome.contains(n) || (n.length() >= 3 && n.contains(nome))) {
+                        if (nomeBate(nome, n)) {
                             String d = (cur.getString(1) == null ? "" : cur.getString(1)).replaceAll("[^0-9]", "");
                             if (d.length() >= 8 && !ehNumeroFalso(d)) {
                                 return d.startsWith("55") || d.length() > 11 ? d : "55" + d;
