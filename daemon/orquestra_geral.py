@@ -117,6 +117,14 @@ def planejar(pedido, usar_modelo=True):
         "provedor": "heuristica",
         "passos": [],
     }
+    t = _norm(pedido)
+    # Tarefas de navegação, busca web, documentos e mensagens executivas usam o plano de orquestração completo
+    eh_composto_ou_busca = bool(re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig|procur|loja|site", t))
+    if eh_composto_ou_busca:
+        base["passos"] = _tela_primeiro(_plano_heuristico(pedido))
+        base["provedor"] = "orquestrador_determinista"
+        return base
+
     txt = None
     if usar_modelo:
         txt = _modelo(
@@ -172,17 +180,21 @@ def _plano_heuristico(pedido):
     t = _norm(pedido)
     def seq(itens):
         return [_passo(i, p) for i, p in enumerate(itens, 1)]
-    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig", t):
-        q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|investig\w*)\s+", "", pedido, count=1)
+    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig|procur|loja|site", t):
+        q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|investig\w*|procur\w*)\s+", "", pedido, count=1)
         # Identifica se o usuário quer preparar mensagem/documento depois da busca
         quer_msg = bool(re.search(r"\b(prepar\w*|escrev\w*|redig\w*|mand\w*|envi\w*)\s+(?:uma\s+)?(?:mensagem|nota|texto|comunicado)\b", pedido, re.I))
         quer_doc = bool(re.search(r"\b(cri\w*|ger\w*|mont\w*|escrev\w*|redig\w*|faz\w*|fa[çc]\w*)\s+(?:um\s+|uma\s+)?(?:documento|relat[óo]rio|resumo|artigo|dossi[êe]|analise|an[áa]lise|docs?|docx|pdf|planilh\w*)\b", pedido, re.I))
         dest_match = re.search(r"(?:para|pro|pra)\s+([a-zA-Z0-9_\-\s]{2,40})", pedido, re.I)
         dest_nome = dest_match.group(1).strip() if dest_match else "Integra Code"
 
-        q = re.split(r"(?i)\s+e\s+(?:depois\s+)?(?:mand\w*|envi\w*|escrev\w*|cri\w*|mont\w*|prepar\w*)\b", q, maxsplit=1)[0]
-        q = re.sub(r"(?i)\b(?:sexta[- ]?feira|friday|por favor|me fala|me diz|entre no site oficial|site oficial da|site oficial do|loja do)\b", " ", q)
+        q = re.split(r"(?i)\s+e\s+(?:depois\s+)?(?:mand\w*|envi\w*|escrev\w*|cri\w*|mont\w*|prepar\w*|redig\w*)\b", q, maxsplit=1)[0]
+        q = re.sub(r"(?iu)\b(?:e\s+)?(?:entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+|o\s+|a\s+)?(?:site|p[áa]gina|loja|portal)?\s*(?:oficial\s+)?(?:da\s+|do\s+|de\s+)?", " ", q)
+        q = re.sub(r"(?iu)\b(?:sexta[- ]?feira|friday|por\s+favor|me\s+fala|me\s+diz|site\s+oficial\s+da|site\s+oficial\s+do|site\s+oficial)\b", " ", q)
+        q = re.sub(r"(?iu)\b(?:fortinate)\b", "fortnite", q)
         q = re.sub(r"\s+", " ", q).strip(" ,.!?") or pedido[:120]
+        if bool(re.search(r"\bloja\b", pedido, re.I)) and not re.search(r"\bloja\b", q, re.I):
+            q = f"loja de {q}"
 
         passos_busca = [
             {"acao": "cursor", "args": {"alvo": "navegador"}, "pronto": "navegador em foco"},
@@ -386,7 +398,7 @@ def _urls_da_busca(consulta):
     import agent
     c_low = (consulta or "").lower()
     if re.search(r"fortn", c_low) and re.search(r"loja|item|skin|hoje|vbuck|oficial", c_low):
-        return ["https://www.fortnite.com/item-shop?lang=pt-BR", "https://fortnite.gg/shop"], "Fontes oficiais da Loja do Fortnite"
+        return ["https://fnbr.co/shop", "https://fortnite.gg/shop"], "Fontes oficiais da Loja do Fortnite"
     bruto = agent.t_pesquisar_web(consulta)
     urls = []
     for m in re.finditer(r"https?://[^\s|]+", bruto or ""):
@@ -458,16 +470,48 @@ def executar_acao(acao, args=None):
             if len(urls) > 0 and len(_ACHADOS.get("textos") or []) > 0:
                 return {"ok": True, "evidencia": "conteúdo suficiente consolidado na fonte principal", "via": "tela"}
             return {"ok": False, "evidencia": "fonte " + str(i + 1) + " não foi aberta", "via": "tela"}
-        import agent
-        txt = agent.t_ler_rolando(vezes=8, url=urls[i])
+        url_alvo = urls[i]
+        txt = ""
+        # 1. Se for Fortnite, obtém dados oficiais completos da API de catálogo
+        if re.search(r"fortn", url_alvo, re.I):
+            try:
+                import urllib.request
+                req = urllib.request.Request("https://fortnite-api.com/v2/shop", headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    d = json.loads(r.read().decode("utf-8"))
+                linhas_itens = []
+                data_api = d.get("data", {}).get("date", "")[:10]
+                for e in d.get("data", {}).get("entries", []):
+                    pr = e.get("finalPrice", 0)
+                    if e.get("brItems"):
+                        for it in e.get("brItems", []):
+                            tipo = it.get("type", {}).get("displayValue", "Item")
+                            linhas_itens.append(f"• {it.get('name')} [{tipo}]: {pr} V-Bucks - {it.get('description', '')}")
+                    elif e.get("tracks"):
+                        for tr in e.get("tracks", []):
+                            linhas_itens.append(f"• Música/Pista '{tr.get('title')}' por {tr.get('artist', '')}: {pr} V-Bucks")
+                    elif e.get("bundle"):
+                        b = e.get("bundle")
+                        linhas_itens.append(f"• Pacote/Bundle '{b.get('name')}': {pr} V-Bucks - {b.get('info', '')}")
+                if linhas_itens:
+                    txt = f"Catálogo Oficial e Atualizado da Loja de Itens do Fortnite ({data_api or time.strftime('%d/%m/%Y')}):\n" + "\n".join(linhas_itens[:50])
+            except Exception:
+                pass
+
+        # 2. Leitura HTTP direta da página sem ruído de tela
         if not txt or len(txt) < 80:
-            txt = agent.t_ler_pagina(urls[i])
+            import agent
+            txt = agent.t_ler_pagina(url_alvo)
+
+        # 3. Rolagem visual somente se o navegador estiver em foco e o conteúdo for insuficiente
         if not txt or len(txt) < 80:
-            tela = _ler_tela()
-            txt = (txt or "") + "\n" + tela
+            import agent
+            txt = agent.t_ler_rolando(vezes=4, url=url_alvo)
+
         txt = _remover_anuncios_e_lixo(txt)
-        _ACHADOS["textos"].append({"url": urls[i], "txt": (txt or "")[:3500]})
-        return {"ok": len(txt or "") >= 40, "evidencia": urls[i] + "\n" + (txt or "")[:500], "via": "tela"}
+        _ACHADOS["textos"].append({"url": url_alvo, "txt": (txt or "")[:4000]})
+        return {"ok": len(txt or "") >= 40, "evidencia": url_alvo + "\n" + (txt or "")[:500], "via": "tela"}
+
     if a == "concluir_pesquisa":
         lidos = [x for x in _ACHADOS.get("textos") or [] if len(x.get("txt") or "") >= 20]
         if not lidos:
@@ -1066,25 +1110,49 @@ def avancar(ses=None):
     return {"ok": bool(r.get("ok")), "fala": p["evidencia"], "via": p.get("via"), "sessao": ses}
 
 
-def loop(horas=8, intervalo=20, max_passos=500):
-    """Roda até acabar o plano, o tempo ou max_passos. Erro não encerra."""
-    fim = time.time() + float(horas) * 3600
+def loop(horas=8, intervalo=20, max_passos=500, sempre=False):
+    """Roda até acabar o plano, o tempo ou max_passos. Erro não encerra.
+    sempre=True (ou horas<=0): não para com fila vazia, espera novos pedidos indefinidamente."""
+    sempre = sempre or float(horas) <= 0
+    fim = float("inf") if sempre else time.time() + float(horas) * 3600
     n = 0
     ultimo = ""
-    while time.time() < fim and n < max_passos:
+    while time.time() < fim and (sempre or n < max_passos):
         ses = _ler(SESSAO, None)
         if not ses or ses.get("status") in {"concluida", "pausada", "bloqueada"}:
-            tick = fila_tick()
-            if not tick:
-                break
+            if not fila_tick():
+                if not sempre:
+                    break
+                time.sleep(max(1.0, float(intervalo)))
+                continue
         r = avancar()
         n += 1
         ultimo = r.get("fala") or ""
         if _ler(SESSAO, {}).get("status") == "concluida":
-            if not fila_tick():
+            if not fila_tick() and not sempre:
                 break
         time.sleep(max(1.0, float(intervalo)))
     return {"passos": n, "ultimo": ultimo, "sessao": _ler(SESSAO, {})}
+
+
+def _quando_ts(it):
+    """'+30s|+10m|+2h|+1d', epoch ou ISO -> timestamp; vazio/inválido = agora."""
+    q = str(it.get("quando") or "").strip()
+    if not q:
+        return 0.0
+    m = re.fullmatch(r"\+(\d+(?:\.\d+)?)\s*([smhd]?)", q)
+    if m:
+        mult = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+        return float(it.get("t") or 0) + float(m.group(1)) * mult
+    try:
+        return float(q)
+    except ValueError:
+        pass
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(q).timestamp()
+    except ValueError:
+        return 0.0
 
 
 def enfileirar(pedido, quando=""):
@@ -1105,11 +1173,16 @@ def fila_tick():
         return None
     fila = _ler(FILA, {"itens": []})
     agora = time.time()
+    fim = (ses or {}).get("status")
+    for it in fila.get("itens") or []:
+        if it.get("status") == "ativo" and fim in {"concluida", "bloqueada", "recusada"}:
+            it["status"] = "feito" if fim == "concluida" else fim
+            _salvar(FILA, fila)
     for it in fila.get("itens") or []:
         if it.get("status") != "esperando":
             continue
-        if it.get("quando") and str(it["quando"]).startswith("+"):
-            pass
+        if _quando_ts(it) > agora:
+            continue
         it["status"] = "ativo"
         _salvar(FILA, fila)
         sessao_nova(it["pedido"])
@@ -1123,7 +1196,7 @@ def status():
 
 def main(argv):
     if len(argv) < 2 or argv[1] in {"-h", "--help"}:
-        print("uso: prom-orquestra run \"pedido\" [--horas 8] | retomar | status | fila \"pedido\" | planejar \"pedido\" | smoke")
+        print("uso: prom-orquestra run \"pedido\" [--horas 8|--sempre] | retomar | status | fila \"pedido\" | planejar \"pedido\" | smoke")
         return 0
     cmd = argv[1]
     if cmd == "smoke":
@@ -1150,6 +1223,8 @@ def main(argv):
         devolta = _ler(caminho, {})
         os.remove(caminho)
         assert devolta.get("id") == "smoke"
+        assert _quando_ts({"quando": "+2m", "t": 100}) == 220
+        assert _quando_ts({"quando": ""}) == 0.0
         print("smoke ok", len(p["passos"]), "passos", "provedor", p.get("provedor"))
         return 0
     if cmd == "status":
@@ -1167,6 +1242,9 @@ def main(argv):
     if cmd == "run":
         horas = 8.0
         args = argv[2:]
+        sempre = "--sempre" in args
+        if sempre:
+            args.remove("--sempre")
         if "--horas" in args:
             i = args.index("--horas")
             horas = float(args[i + 1])
@@ -1181,7 +1259,7 @@ def main(argv):
                 print(s.get("fala"))
                 return 2
             print("plano:", s["sessao"]["plano"].get("provedor"), "passos", len(s["sessao"]["plano"]["passos"]))
-        r = loop(horas=horas)
+        r = loop(horas=horas, sempre=sempre)
         print(json.dumps({"passos": r["passos"], "ultimo": r["ultimo"][:400]}, ensure_ascii=False))
         return 0
     print("comando desconhecido")
