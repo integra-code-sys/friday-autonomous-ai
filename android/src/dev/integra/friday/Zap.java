@@ -63,9 +63,16 @@ final class Zap {
     private static void dormir(long ms) { try { Thread.sleep(ms); } catch (InterruptedException ignored) {} }
 
     private static boolean clicar(AccessibilityNodeInfo n) {
-        for (AccessibilityNodeInfo x = n; x != null; x = x.getParent())
-            if (x.isClickable()) return x.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-        return false;
+        boolean ok = false;
+        for (AccessibilityNodeInfo x = n; x != null; x = x.getParent()) {
+            if (x.isClickable() && x.performAction(AccessibilityNodeInfo.ACTION_CLICK)) { ok = true; break; }
+        }
+        if (Acesso.inst != null && n != null) {
+            android.graphics.Rect b = new android.graphics.Rect();
+            n.getBoundsInScreen(b);
+            if (b.width() > 8 && b.height() > 8) ok = Acesso.inst.toque(b.centerX(), b.centerY()) || ok;
+        }
+        return ok;
     }
 
     private static boolean escrever(AccessibilityNodeInfo n, String t) {
@@ -81,6 +88,75 @@ final class Zap {
     }
 
     private static String texto(AccessibilityNodeInfo n) { return n == null || n.getText() == null ? "" : n.getText().toString(); }
+
+    private static String rotulo(AccessibilityNodeInfo n) {
+        if (n == null) return "";
+        if (n.getText() != null && n.getText().length() > 0) return n.getText().toString();
+        return n.getContentDescription() == null ? "" : n.getContentDescription().toString();
+    }
+
+    /** Linhas da busca/lista cujo nome bate com o contato. Não inclui o campo de busca. */
+    private static List<AccessibilityNodeInfo> linhasDeContato(String pkg, String alvo) {
+        List<AccessibilityNodeInfo> out = new ArrayList<>();
+        Map<String, AccessibilityNodeInfo> visto = new LinkedHashMap<>();
+        coletarLinhas(raiz(pkg), pkg, alvo, visto);
+        out.addAll(visto.values());
+        return out;
+    }
+
+    private static void coletarLinhas(AccessibilityNodeInfo n, String pkg, String alvo, Map<String, AccessibilityNodeInfo> visto) {
+        if (n == null || alvo.isEmpty()) return;
+        String id = n.getViewIdResourceName() == null ? "" : n.getViewIdResourceName();
+        if (!n.isEditable() && !id.contains("search") && !id.endsWith("/entry")) {
+            String tn = Agenda.norm(rotulo(n));
+            boolean bate = tn.equals(alvo) || tn.contains(alvo) || (tn.length() >= 3 && alvo.contains(tn))
+                || (alvo.contains("integra") && tn.contains("integra"));
+            if (tn.length() >= 2 && tn.length() < 60 && bate) visto.putIfAbsent(tn, n);
+        }
+        for (int i = 0; i < n.getChildCount(); i++) coletarLinhas(n.getChild(i), pkg, alvo, visto);
+    }
+
+    private static AccessibilityNodeInfo rotuloQueBate(String pkg, String... alvos) {
+        return acharRotulo(raiz(pkg), alvos);
+    }
+
+    private static AccessibilityNodeInfo acharRotulo(AccessibilityNodeInfo n, String... alvos) {
+        if (n == null) return null;
+        String t = Agenda.norm(rotulo(n));
+        for (String a : alvos) if (!t.isEmpty() && t.contains(a)) return n;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo x = acharRotulo(n.getChild(i), alvos);
+            if (x != null) return x;
+        }
+        return null;
+    }
+
+    private static AccessibilityNodeInfo editavel(AccessibilityNodeInfo n) {
+        if (n == null) return null;
+        if (n.isEditable()) return n;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo x = editavel(n.getChild(i));
+            if (x != null) return x;
+        }
+        return null;
+    }
+
+    private static AccessibilityNodeInfo esperarCampo(String pkg, long ms) {
+        long fim = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < fim) {
+            for (String id : new String[]{"entry", "entry_text", "conversation_entry", "input"}) {
+                AccessibilityNodeInfo n = porId(pkg, id);
+                if (n != null) return n;
+            }
+            AccessibilityNodeInfo e = editavel(raiz(pkg));
+            if (e != null) {
+                String id = e.getViewIdResourceName() == null ? "" : e.getViewIdResourceName();
+                if (!id.contains("search")) return e;
+            }
+            dormir(200);
+        }
+        return null;
+    }
 
     // ------------------------------------------------------------------ preparar (sem enviar)
     /** abre a conversa e deixa a mensagem escrita; devolve a pergunta de confirmação ou o motivo da falha */
@@ -105,15 +181,16 @@ final class Zap {
         if (pkg == null) return "falhou: o WhatsApp não está instalado";
         msg = msg.trim();
         pendente = null;
-        String num = ferr.resolverContato(contato);
-        if (Ferramentas.ehNumeroFalso(num)) num = "";
+        // Número só se o dono falou o número. Nome nunca vira telefone da agenda: a busca é pelo nome, dentro do WhatsApp.
+        boolean falouNumero = contato.matches("^[0-9+() -]{8,}$") && digContato.length() >= 8 && !Ferramentas.ehNumeroFalso(digContato);
+        String num = falouNumero ? digContato : "";
         try {
-            if (num.length() >= 8) {                                  // número conhecido: abre a conversa já com o texto
+            if (num.length() >= 8) {
                 c.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=" + num + "&text=" + URLEncoder.encode(msg, "UTF-8")))
                     .setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
                 pendente = new String[]{pkg, contato, msg};
                 pendenteT = System.currentTimeMillis();
-                return "Abri o WhatsApp para " + contato + " com a mensagem pronta. Posso enviar?";
+                return "Abri o WhatsApp para o número que você falou, com a mensagem escrita. Posso enviar?";
             }
             if (Acesso.inst == null) {
                 Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
@@ -128,60 +205,54 @@ final class Zap {
             // tela inicial (pode estar dentro de uma conversa: volta até a lista)
             for (int k = 0; k < 4 && esperar(pkg, "menuitem_search", 1500) == null; k++) Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
             AccessibilityNodeInfo busca = porId(pkg, "menuitem_search");
-            if (busca == null) {
-                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                c.startActivity(share);
-                return "Abri o WhatsApp com a mensagem preparada. Escolha o contato na tela.";
-            }
+            if (busca == null) busca = rotuloQueBate(pkg, "pesquisar", "search");
+            if (busca == null) return "Abri o WhatsApp e não achei a busca. Não abri a tela de escolher contato.";
             clicar(busca);
             AccessibilityNodeInfo campo = esperar(pkg, "search_input", 2500);
             if (campo == null) campo = esperar(pkg, "search_src_text", 800);
             if (campo == null) {
-                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                c.startActivity(share);
-                return "Abri o WhatsApp com a mensagem preparada.";
+                AccessibilityNodeInfo ed = editavel(raiz(pkg));
+                if (ed != null) campo = ed;
             }
+            if (campo == null) return "Abri a busca do WhatsApp e não achei o campo. A lista ficou como está.";
             escrever(campo, contato);
-            dormir(1300);
-            AccessibilityNodeInfo r = raiz(pkg);
-            List<AccessibilityNodeInfo> nomes = new ArrayList<>();
-            coletarTextos(r, pkg + ":id/conversations_row_contact_name", nomes);
-            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/contact_name", nomes);
-            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/conversations_row_title", nomes);
-            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/title", nomes);
+            dormir(1500);
             String alvo = Agenda.norm(contato);
-            boolean ehDono = alvo.contains("integra") || alvo.contains("dono") || alvo.equals("eu") || alvo.equals("mim") || alvo.equals("voce");
-            Map<String, AccessibilityNodeInfo> achados = new LinkedHashMap<>();
-            AccessibilityNodeInfo exato = null;
-            for (AccessibilityNodeInfo n : nomes) {
-                String t = texto(n), tn = Agenda.norm(t);
-                if (tn.equals(alvo)) exato = n;
-                else if (ehDono && (tn.contains("voce") || tn.contains("integra") || tn.contains("mensagens salvas"))) exato = n;
-                else if (tn.contains(alvo) || alvo.contains(tn)) achados.putIfAbsent(t, n);
+            List<AccessibilityNodeInfo> candidatos = linhasDeContato(pkg, alvo);
+            if (candidatos.isEmpty() && Acesso.inst != null) {
+                android.graphics.Rect caixa = new android.graphics.Rect();
+                campo.getBoundsInScreen(caixa);
+                Acesso.inst.toque(caixa.centerX(), caixa.bottom + 110);
+                dormir(900);
+                AccessibilityNodeInfo entradaDireta = esperarCampo(pkg, 3500);
+                if (entradaDireta != null && texto(entradaDireta).trim().isEmpty()) {
+                    escrever(entradaDireta, msg);
+                    pendente = new String[]{pkg, contato, msg};
+                    pendenteT = System.currentTimeMillis();
+                    return "Abri o primeiro contato da busca e escrevi a mensagem para " + contato + ". Posso enviar?";
+                }
+                return "A busca de " + contato + " ficou aberta e eu não achei a linha do contato. Não troquei isso pela tela de escolher contato.";
             }
-            if (exato == null && achados.size() > 1) {
-                Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
-                return "Tenho mais de uma conversa parecida: " + String.join(" ou ", new ArrayList<>(achados.keySet()).subList(0, Math.min(3, achados.size()))) + ". Para qual?";
+            AccessibilityNodeInfo entrada = null;
+            String real = contato;
+            for (AccessibilityNodeInfo escolha : candidatos) {
+                clicar(escolha);
+                dormir(700);
+                if (porId(pkg, "entry") == null) {
+                    AccessibilityNodeInfo conversa = rotuloQueBate(pkg, "conversa", "mensagem", "message", "chat");
+                    if (conversa != null) clicar(conversa);
+                }
+                entrada = esperarCampo(pkg, 4000);
+                if (entrada != null) {
+                    AccessibilityNodeInfo nome = porId(pkg, "conversation_contact_name");
+                    if (nome == null) nome = porId(pkg, "conversation_contact");
+                    if (nome != null && !texto(nome).isEmpty()) real = texto(nome);
+                    break;
+                }
             }
-            AccessibilityNodeInfo escolha = exato != null ? exato : achados.isEmpty() ? null : achados.values().iterator().next();
-            if (escolha == null) {
-                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                c.startActivity(share);
-                return "Abri o WhatsApp com a mensagem preparada. Escolha o contato para confirmar o envio.";
-            }
-            clicar(escolha);
-            AccessibilityNodeInfo entrada = esperar(pkg, "entry", 6000);
-            if (entrada == null) return "falhou: a conversa não abriu no WhatsApp";
-            if (num.length() < 8 || texto(entrada).trim().isEmpty()) escrever(entrada, msg);
+            if (entrada == null) return "Toquei o contato " + contato + ", mas a conversa não abriu. A lista continua na tela.";
+            if (texto(entrada).trim().isEmpty()) escrever(entrada, msg);
             dormir(300);
-            AccessibilityNodeInfo nome = porId(pkg, "conversation_contact_name");
-            String real = nome != null && !texto(nome).isEmpty() ? texto(nome) : contato;
             pendente = new String[]{pkg, real, msg};
             pendenteT = System.currentTimeMillis();
             return "Mensagem escrita para " + real + ": \"" + msg + "\". Posso enviar?";

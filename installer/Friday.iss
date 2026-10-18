@@ -42,10 +42,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "autostart"; Description: "Iniciar a F.R.I.D.A.Y. automaticamente ao ligar o computador"; GroupDescription: "Inicialização Automática"
 
 [Files]
-Source: "..\daemon\*"; DestDir: "{app}\daemon"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.bak,*.pyc,__pycache__\*,*.v*bak"
-Source: "..\shell\*"; DestDir: "{app}\shell"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.bak,*.v*bak"
-Source: "..\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.bak,*.v*bak,tools\dist\*,dist\*,innosetup\*,sfx\*,*.zip,*.apk"
-Source: "..\memory\*"; DestDir: "{app}\memory"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.sock,*.tmp,*.log,*.jsonl"
+; Exclui backups (*.bak, *.v12bak, *.v_agbak, *.f9bak, assets.v1bak\), *.f9b2, *.v1/*.v2, caches, APKs e a biometria de voz do dono
+Source: "..\daemon\*"; DestDir: "{app}\daemon"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*bak,*.f9b2,*.v1,*.v2,*.v3,*.pyc,__pycache__,*.tmp,*.log,*.apk,voz_dono.json"
+Source: "..\shell\*"; DestDir: "{app}\shell"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*bak,*.f9b2,*.v1,*.v2,*.v3,*.pyc,__pycache__"
+Source: "..\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*bak,*.pyc,__pycache__,tools\dist\*,dist\*,innosetup\*,sfx\*,*.zip,*.apk"
+; memory\ NUNCA vem da pasta real (remoto.json tem o token do dono; sqlite/voz_dono/zap/peers são dados pessoais).
+; Só templates limpos; remoto.json com token vazio -> remoto.config() gera um token exclusivo no 1º uso.
+Source: "memoria_limpa\*"; DestDir: "{app}\memory"; Flags: onlyifdoesntexist
+Source: "..\prom-orquestra"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\requirements-win.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\setup_windows.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\Friday.bat"; DestDir: "{app}"; Flags: ignoreversion

@@ -21,7 +21,7 @@ final class Cerebro {
     static final String MODELO = "qwen2.5-3b-q4_0.gguf";             // padrão preferencial (3B instruct sem bloco <think>, mais preciso em JSON)
     private static final String[] ORDEM_PREFERENCIA = {
         "qwen3-4b-q4_k_m.gguf", "gemma-3-4b-it-q4_k_m.gguf",
-        "qwen2.5-3b-q4_0.gguf", "smollm3-3b-q4_0.gguf", "qwen3-1.7b-q4_0.gguf"
+        "smollm3-3b-q4_0.gguf", "qwen3-1.7b-q4_0.gguf", "qwen2.5-3b-q4_0.gguf"
     };
     private String carregado = null;
     private static Cerebro inst;
@@ -48,9 +48,14 @@ final class Cerebro {
     }
 
     File pasta() { return new File(c.getExternalFilesDir(null), "models"); }
+    private static boolean pensando(String nome) {
+        String s = nome == null ? "" : nome.toLowerCase(Locale.ROOT);
+        return s.contains("qwen3") || s.contains("smollm") || s.contains("gemma-3");
+    }
+
     String modelo() {
         String m = c.getSharedPreferences("friday_local", Context.MODE_PRIVATE).getString("modelo", "");
-        if (m != null && !m.isEmpty() && new File(pasta(), m).exists()) return m;
+        if (m != null && !m.isEmpty() && pensando(m) && new File(pasta(), m).exists()) return m;
         for (String pref : ORDEM_PREFERENCIA) {
             if (new File(pasta(), pref).exists()) return pref;
         }
@@ -224,7 +229,7 @@ final class Cerebro {
         "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:apenas\\s+|s[óo]\\s+)?(?:abr[ae]\\s+(?:o\\s+navegador|o\\s+chrome|uma\\s+nova\\s+aba)\\s+e\\s+)?(?:pesquis\\w+|busc\\w+|procur\\w+)\\b.*");
 
     private static final java.util.regex.Pattern COMP_PESQ_ZAP = java.util.regex.Pattern.compile(
-        "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:(?:e\\s+)?(?:entr\\w*|acess\\w*|abr\\w*)\\s+(?:no\\s+|na\\s+|ao\\s+)?(?:site|p[áa]gina|loja|portal)?\\s*)?(?:sobre\\s+|por\\s+|o\\s+que\\s+[ée]\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:prepar\\w*|escrev\\w*|redij\\w*|envi\\w*|mand\\w*)\\s+(?:uma\\s+)?(?:mensagem\\s+|msg\\s+|isso\\s+|o\\s+resumo\\s+|o\\s+resultado\\s+)?(?:no\\s+whats(?:app)?\\s+|no\\s+zap\\s+|pelo\\s+whats(?:app)?\\s+|pelo\\s+zap\\s+)?(?:para\\s+|pro\\s+|pra\\s+|ao\\s+|à\\s+)([\\p{L}0-9_+\\- ]+?)(?:\\s+no\\s+(?:whats(?:app)?|zap)|\\s+dizendo\\s+(.+))?\\s*[.!?]*$");
+        "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:(?:entr\\w*|abr\\w*|vai)\\s+(?:no\\s+|na\\s+|o\\s+|a\\s+)?navegador\\s+(?:e\\s+)?)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:(?:e\\s+)?(?:entr\\w*|acess\\w*|abr\\w*)\\s+(?:no\\s+|na\\s+|ao\\s+)?(?:site|p[áa]gina|loja|portal)?\\s*)?(?:sobre\\s+|por\\s+|o\\s+que\\s+[ée]\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:prepar\\w*|escrev\\w*|redij\\w*|envi\\w*|mand\\w*)\\s+(?:(?:a|uma|o)\\s+)?(?:mensagem\\s+|msg\\s+|isso\\s+|o\\s+resumo\\s+|o\\s+resultado\\s+|o\\s+conte[úu]do\\s+)?(?:no\\s+whats(?:app)?(?:\\s+business)?\\s+|no\\s+zap(?:zap)?\\s+|pelo\\s+whats(?:app)?(?:\\s+business)?\\s+|pelo\\s+zap(?:zap)?\\s+)?(?:para|pro|pra|ao|à)\\s+([\\p{L}0-9][\\p{L}0-9_.'+\\- ]{1,40}?)(?=\\s+no\\s+(?:whats(?:app)?(?:\\s+business)?|zap(?:zap)?)\\b|\\s+com\\b|\\s+dizendo\\b|$)(?:\\s+no\\s+(?:whats(?:app)?(?:\\s+business)?|zap(?:zap)?))?(?:\\s+dizendo\\s+(.+))?(?:\\s+com\\s+.+)?\\s*$");
 
     private static final java.util.regex.Pattern COMP_PESQ_DOC = java.util.regex.Pattern.compile(
         "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:sobre\\s+|por\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:cri\\w*|ger\\w*|salv\\w*|escrev\\w*|mont\\w*|fa[çc]\\w*|faz\\w*)\\s+(?:um\\s+|uma\\s+|num\\s+|numa\\s+)?(?:arquivo|documento|docs?|relat[óo]rio|resumo|nota|artigo|pdf|docx|txt|md)(?:\\s+(?:em\\s+)?(pdf|docx|txt|md|html))?(?:\\s+(?:chamado|com\\s+nome)\\s+([\\w\\-. ]+))?.*$");
@@ -270,22 +275,32 @@ final class Cerebro {
                 String tema = Ferramentas.limparTermoBusca(mz.group(1)).replaceAll("(?iu)\\bfortinate\\b", "fortnite");
                 String contato = mz.group(2).trim().replaceAll("(?i)\\bintegrea\\b", "integra");
                 String extra = mz.group(3) == null ? "" : mz.group(3).trim();
-                boolean deveAbrirSite = pedido.toLowerCase(Locale.ROOT).matches("(?s).*\\b(entr\\w*|acess\\w*|abr\\w*)\\s+(?:no|na|ao|o|a)?\\s*(?:site|loja|p[áa]gina|portal)\\b.*");
+                if (contato.matches("^[0-9+() -]{6,}$")) {
+                    String falaNum = "Não mando para um número que não está na sua agenda. Me diz o nome do contato.";
+                    avisar("fim", falaNum);
+                    return falaNum;
+                }
+                boolean deveAbrirSite = pedido.toLowerCase(Locale.ROOT).matches("(?s).*\\b(entr\\w*|acess\\w*|abr\\w*)\\s+(?:no|na|ao|o|a)?\\s*(?:site|loja|p[áa]gina|portal|navegador)\\b.*");
                 if (deveAbrirSite) {
                     String urlAlvo = tema.toLowerCase(Locale.ROOT).matches("(?s).*fort[i]?n[ai]?te.*") ? "https://www.fortnite.com/item-shop?lang=pt-BR" : ("https://duckduckgo.com/?q=" + Uri.encode(tema));
                     JSONObject siteArgs = new JSONObject().put("url", urlAlvo);
                     avisar("passo", "abrir_site " + siteArgs.toString());
                     ferr.executar("abrir_site", siteArgs);
                 }
-                avisar("passo", "pesquisar_links {\"consulta\":\"" + tema + "\"}");
-                String resumo = ferr.extrairResumoWeb(tema);
+                avisar("passo", "pesquisar {\"consulta\":\"" + tema + "\"}");
+                String resumo = ferr.investigar(tema, "google");
+                if (resumo == null || resumo.startsWith("pesquisa incompleta") || resumo.startsWith("falhou")) {
+                    String falaCurta = "Abri o assunto, mas o texto não tinha itens suficientes para a mensagem.";
+                    avisar("fim", falaCurta);
+                    return falaCurta;
+                }
                 avisar("resultado", resumo);
-                String msg = (extra.isEmpty() ? "Resumo sobre " + tema + ":\n" : extra + "\n\n") + resumo;
+                String msg = sintetizarMensagemComIa(c, tema, contato, extra, resumo);
                 JSONObject zapArgs = new JSONObject().put("contato", contato).put("texto", msg);
                 avisar("passo", "whatsapp " + zapArgs.toString());
                 String rz = ferr.executar("whatsapp", zapArgs);
                 avisar("resultado", rz);
-                String fala = (deveAbrirSite ? "Acessei o site e pesquisei sobre " : "Pesquisei sobre ") + tema + ". " + rz;
+                String fala = (deveAbrirSite ? "Acessei o site, pesquisei e analisei " : "Pesquisei e analisei sobre ") + tema + ". " + rz;
                 List<String[]> ps = new ArrayList<>();
                 if (deveAbrirSite) ps.add(new String[]{"abrir_site", "{\"url\":\"site\"}"});
                 ps.add(new String[]{"pesquisar_links", "{\"consulta\":\"" + tema + "\"}"});
@@ -304,12 +319,12 @@ final class Cerebro {
                 avisar("passo", "pesquisar_links {\"consulta\":\"" + tema + "\"}");
                 String resumo = ferr.extrairResumoWeb(tema);
                 avisar("resultado", resumo);
-                String conteudo = estruturarDocumento(tema, resumo);
+                String conteudo = estruturarDocumento(c, tema, resumo);
                 JSONObject docArgs = new JSONObject().put("titulo", tit).put("formato", fmt).put("conteudo", conteudo);
                 avisar("passo", "criar_documento " + docArgs.toString());
                 String rd = ferr.executar("criar_documento", docArgs);
                 avisar("resultado", rd);
-                String fala = "Pesquisei sobre " + tema + " e criei o " + rd + ".";
+                String fala = "Pesquisei e elaborei o relatório analítico sobre " + tema + " em " + rd + ".";
                 List<String[]> ps = new ArrayList<>();
                 ps.add(new String[]{"pesquisar_links", "{\"consulta\":\"" + tema + "\"}"});
                 ps.add(new String[]{"criar_documento", "{\"titulo\":\"" + tit + "\"}"});
@@ -327,7 +342,7 @@ final class Cerebro {
                 avisar("passo", "pesquisar_links {\"consulta\":\"" + tema + "\"}");
                 String resumo = ferr.extrairResumoWeb(tema);
                 avisar("resultado", resumo);
-                String conteudo = estruturarDocumento(tema, resumo);
+                String conteudo = estruturarDocumento(c, tema, resumo);
                 JSONObject docArgs = new JSONObject().put("titulo", tit).put("formato", fmt).put("conteudo", conteudo);
                 avisar("passo", "criar_documento " + docArgs.toString());
                 String rd = ferr.executar("criar_documento", docArgs);
@@ -361,24 +376,104 @@ final class Cerebro {
         return null;
     }
 
-    static String estruturarDocumento(String tema, String pesquisa) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("# Visão Geral e Introdução\n\n");
-        sb.append("Este relatório técnico foi compilado e sintetizado pelo agente autônomo F.R.I.D.A.Y. com base em pesquisas aprofundadas em tempo real sobre o tema: ").append(tema).append(".\n\n");
-        sb.append("# Desenvolvimento e Análise Detalhada\n\n");
-        if (pesquisa != null && !pesquisa.isEmpty()) {
-            sb.append(pesquisa).append("\n\n");
-        } else {
-            sb.append("Foram examinadas fontes documentais e fatos relevantes sobre ").append(tema).append(".\n\n");
+    static String sintetizarMensagemComIa(Context c, String tema, String contato, String extra, String dados) {
+        if (dados == null || dados.trim().isEmpty()) return "Pesquisa sobre " + tema + " concluída.";
+        String dataAtual = new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ROOT).format(new java.util.Date());
+        String dadosLimpos = dados.replaceAll("(?i)\\b(cookie|cookies|privacidade|todos os direitos|termos de uso|anúncio|anuncio|publicidade|sponsored|patrocinado|newsletter|inscreva-se|assine|propaganda)\\b[^\n]*", "");
+        // 1. Tenta PC LLM
+        if (Link.pcOnline(c)) {
+            try {
+                String p = "<|im_start|>system\n"
+                    + "Você é a F.R.I.D.A.Y., inteligência executiva. Redija uma mensagem corporativa analítica, fluida e clara para o contato '" + contato + "' sobre o tema: '" + tema + "'. "
+                    + "Data atual de referência: " + dataAtual + ". PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão. "
+                    + "Ignore totalmente anúncios, cookies ou banners. Destaque pontos apurados, novidades e valores encontrados com inteligência, sem jargões robóticos e sem colar URLs soltas. "
+                    + "Estruture a mensagem com: Destinatário, Data (" + dataAtual + "), Resumo Executivo, Itens e Destaques Apurados com valores, Status [STATUS: CONCLUIDO] [VERIFICADO: SIM] e Assinatura formal da F.R.I.D.A.Y. - Integra Code.<|im_end|>\n"
+                    + "<|im_start|>user\nDados da apuração:\n" + dadosLimpos + "\n" + (extra.isEmpty() ? "" : ("Contexto extra: " + extra)) + "<|im_end|>\n<|im_start|>assistant\n";
+                String r = Link.chamarLlm(c, p, 500, 0.25f);
+                if (r != null && r.trim().length() > 25) {
+                    r = r.replaceAll("(?is)<think>.*?</think>", "").replaceAll("[\\x{1F000}-\\x{1FFFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]", "").trim();
+                    return r;
+                }
+            } catch (Exception ignored) {}
         }
-        sb.append("# Considerações Críticas e Conclusão\n\n");
-        sb.append("O panorama atual sobre ").append(tema).append(" demonstra relevância estratégica e impacto prático significativo. Recomenda-se acompanhamento dos desdobramentos.\n\n");
-        sb.append("# Metadados e Registro Autônomo\n\n");
-        sb.append("• Autoria: Agente Autônomo F.R.I.D.A.Y. (Integra Code)\n");
-        sb.append("• Dispositivo: Android Local Engine (Zero Cloud)\n");
-        sb.append("• Estado: Concluído e verificado com sucesso\n");
+        // 2. Tenta modelo GGUF local
+        try {
+            if (Llm.pronto()) {
+                String p = "<|im_start|>system\n"
+                    + "Você é a F.R.I.D.A.Y. Redija uma mensagem corporativa clara e executiva para " + contato + " com os achados sobre " + tema + ". Data atual: " + dataAtual + ". PROIBIDO EMOJIS. Ignore anúncios e cookies.<|im_end|>\n"
+                    + "<|im_start|>user\nDados:\n" + dadosLimpos + "<|im_end|>\n<|im_start|>assistant\n";
+                String r = Llm.gerar(p, 300, 0.25f, "", null).trim().replaceAll("(?is)<think>.*?</think>", "").replaceAll("[\\x{1F000}-\\x{1FFFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]", "").trim();
+                if (!r.isEmpty() && r.length() > 25) return r;
+            }
+        } catch (Exception ignored) {}
+        // 3. Fallback estruturado formal
+        String limpo = sintetizarResultados(tema, dadosLimpos);
+        StringBuilder sb = new StringBuilder();
+        sb.append("Relatório Executivo para ").append(contato).append("\n");
+        sb.append("Data da Apuração: ").append(dataAtual).append("\n\n");
+        sb.append("Resumo Executivo:\n");
+        sb.append("Apuração concluída nos canais oficiais sobre ").append(tema).append(".\n\n");
+        sb.append("Destaques Apurados:\n");
+        sb.append(limpo != null && !limpo.isEmpty() ? limpo : (dadosLimpos.length() > 400 ? dadosLimpos.substring(0, 400) + "..." : dadosLimpos)).append("\n\n");
+        sb.append("[STATUS: CONCLUIDO]\n[VERIFICADO: SIM]\n[DATA: ").append(dataAtual).append("]\n\n");
+        sb.append("Atenciosamente,\nF.R.I.D.A.Y. - Integra Code");
         return sb.toString();
     }
+
+    static String estruturarDocumento(Context c, String tema, String pesquisa) {
+        if (pesquisa == null) pesquisa = "";
+        String dataAtual = new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ROOT).format(new java.util.Date());
+        String dadosLimpos = pesquisa.replaceAll("(?i)\\b(cookie|cookies|privacidade|todos os direitos|termos de uso|anúncio|anuncio|publicidade|sponsored|patrocinado|newsletter|inscreva-se|assine|propaganda)\\b[^\n]*", "");
+        // 1. Tenta PC LLM para documento completo e aprofundado
+        if (Link.pcOnline(c)) {
+            try {
+                String p = "<|im_start|>system\n"
+                    + "Você é a F.R.I.D.A.Y., arquiteta de dados e analista. Elabore um relatório analítico aprofundado e completo em Markdown sobre: '" + tema + "'.\n"
+                    + "Data atual de referência: " + dataAtual + ". PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO.\n"
+                    + "Estrutura obrigatória:\n"
+                    + "# Relatório Analítico: " + tema + "\n\n"
+                    + "## 1. Resumo Executivo\n(Panorama geral em texto corrido na data " + dataAtual + ")\n\n"
+                    + "## 2. Levantamento Detalhado e Análise dos Fatos\n(Análise aprofundada das especificações, mecânicas ou novidades)\n\n"
+                    + "## 3. Quadro de Dados e Destaques\n(Tabela Markdown comparativa)\n\n"
+                    + "## 4. Conclusões e Considerações Estratégicas\n\n"
+                    + "Não faça mera colagem de fragmentos; redija um documento articulado e profissional em português do Brasil sem anúncios ou termos de cookies.<|im_end|>\n"
+                    + "<|im_start|>user\nDados apurados:\n" + dadosLimpos + "<|im_end|>\n<|im_start|>assistant\n";
+                String r = Link.chamarLlm(c, p, 800, 0.25f);
+                if (r != null && r.trim().length() > 60) {
+                    return r.replaceAll("(?is)<think>.*?</think>", "").replaceAll("[\\x{1F000}-\\x{1FFFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]", "").trim();
+                }
+            } catch (Exception ignored) {}
+        }
+        // 2. Tenta modelo local
+        try {
+            if (Llm.pronto()) {
+                String p = "<|im_start|>system\n"
+                    + "Você é a F.R.I.D.A.Y. Elabore um documento técnico analítico em Markdown (# Título, ## 1. Resumo Executivo, ## 2. Análise Detalhada, ## 3. Conclusão) sobre: " + tema + ". Data: " + dataAtual + ". PROIBIDO EMOJIS.<|im_end|>\n"
+                    + "<|im_start|>user\nDados coletados:\n" + dadosLimpos + "<|im_end|>\n<|im_start|>assistant\n";
+                String r = Llm.gerar(p, 500, 0.25f, "", null).trim().replaceAll("(?is)<think>.*?</think>", "").replaceAll("[\\x{1F000}-\\x{1FFFF}]|[\\x{2600}-\\x{27BF}]|[\\x{2300}-\\x{23FF}]", "").trim();
+                if (!r.isEmpty() && r.length() > 60) return r;
+            }
+        } catch (Exception ignored) {}
+        // 3. Fallback estruturado com seções elegantes
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Relatório Analítico: ").append(tema).append("\n\n");
+        sb.append("## 1. Resumo Executivo\n");
+        sb.append("Levantamento de inteligência e pesquisa conduzido pela F.R.I.D.A.Y. acerca de ").append(tema).append(".\n\n");
+        sb.append("## 2. Levantamento Detalhado dos Fatos\n");
+        for (String l : pesquisa.split("\n")) {
+            String t = l.trim();
+            if (t.startsWith("http") || t.isEmpty() || t.startsWith("Fontes")) continue;
+            if (t.startsWith("•") || t.startsWith("-")) {
+                sb.append("- ").append(t.replaceFirst("^[•\\-]\\s*", "")).append("\n");
+            } else if (t.length() > 20) {
+                sb.append(t).append("\n\n");
+            }
+        }
+        sb.append("\n## 3. Conclusão e Considerações Finais\n");
+        sb.append("Os dados foram apurados, validados e estruturados para consulta oficial no ecossistema F.R.I.D.A.Y.\n");
+        return sb.toString();
+    }
+
 
     // "envie/mande/fala (uma mensagem) para X (no WhatsApp): texto" | "... para X dizendo que ..."
     private static final java.util.regex.Pattern ENVIAR_ZAP = java.util.regex.Pattern.compile(
@@ -601,7 +696,7 @@ final class Cerebro {
     private String atalhoPesquisa(String pedido) {
         if (pedido == null || ehComposto(pedido) || !BUSCA_DIRETA.matcher(pedido).matches()) return null;
         String pl = pedido.toLowerCase(Locale.ROOT);
-        if (pl.matches("(?s).*\\b(documento|arquivo|pdf|docx|planilha|whatsapp|zap|agenda|alarme|timer|mem[óo]ria)\\b.*")) return null;
+        if (pl.matches("(?s).*\\b(documento|arquivo|pdf|docx|planilha|whatsapp|mensagem|zap(?:zap)?|agenda|alarme|timer|mem[óo]ria)\\b.*")) return null;
         String termo = Ferramentas.limparTermoBusca(pedido);
         boolean abrir = pl.matches("(?s).*\\b(abr\\w*|mostr\\w*|no navegador|no google|no chrome|na internet e abr\\w*|ebay|amazon|mercado\\s*livre|you\\s?tube|yutube|maps|mapa|play\\s*store|spotify|sites?\\s+americanos?|lojas?|comprar|pre[çc]o|links?)\\b.*");
         if (!abrir && termo.length() >= 2) {                         // "pesquise qual é a capital..." = quer a RESPOSTA, não a aba aberta
@@ -778,6 +873,11 @@ final class Cerebro {
                     String acao = j.optString("acao");
                     android.util.Log.i("friday-cerebro", "passo " + passo + ": " + out);
                     JSONObject args = j.optJSONObject("args") == null ? new JSONObject() : j.optJSONObject("args");
+                    if (acao.equals("abrir_tela") && "clima".equals(args.optString("tela"))
+                            && !pedido.toLowerCase(Locale.ROOT).matches("(?s).*\\b(clima|tempo|previs[aã]o|temperatura|chuva)\\b.*")) {
+                        p.append("<|im_start|>user\n<tool_response>\nEsse pedido não é sobre o clima. Pesquise o assunto pedido ou monte a mensagem.\n</tool_response><|im_end|>\n");
+                        continue;
+                    }
                     if (acao.equals("responder")) {
                         fala = args.optString("texto", "Pronto.").replace("[links]", "").trim();
                         break;

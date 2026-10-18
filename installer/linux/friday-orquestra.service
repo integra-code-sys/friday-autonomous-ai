@@ -1,0 +1,33 @@
+# F.R.I.D.A.Y.: orquestrador sempre ligado (espera a fila memory/orquestra_fila.json); volta sozinho após queda/reboot.
+# Cópia genérica (%h = home do usuário). Instalação:
+#   cp friday-orquestra.service ~/.config/systemd/user/
+#   (Friday fora de ~/Workspace/Projeto Prometheus? ajuste WorkingDirectory e ExecStart abaixo)
+#   systemctl --user daemon-reload && systemctl --user enable --now friday-orquestra.service
+# Requer o .venv da Friday (o mesmo do run.sh). Sem .venv, troque o executável por /usr/bin/python3.
+# Ambiente gráfico: precisa estar no bloco de ambiente do systemd do usuário. niri (niri-session) e GNOME/KDE já
+# fazem isso; senão rode na sessão gráfica, antes do serviço subir (ex.: autostart do compositor):
+#   systemctl --user import-environment WAYLAND_DISPLAY DISPLAY NIRI_SOCKET XDG_CURRENT_DESKTOP DBUS_SESSION_BUS_ADDRESS PATH
+# (PassEnvironment= não serve: lê o ambiente do PRÓPRIO processo do systemd, não o importado.)
+# Log: journalctl --user -u friday-orquestra -f
+[Unit]
+Description=F.R.I.D.A.Y. orquestrador (fila de pedidos, sempre ligado)
+After=graphical-session.target
+PartOf=graphical-session.target
+# nunca desiste de religar
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Workspace/Projeto Prometheus
+Environment=PYTHONUNBUFFERED=1
+# chama loop(sempre=True) direto: 'prom-orquestra run --sempre' sem sessão imprime "falta o pedido" e sai com 2.
+ExecStart="%h/Workspace/Projeto Prometheus/.venv/bin/python" -c "import sys; sys.path.insert(0, 'daemon'); import orquestra_geral as o; o.loop(sempre=True)"
+Restart=always
+RestartSec=15
+Nice=10
+# só o processo principal: navegador/apps que ele abriu (xdg-open etc.) sobrevivem a restart/stop do serviço
+KillMode=process
+TimeoutStopSec=8
+
+[Install]
+WantedBy=graphical-session.target

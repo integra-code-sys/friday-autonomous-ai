@@ -8,6 +8,7 @@ Capaz de planejar, executar, monitorar e retomar qualquer tarefa:
 """
 import asyncio
 import difflib
+import inspect
 import json
 import os
 import re
@@ -22,12 +23,21 @@ ROOT = os.path.dirname(HERE)
 MEM_DIR = os.path.join(ROOT, "memory")
 OBJETIVOS_FILE = os.path.join(MEM_DIR, "objetivos_ativos.json")
 LOG_ORQUESTRA = os.path.join(MEM_DIR, "orchestrator_log.jsonl")
+MOTOR_FILE = os.path.join(MEM_DIR, "orquestra_motor.json")      # {"pausado": bool} do motor da fila do orquestra_geral
+OG_LOCK = threading.RLock()     # orquestra_geral tem UMA sessão em disco: um avancar() por vez (motor, objetivos, agent)
 TELAS_DIR = os.path.join(ROOT, "shell", "telas_dinamicas")
 WEB_TELAS_DIR = os.path.join(HERE, "web", "telas")
 
 os.makedirs(MEM_DIR, exist_ok=True)
 os.makedirs(TELAS_DIR, exist_ok=True)
 os.makedirs(WEB_TELAS_DIR, exist_ok=True)
+
+
+def _loop_atual():
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
 
 
 def _log_ev(tipo: str, dados: Dict[str, Any]):
@@ -48,6 +58,10 @@ class OrquestradorContinuo:
         self.objetivos: Dict[str, Dict[str, Any]] = {}
         self.threads: Dict[str, threading.Thread] = {}
         self.stops: Dict[str, threading.Event] = {}
+        self._loop = _loop_atual()      # loop do daemon: as threads emitem por ele (get_event_loop() falha fora da thread principal)
+        self._motor_th: Optional[threading.Thread] = None
+        self._motor_stop: Optional[threading.Event] = None
+        self._liberar_sid = ""          # sessão bloqueada que o dono mandou retomar
         self._carregar_checkpoint()
         self._iniciar_retomada_automatica()
 
@@ -58,6 +72,8 @@ class OrquestradorContinuo:
                 try:
                     with open(OBJETIVOS_FILE, "r", encoding="utf-8") as f:
                         self.objetivos = json.load(f)
+                    if not isinstance(self.objetivos, dict):
+                        self.objetivos = {}
                 except Exception as e:
                     self.objetivos = {}
             else:
@@ -78,13 +94,11 @@ class OrquestradorContinuo:
     def emitir(self, msg: Dict[str, Any]):
         if self.broadcast:
             try:
-                if asyncio.iscoroutinefunction(self.broadcast):
-                    # Loop corrente ou schedule threadsafe
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
+                if inspect.iscoroutinefunction(self.broadcast):
+                    # threads do orquestrador não têm loop: agenda no loop do daemon guardado na criação
+                    loop = self._loop or _loop_atual()
+                    if loop is not None and loop.is_running():
                         asyncio.run_coroutine_threadsafe(self.broadcast(msg), loop)
-                    else:
-                        loop.run_until_complete(self.broadcast(msg))
                 else:
                     self.broadcast(msg)
             except Exception:
@@ -168,6 +182,11 @@ class OrquestradorContinuo:
             agora = time.time()
             if objetivo_id in self.objetivos:
                 obj = self.objetivos[objetivo_id]
+                anterior = obj.get("status")
+                if anterior == "aguardando_dono":
+                    obj["_liberado"] = True          # dono mandou retomar: segue a sessão depois do passo sensível
+                elif anterior == "concluido":
+                    obj.pop("_sessao_id", None)      # rodar de novo = plano novo
                 obj["status"] = "ativo"
                 obj["atualizado_em"] = agora
             else:
@@ -189,8 +208,9 @@ class OrquestradorContinuo:
 
             self.salvar_checkpoint()
 
-            # Inicia thread se não estiver rodando
-            if objetivo_id not in self.threads or not self.threads[objetivo_id].is_alive():
+            # Inicia thread se não estiver rodando (ou se a viva já recebeu parada: pausar+retomar rápido perdia o worker)
+            antigo_stop = self.stops.get(objetivo_id)
+            if objetivo_id not in self.threads or not self.threads[objetivo_id].is_alive() or antigo_stop is None or antigo_stop.is_set():
                 stop_evt = threading.Event()
                 self.stops[objetivo_id] = stop_evt
                 th = threading.Thread(
@@ -216,6 +236,14 @@ class OrquestradorContinuo:
                 _log_ev("objetivo_pausado", {"id": objetivo_id})
                 return {"ok": True, "mensagem": f"Objetivo {objetivo_id} pausado."}
             return {"ok": False, "erro": "Objetivo não encontrado."}
+
+    def retomar_objetivo(self, objetivo_id: str) -> Dict[str, Any]:
+        with self.lock:
+            obj = self.objetivos.get(objetivo_id)
+            if not obj:
+                return {"ok": False, "erro": "Objetivo não encontrado."}
+            return self.iniciar_ou_retomar_objetivo(objetivo_id, obj.get("titulo") or objetivo_id, obj.get("instrucao") or "",
+                                                    obj.get("tipo") or "continua", obj.get("intervalo_s") or 60.0)
 
     def listar_objetivos(self) -> List[Dict[str, Any]]:
         with self.lock:
@@ -244,9 +272,11 @@ class OrquestradorContinuo:
 
                 # 2. Execução do passo através dos subsistemas do Prometheus
                 resultado = self._executar_passo_orquestrado(obj)
+                fim = obj.pop("_og_fim", None)      # None = sem orquestra_geral (fallback); "seguir" = plano em andamento
 
                 # 3. Atualização do checkpoint
                 with self.lock:
+                    obj["erros_seguidos"] = 0
                     obj["ciclos_executados"] += 1
                     obj["atualizado_em"] = time.time()
                     obj["ultimo_resultado"] = str(resultado)[:800]
@@ -266,8 +296,16 @@ class OrquestradorContinuo:
                     "status": "executado"
                 })
 
-                # Se for tarefa rápida e concluiu:
-                if obj.get("tipo") == "rapida":
+                # Sessão bloqueada (passo sensível fica com o dono) ou recusada: para e NÃO continua sozinho
+                if fim in ("bloqueada", "recusada"):
+                    with self.lock:
+                        obj["status"] = "aguardando_dono" if fim == "bloqueada" else "bloqueado_seguranca"
+                        self.salvar_checkpoint()
+                    self.emitir({"type": "orquestrador_ciclo", "id": obj_id, "ciclo": obj["ciclos_executados"], "status": obj["status"]})
+                    break
+
+                # Tarefa rápida/longa concluída (com orquestra_geral: só quando o PLANO acabou, não no 1º passo):
+                if (obj.get("tipo") == "rapida" and fim in (None, "concluida")) or (obj.get("tipo") == "longa" and fim == "concluida"):
                     with self.lock:
                         obj["status"] = "concluido"
                         self.salvar_checkpoint()
@@ -285,8 +323,13 @@ class OrquestradorContinuo:
 
             except Exception as e:
                 _log_ev("erro_ciclo", {"id": obj_id, "erro": str(e)})
+                obj.pop("_og_fim", None)
                 with self.lock:
                     obj["ultimo_erro"] = str(e)
+                    obj["erros_seguidos"] = int(obj.get("erros_seguidos") or 0) + 1
+                    desistir = obj.get("tipo") in ("rapida", "longa") and obj["erros_seguidos"] >= 5
+                    if desistir:
+                        obj["status"] = "falhou"         # sem isso uma tarefa finita repetia o erro para sempre
                     self.salvar_checkpoint()
                 try:
                     import auto_aprendizado
@@ -298,6 +341,8 @@ class OrquestradorContinuo:
                     )
                 except Exception:
                     pass
+                if desistir:
+                    break
 
             # Espera intervalo ou sinal de parada
             intervalo = obj.get("intervalo_s", 60.0)
@@ -307,17 +352,53 @@ class OrquestradorContinuo:
     def _executar_passo_orquestrado(self, obj: Dict[str, Any]) -> str:
         """Um passo real do plano persistente. Shell cru só se a instrução começar com sh:."""
         instrucao = obj.get("instrucao", "")
+        obj.pop("_og_fim", None)
         try:
             import orquestra_geral as og
-            if not obj.get("_plano"):
-                ses = og.sessao_nova(instrucao)
-                if not ses.get("ok"):
-                    return ses.get("fala") or "recusado"
-                obj["_plano"] = True
-            r = og.avancar()
+            with OG_LOCK:
+                # orquestra_geral guarda UMA sessão: cada objetivo avança só a SUA (id), sem atropelar a da fila/de outro
+                atual = og.status().get("sessao") or {}
+                sid = obj.get("_sessao_id")
+                liberado = obj.pop("_liberado", False)   # vale UMA vez e só para a sessão que estava bloqueada
+                if sid and atual.get("id") != sid:
+                    sid = None                       # a sessão deste objetivo foi substituída: replaneja quando o slot vagar
+                if not sid:
+                    liberado = False
+                    if atual.get("status") == "ativa":
+                        obj["_og_fim"] = "seguir"
+                        return f"aguardando: outra sessão ativa ({atual.get('id')})"
+                    ses = og.sessao_nova(instrucao)
+                    if not ses.get("ok"):
+                        obj["_og_fim"] = "recusada"
+                        return ses.get("fala") or "recusado"
+                    sid = obj["_sessao_id"] = (ses.get("sessao") or {}).get("id")
+                    atual = ses.get("sessao") or {}
+                st = atual.get("status")
+                if st == "recusada":
+                    obj["_og_fim"] = "recusada"
+                    return atual.get("fala") or "recusada"
+                if st == "bloqueada" and not liberado:
+                    obj["_og_fim"] = "bloqueada"     # avancar() não checa bloqueio: chamar de novo pulava o passo sensível
+                    ult = (atual.get("evidencia") or [{}])[-1] or {}
+                    return "sessão bloqueada: " + str(ult.get("res") or "passo sensível aguarda o dono")[:300]
+                if st == "concluida":
+                    obj.pop("_sessao_id", None)      # contínua: próximo ciclo replaneja
+                    obj["_og_fim"] = "concluida"
+                    return "plano concluído"
+                if st == "pausada":
+                    obj["_og_fim"] = "seguir"
+                    return "sessão pausada"
+                r = og.avancar()
+            st = (r.get("sessao") or {}).get("status")
+            if st == "concluida":
+                obj.pop("_sessao_id", None)
+            obj["_og_fim"] = st if st in ("concluida", "bloqueada", "recusada") else "seguir"
             return (r.get("fala") or "sem resultado")[:800]
-        except Exception as e:
+        except ImportError as e:
             _log_ev("orquestra_fallback", {"erro": str(e)[:180]})
+        except Exception as e:
+            _log_ev("orquestra_erro", {"id": obj.get("id"), "erro": str(e)[:180]})
+            raise                                    # erro no passo NÃO é "concluído": o worker registra e tenta no próximo ciclo
         if instrucao.startswith("sh:") or instrucao.startswith("bash:"):
             cmd = instrucao.split(":", 1)[1].strip()
             r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)
@@ -349,6 +430,105 @@ class OrquestradorContinuo:
                 self.threads[obj_id] = th
                 th.start()
                 _log_ev("objetivo_retomado_boot", {"id": obj_id, "titulo": obj.get("titulo")})
+        # fila/sessão do orquestra_geral também sobrevivem a reboot (ex.: "amanhã às 9h faça Y")
+        try:
+            import orquestra_geral as og
+            st = og.status()
+            pend = any(i.get("status") in ("esperando", "ativo") for i in (st.get("fila") or {}).get("itens") or [])
+            if pend or (st.get("sessao") or {}).get("status") == "ativa":
+                self.garantir_motor()
+        except Exception as e:
+            _log_ev("erro_motor", {"erro": "retomada: " + str(e)[:180]})
+
+    # ------------------------------------------------------------------ Motor da fila/sessão do orquestra_geral
+    def _motor_pausado(self) -> bool:
+        try:
+            with open(MOTOR_FILE, "r", encoding="utf-8") as f:
+                return bool(json.load(f).get("pausado"))
+        except Exception:
+            return False
+
+    def _motor_gravar(self, pausado: bool):
+        try:
+            tmp = MOTOR_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"pausado": bool(pausado), "t": time.time()}, f)
+            os.replace(tmp, MOTOR_FILE)
+        except Exception as e:
+            _log_ev("erro_motor", {"erro": str(e)[:180]})
+
+    def motor_estado(self) -> Dict[str, Any]:
+        rodando = bool(self._motor_th and self._motor_th.is_alive() and self._motor_stop and not self._motor_stop.is_set())
+        return {"pausado": self._motor_pausado(), "rodando": rodando}
+
+    def garantir_motor(self, intervalo_s: float = 20.0) -> bool:
+        """Liga (uma vez) a thread que puxa a fila (horário 'quando') e avança a sessão longa. False = dono pausou."""
+        with self.lock:
+            if self._motor_pausado():
+                return False
+            if self.motor_estado()["rodando"]:
+                return True
+            self._motor_stop = threading.Event()
+            self._motor_th = threading.Thread(target=self._motor_loop, args=(self._motor_stop, intervalo_s),
+                                              daemon=True, name="orquestra-motor")
+            self._motor_th.start()
+            _log_ev("motor_ligado", {"intervalo_s": intervalo_s})
+            return True
+
+    def pausar_motor(self) -> Dict[str, Any]:
+        with self.lock:
+            self._motor_gravar(True)
+            if self._motor_stop:
+                self._motor_stop.set()
+        _log_ev("motor_pausado", {})
+        return {"ok": True, "mensagem": "Orquestrador pausado. A sessão e a fila ficaram salvas; diga retomar para continuar."}
+
+    def retomar_motor(self) -> Dict[str, Any]:
+        sid = ""
+        try:
+            import orquestra_geral as og
+            ses = og.status().get("sessao") or {}
+            if ses.get("status") == "bloqueada" and not any(o.get("_sessao_id") == ses.get("id") for o in self.listar_objetivos()):
+                sid = ses.get("id") or ""          # dono mandou seguir: continua depois do passo sensível
+        except Exception:
+            pass
+        with self.lock:
+            self._liberar_sid = sid
+            self._motor_gravar(False)
+        self.garantir_motor()
+        return {"ok": True, "mensagem": "Orquestrador retomado" + (": continuando a sessão que esperava por você." if sid else ".")}
+
+    def _motor_loop(self, stop_evt: threading.Event, intervalo_s: float):
+        """Mesma regra do orquestra_geral.loop (um objetivo ativo, fila por horário), mas pausável e sem morrer em erro."""
+        while not stop_evt.is_set():
+            try:
+                import orquestra_geral as og
+                if not og.trava_unica():           # outro processo (ex.: friday-orquestra.service) já executa
+                    if stop_evt.wait(max(1.0, float(intervalo_s))):
+                        break
+                    continue
+                with OG_LOCK:
+                    ses = og.status().get("sessao") or {}
+                    with self.lock:
+                        donos = {o.get("_sessao_id") for o in self.objetivos.values()
+                                 if o.get("_sessao_id") and o.get("status") in ("ativo", "pausado")}
+                        liberar = self._liberar_sid
+                        self._liberar_sid = ""
+                    if ses.get("id") in donos:
+                        pass                           # sessão de um objetivo contínuo: o worker dele é quem avança
+                    elif ses.get("status") == "ativa" or (liberar and ses.get("status") == "bloqueada" and ses.get("id") == liberar):
+                        if not stop_evt.is_set():
+                            r = og.avancar()
+                            self.emitir({"type": "orquestrador_sessao", "id": ses.get("id"),
+                                         "status": (r.get("sessao") or {}).get("status"), "fala": str(r.get("fala") or "")[:300]})
+                    else:
+                        it = og.fila_tick()            # sessão acabou/bloqueou: libera o próximo da fila cujo horário chegou
+                        if it:
+                            _log_ev("motor_fila", {"item": it.get("id")})
+            except Exception as e:
+                _log_ev("erro_motor", {"erro": str(e)[:200]})
+            if stop_evt.wait(max(1.0, float(intervalo_s))):
+                break
 
     # ------------------------------------------------------------------ Operação de Outras IAs
     def operar_outra_ia(self, ia: str, prompt: str, modelo: Optional[str] = None) -> str:
@@ -475,4 +655,6 @@ def get_orquestrador(broadcast_fn=None) -> OrquestradorContinuo:
         _ORQUESTRADOR = OrquestradorContinuo(broadcast_fn=broadcast_fn)
     elif broadcast_fn is not None and _ORQUESTRADOR.broadcast is None:
         _ORQUESTRADOR.broadcast = broadcast_fn
+    if broadcast_fn is not None and _ORQUESTRADOR._loop is None:
+        _ORQUESTRADOR._loop = _loop_atual()     # singleton criado antes fora do loop (agent/cerebro): pega o loop agora
     return _ORQUESTRADOR

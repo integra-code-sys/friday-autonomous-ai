@@ -78,23 +78,14 @@ echo.
 echo [4/6] Configurando Sincronização Mesh com Workstation e Servidor...
 if not exist "memory" mkdir memory
 
-:: Token compartilhado do cluster
+:: Token vazio: a Friday gera um token exclusivo no primeiro uso (remoto.config)
 if not exist "memory\remoto.json" (
-    echo {"token": "Td-_gIVHwGPxgWuB5_cV2kQu"} > memory\remoto.json
+    echo {"token": ""} > memory\remoto.json
 )
 
-:: Pares estáticos pré-configurados (Workstation Linux LAN, Tailscale e Servidor AnyDesk)
+:: Pares: vazio; o sync_mesh descobre os aparelhos da rede local por broadcast
 if not exist "memory\peers.json" (
-    (
-        echo {
-        echo   "peers": [
-        echo     {"host": "192.168.15.7", "port": 8790, "alias": "Workstation Linux LAN"},
-        echo     {"host": "192.168.15.11", "port": 8790, "alias": "Workstation Linux Wi-Fi"},
-        echo     {"host": "100.110.230.55", "port": 8790, "alias": "Workstation Linux Tailscale"},
-        echo     {"host": "servidor-remoto", "port": 8790, "alias": "Servidor Remoto"}
-        echo   ]
-        echo }
-    ) > memory\peers.json
+    echo {"peers": []} > memory\peers.json
 )
 
 :: Perfil padrão se não existir

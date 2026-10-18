@@ -466,9 +466,21 @@ public class Acesso extends AccessibilityService {
         return r;
     }
 
+    public static String limparNomeApp(String s) {
+        if (s == null) return "";
+        String t = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "")
+            .toLowerCase(java.util.Locale.ROOT).trim();
+        t = t.replaceAll("^(?:abrir|abra|abre|inicie|iniciar|inicia|execute|executar|roda|rodar|lancar|lance|acessar|acesse|ver|mostrar|mostre)\\s+", "");
+        t = t.replaceAll("^(?:o|a|os|as|um|uma|uns|umas|meu|minha|meus|minhas|o\\s+meu|a\\s+minha)\\s+", "");
+        t = t.replaceAll("^(?:aplicativo|aplicacao|app|programa|ferramenta)\\s+(?:de|do|da|dos|das)?\\s*", "");
+        return t.replaceAll("[^a-z0-9]", "");
+    }
+
     private static boolean ehNavegador(String alvo) {
-        return alvo.equals("navegador") || alvo.equals("browser") || alvo.equals("internet") || alvo.equals("web")
-            || alvo.equals("chrome") || alvo.equals("chromium") || alvo.equals("googlechrome") || alvo.equals("google");
+        return alvo.equals("navegador") || alvo.contains("navegador") || alvo.equals("browser") || alvo.contains("browser")
+            || alvo.equals("internet") || alvo.equals("web") || alvo.equals("chrome") || alvo.contains("chrome")
+            || alvo.equals("chromium") || alvo.equals("googlechrome") || alvo.equals("google")
+            || alvo.equals("firefox") || alvo.equals("edge") || alvo.equals("brave") || alvo.equals("opera");
     }
 
     private JSONObject abrirNavegador() throws Exception {
@@ -498,11 +510,184 @@ public class Acesso extends AccessibilityService {
             .toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
+    private JSONObject abrirPorCategoria(String alvo) {
+        android.content.pm.PackageManager pm = getPackageManager();
+        try {
+            if (alvo.equals("calculadora") || alvo.contains("calculadora") || alvo.equals("calc")) {
+                String[] calcPkgs = {"com.google.android.calculator", "com.sec.android.app.popupcalculator",
+                    "com.android.calculator2", "com.motorola.calculator", "com.miui.calculator", "com.oneplus.calculator"};
+                for (String p : calcPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Calculadora").put("pacote", p);
+                    }
+                }
+                Intent ci = new Intent();
+                ci.setAction(Intent.ACTION_MAIN);
+                ci.addCategory(Intent.CATEGORY_APP_CALCULATOR);
+                ci.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (ci.resolveActivity(pm) != null) {
+                    startActivity(ci);
+                    return new JSONObject().put("ok", true).put("app", "Calculadora").put("pacote", "categoria");
+                }
+            }
+            if (alvo.equals("camera") || alvo.contains("camera") || alvo.equals("foto") || alvo.equals("tirarfoto")) {
+                Intent cam = new Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+                cam.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (cam.resolveActivity(pm) != null) {
+                    startActivity(cam);
+                    return new JSONObject().put("ok", true).put("app", "Câmera").put("pacote", "camera");
+                }
+            }
+            if (alvo.equals("galeria") || alvo.contains("galeria") || alvo.equals("fotos") || alvo.equals("albuns")) {
+                String[] galPkgs = {"com.google.android.apps.photos", "com.sec.android.gallery3d", "com.motorola.gallery", "com.android.gallery3d"};
+                for (String p : galPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Galeria").put("pacote", p);
+                    }
+                }
+                Intent gal = new Intent(Intent.ACTION_VIEW);
+                gal.setType("image/*");
+                gal.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (gal.resolveActivity(pm) != null) {
+                    startActivity(gal);
+                    return new JSONObject().put("ok", true).put("app", "Galeria").put("pacote", "intent");
+                }
+            }
+            if (alvo.equals("configuracoes") || alvo.contains("config") || alvo.equals("ajustes") || alvo.equals("definicoes")) {
+                Intent set = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                set.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(set);
+                return new JSONObject().put("ok", true).put("app", "Configurações").put("pacote", "settings");
+            }
+            if (alvo.equals("arquivos") || alvo.contains("arquivo") || alvo.equals("meusarquivos") || alvo.equals("downloads")) {
+                String[] arqPkgs = {"com.google.android.apps.nbu.files", "com.google.android.documentsui", "com.sec.android.app.myfiles"};
+                for (String p : arqPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Arquivos").put("pacote", p);
+                    }
+                }
+                Intent arq = new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS);
+                arq.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (arq.resolveActivity(pm) != null) {
+                    startActivity(arq);
+                    return new JSONObject().put("ok", true).put("app", "Arquivos").put("pacote", "downloads");
+                }
+            }
+            if (alvo.equals("relogio") || alvo.contains("relogio") || alvo.equals("alarme") || alvo.equals("despertador")) {
+                String[] clkPkgs = {"com.google.android.deskclock", "com.sec.android.app.clockpackage", "com.android.deskclock"};
+                for (String p : clkPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Relógio").put("pacote", p);
+                    }
+                }
+                Intent clk = new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS);
+                clk.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (clk.resolveActivity(pm) != null) {
+                    startActivity(clk);
+                    return new JSONObject().put("ok", true).put("app", "Relógio").put("pacote", "alarme");
+                }
+            }
+            if (alvo.equals("contatos") || alvo.contains("contato")) {
+                Intent cont = new Intent(Intent.ACTION_VIEW, android.provider.ContactsContract.Contacts.CONTENT_URI);
+                cont.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (cont.resolveActivity(pm) != null) {
+                    startActivity(cont);
+                    return new JSONObject().put("ok", true).put("app", "Contatos").put("pacote", "contatos");
+                }
+            }
+            if (alvo.equals("telefone") || alvo.contains("telefone") || alvo.equals("discar") || alvo.equals("chamadas")) {
+                Intent tel = new Intent(Intent.ACTION_DIAL);
+                tel.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(tel);
+                return new JSONObject().put("ok", true).put("app", "Telefone").put("pacote", "dial");
+            }
+            if (alvo.equals("mensagens") || alvo.contains("mensagem") || alvo.equals("sms")) {
+                String[] msgPkgs = {"com.google.android.apps.messaging", "com.samsung.android.messaging"};
+                for (String p : msgPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Mensagens").put("pacote", p);
+                    }
+                }
+            }
+            if (alvo.equals("email") || alvo.contains("email") || alvo.equals("gmail") || alvo.equals("correio")) {
+                Intent em = pm.getLaunchIntentForPackage("com.google.android.gm");
+                if (em != null) {
+                    em.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(em);
+                    return new JSONObject().put("ok", true).put("app", "Gmail").put("pacote", "com.google.android.gm");
+                }
+            }
+            if (alvo.equals("musica") || alvo.contains("musica") || alvo.equals("spotify")) {
+                String[] musPkgs = {"com.spotify.music", "com.google.android.apps.youtube.music", "com.sec.android.app.music"};
+                for (String p : musPkgs) {
+                    Intent i = pm.getLaunchIntentForPackage(p);
+                    if (i != null) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(i);
+                        return new JSONObject().put("ok", true).put("app", "Música").put("pacote", p);
+                    }
+                }
+            }
+            if (alvo.equals("mapas") || alvo.contains("mapa") || alvo.equals("gps")) {
+                Intent maps = pm.getLaunchIntentForPackage("com.google.android.apps.maps");
+                if (maps != null) {
+                    maps.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(maps);
+                    return new JSONObject().put("ok", true).put("app", "Google Maps").put("pacote", "com.google.android.apps.maps");
+                }
+            }
+            if (alvo.equals("playstore") || alvo.contains("playstore") || alvo.equals("loja") || alvo.equals("googleplay")) {
+                Intent ps = pm.getLaunchIntentForPackage("com.android.vending");
+                if (ps != null) {
+                    ps.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(ps);
+                    return new JSONObject().put("ok", true).put("app", "Google Play Store").put("pacote", "com.android.vending");
+                }
+            }
+            if (alvo.equals("whatsapp") || alvo.contains("whatsapp") || alvo.equals("zap") || alvo.equals("zapzap")) {
+                Intent wa = pm.getLaunchIntentForPackage("com.whatsapp");
+                if (wa != null) {
+                    wa.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(wa);
+                    return new JSONObject().put("ok", true).put("app", "WhatsApp").put("pacote", "com.whatsapp");
+                }
+            }
+            if (alvo.equals("youtube") || alvo.contains("youtube")) {
+                Intent yt = pm.getLaunchIntentForPackage("com.google.android.youtube");
+                if (yt != null) {
+                    yt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(yt);
+                    return new JSONObject().put("ok", true).put("app", "YouTube").put("pacote", "com.google.android.youtube");
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     private JSONObject abrir(String nome) throws Exception {
+        String alvoLimpo = limparNomeApp(nome);
         String alvo = norm(nome);
-        if (alvo.isEmpty()) return new JSONObject().put("ok", false).put("erro", "nome vazio");
-        if (ehNavegador(alvo)) return abrirNavegador();
-        if (alvo.equals("agenda") || alvo.equals("calendario") || alvo.equals("minhaagenda") || alvo.contains("agendafriday")) {
+        if (alvoLimpo.isEmpty() && alvo.isEmpty()) return new JSONObject().put("ok", false).put("erro", "nome vazio");
+        String chave = alvoLimpo.isEmpty() ? alvo : alvoLimpo;
+
+        if (ehNavegador(chave) || ehNavegador(alvo)) return abrirNavegador();
+
+        if (chave.equals("agenda") || chave.equals("calendario") || chave.equals("minhaagenda") || chave.contains("agendafriday")) {
             Intent i = new Intent(this, MainActivity.class)
                 .putExtra("aba", "agenda")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -510,7 +695,7 @@ public class Acesso extends AccessibilityService {
             try { Flutuante.agendaPainel(this); } catch (Exception ignored) {}
             return new JSONObject().put("ok", true).put("app", "Agenda da Sexta-Feira").put("pacote", getPackageName());
         }
-        if (alvo.equals("dev") || alvo.equals("mododev") || alvo.equals("ide")) {
+        if (chave.equals("dev") || chave.equals("mododev") || chave.equals("ide")) {
             Intent i = new Intent(this, MainActivity.class)
                 .putExtra("aba", "dev")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -518,13 +703,25 @@ public class Acesso extends AccessibilityService {
             try { Flutuante.ide(this, true); } catch (Exception ignored) {}
             return new JSONObject().put("ok", true).put("app", "Modo Dev IDE").put("pacote", getPackageName());
         }
+
+        JSONObject cat = abrirPorCategoria(chave);
+        if (cat != null && cat.optBoolean("ok")) return cat;
+
         String[] melhor = null; int nota = 0;
         for (String[] ap : apps()) {
-            String n = norm(ap[0]), pk = ap[1].toLowerCase(java.util.Locale.ROOT);
-            int v = n.equals(alvo) ? 100 : n.startsWith(alvo) ? 80 : n.contains(alvo) ? 60 : pk.contains(alvo) ? 50 : alvo.contains(n) && n.length() >= 4 ? 40 : 0;
+            String n = norm(ap[0]), nl = limparNomeApp(ap[0]), pk = ap[1].toLowerCase(java.util.Locale.ROOT);
+            int v = (n.equals(chave) || nl.equals(chave)) ? 100 :
+                    (n.startsWith(chave) || nl.startsWith(chave)) ? 80 :
+                    (n.contains(chave) || nl.contains(chave)) ? 60 :
+                    pk.contains(chave) ? 50 :
+                    (chave.contains(n) && n.length() >= 4) ? 40 : 0;
             if (v > nota) { nota = v; melhor = ap; }
         }
-        if (melhor == null) return new JSONObject().put("ok", false).put("erro", "app não encontrado: " + nome);
+        if (melhor == null) {
+            JSONObject cat2 = abrirPorCategoria(alvo);
+            if (cat2 != null && cat2.optBoolean("ok")) return cat2;
+            return new JSONObject().put("ok", false).put("erro", "app não encontrado: " + nome);
+        }
         Intent i = getPackageManager().getLaunchIntentForPackage(melhor[1]);
         if (i == null) return new JSONObject().put("ok", false).put("erro", "app sem tela inicial: " + melhor[0]);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
@@ -608,6 +805,53 @@ public class Acesso extends AccessibilityService {
             return new JSONObject().put("ok", false).put("erro", "bloqueado: não toco em mim mesma (F.R.I.D.A.Y.)");
         AccessibilityNodeInfo c = clicavel(melhor[0]);
         return new JSONObject().put("ok", clicar(c != null ? c : melhor[0])).put("tocou", rotulo(melhor[0]));
+    }
+
+    JSONObject fecharAviso() throws Exception {
+        final AccessibilityNodeInfo[] alvo = {null};
+        final String[] nomeAlvo = {""};
+        for (AccessibilityNodeInfo r : raizes()) {
+            varrer(r, 0, n -> {
+                if (alvo[0] != null || !n.isVisibleToUser()) return;
+                String rot = norm(rotulo(n));
+                String id = n.getViewIdResourceName() == null ? "" : n.getViewIdResourceName().toLowerCase(java.util.Locale.ROOT);
+                if (rot.contains("friday")) return; // não toca em si mesma
+                boolean fechar = false;
+                if (rot.equals("x") || rot.equals("×") || rot.equals("✕") || rot.equals("close") || rot.equals("fechar")
+                    || rot.equals("fechar anuncio") || rot.equals("close ad") || rot.equals("pular anuncio")
+                    || rot.equals("skip ad") || rot.equals("pular") || rot.equals("skip")
+                    || rot.equals("dispensar") || rot.equals("dismiss") || rot.equals("agora nao")
+                    || rot.equals("not now") || rot.equals("recusar") || rot.equals("rejeitar")
+                    || rot.equals("aceitar tudo") || rot.equals("accept all") || rot.equals("aceitar cookies")
+                    || rot.equals("aceitar") || rot.equals("concordo") || rot.equals("entendi")
+                    || rot.equals("continuar para o site") || rot.equals("prosseguir")
+                    || rot.startsWith("fechar ") || rot.startsWith("pular ") || rot.startsWith("dispensar ")) {
+                    fechar = true;
+                } else if (!id.isEmpty() && (id.contains("close") || id.contains("dismiss") || id.contains("skip_ad")
+                        || id.contains("btn_close") || id.contains("ad_close") || id.contains("cancel_ad") || id.contains("close_button"))) {
+                    fechar = true;
+                }
+                if (fechar && (n.isClickable() || clicavel(n) != null || n.getViewIdResourceName() != null)) {
+                    alvo[0] = n;
+                    nomeAlvo[0] = rot.isEmpty() ? id : rot;
+                }
+            });
+            if (alvo[0] != null) break;
+        }
+        if (alvo[0] != null) {
+            AccessibilityNodeInfo c = clicavel(alvo[0]);
+            boolean ok = clicar(c != null ? c : alvo[0]);
+            if (ok) Thread.sleep(250);
+            return new JSONObject().put("ok", ok).put("fechou", nomeAlvo[0]);
+        }
+        String[] alvos = {"fechar anúncio", "close ad", "pular anúncio", "skip ad", "dispensar", "dismiss", "aceitar tudo", "accept all", "aceitar cookies", "aceitar", "concordo", "entendi", "agora não", "fechar", "pular", "skip", "x"};
+        for (String a : alvos) {
+            try {
+                JSONObject r = tocarTexto(a);
+                if (r != null && r.optBoolean("ok")) return r;
+            } catch (Exception ignored) {}
+        }
+        return new JSONObject().put("ok", false);
     }
 
     JSONObject rolar(boolean cima) throws Exception {

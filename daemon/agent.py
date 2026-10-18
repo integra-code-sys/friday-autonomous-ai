@@ -1101,20 +1101,166 @@ def t_criar_ou_modificar_tela(nome="", tipo="qml", codigo="", titulo="", **_):
     return res.get("mensagem") or res.get("erro") or "Tela processada."
 
 
+def _orq_motor():
+    """liga o motor do orquestrador (fila + sessão longa em segundo plano). False = dono pausou; None = indisponível."""
+    try:
+        import orchestrator
+        return orchestrator.get_orquestrador().garantir_motor()
+    except Exception:
+        return None
+
+
+_UNID_Q = {"segundo": "s", "segundos": "s", "seg": "s", "s": "s", "minuto": "m", "minutos": "m", "min": "m", "m": "m",
+           "hora": "h", "horas": "h", "h": "h", "dia": "d", "dias": "d", "d": "d"}
+
+
+def _quando_fila(quando):
+    """'+2h', 'daqui a 2 horas', 'em 10 minutos', 'amanhã 9h', 'sexta 14h', ISO ou epoch -> (valor p/ orquestra_geral, epoch).
+    Vazio = agora. Horário que não entende vira ERRO (o orquestra_geral trataria texto inválido como 'agora')."""
+    if quando is None or str(quando).strip() == "":
+        return "", 0.0
+    if isinstance(quando, (int, float)):
+        ts = float(quando)
+    else:
+        q = str(quando).strip().lower()
+        if q in ("agora", "já", "ja", "imediatamente", "0"):
+            return "", 0.0
+        m = re.fullmatch(r"\+\s*(\d+(?:\.\d+)?)\s*([smhd]?)", q)
+        if m:
+            return "+" + m.group(1) + m.group(2), time.time() + float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)]
+        m = re.fullmatch(r"(?:daqui\s+a|daqui|em|dentro\s+de)\s+(\d+(?:[.,]\d+)?)\s*([a-z]+)", q)
+        if m and m.group(2) in _UNID_Q:
+            n, u = m.group(1).replace(",", "."), _UNID_Q[m.group(2)]
+            return "+" + n + u, time.time() + float(n) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[u]
+        if re.match(r"(?:daqui(?:\s+a)?|em|dentro\s+de)\s+\d", q):          # "daqui a 2 semanas": parse_quando leria "a 2" como "às 2h"
+            raise ValueError(f"não entendi o horário '{quando}'. Use +30m, +2h, +3d, 'amanhã 9h' ou 2026-10-19T09:00")
+        try:
+            ts = float(q)
+        except ValueError:
+            from prom_ops import parse_quando
+            ts = parse_quando(q)
+            if ts is None:
+                try:
+                    from datetime import datetime
+                    ts = datetime.fromisoformat(str(quando).strip()).timestamp()
+                except ValueError:
+                    ts = None
+    if not ts:
+        raise ValueError(f"não entendi o horário '{quando}'. Use +30m, +2h, 'amanhã 9h', 'sexta 14h' ou 2026-10-19T09:00")
+    if ts < time.time() - 60:
+        raise ValueError(f"o horário '{quando}' já passou")
+    return str(int(ts)), ts
+
+
 def t_orquestra_iniciar(pedido="", **_):
-    """Abre uma sessão longa: plano, primeiro passo, estado em disco."""
-    import orquestra_geral as og
-    s = og.sessao_nova(pedido)
-    if not s.get("ok"):
-        return s.get("fala") or "recusado"
-    r = og.avancar()
-    return (r.get("fala") or "sessão aberta")[:800]
+    """Abre uma sessão longa: plano, primeiro passo, estado em disco; o motor segue os passos em segundo plano."""
+    if not str(pedido or "").strip():
+        return "faltou o pedido"
+    try:
+        import orquestra_geral as og
+        import orchestrator
+        with orchestrator.OG_LOCK:                       # um avancar() por vez (motor e objetivos usam a mesma sessão)
+            atual = og.status().get("sessao") or {}
+            if atual.get("status") == "ativa":           # só um objetivo ativo: o novo espera na fila
+                r = og.enfileirar(pedido, quando="")
+                if not r.get("ok"):
+                    return r.get("fala") or "recusado"
+                _orq_motor()
+                return (f"Já tem uma sessão ativa ({str(atual.get('pedido') or '')[:80]}); coloquei este na fila "
+                        f"({(r.get('item') or {}).get('id')}), começa quando ela acabar.")
+            s = og.sessao_nova(pedido)
+            if not s.get("ok"):
+                return s.get("fala") or "recusado"
+            r = og.avancar()
+    except Exception as e:
+        return f"o orquestrador falhou: {str(e)[:160]}"
+    fala = (r.get("fala") or "sessão aberta")[:700]
+    if _orq_motor() is False:
+        fala += " (orquestrador pausado: diga retomar para seguir os próximos passos)"
+    return fala[:800]
 
 
-def t_orquestra_fila(pedido="", **_):
-    import orquestra_geral as og
-    r = og.enfileirar(pedido)
-    return r.get("fala") or ("na fila: " + str((r.get("item") or {}).get("id")))
+def t_orquestra_fila(pedido="", quando="", **_):
+    """Põe um objetivo na fila do orquestrador, agora ou num horário (quando); só um fica ativo por vez."""
+    if not str(pedido or "").strip():
+        return "faltou o pedido"
+    try:
+        import orquestra_geral as og
+        q, ts = _quando_fila(quando)
+        r = og.enfileirar(pedido, quando=q)
+    except Exception as e:
+        return f"não coloquei na fila: {str(e)[:180]}"
+    if not r.get("ok"):
+        return r.get("fala") or "recusado"
+    item = r.get("item") or {}
+    msg = f"na fila: {item.get('id')}" + (f", começa {time.strftime('%d/%m %H:%M', time.localtime(ts))}" if ts else ", começa assim que a sessão atual acabar")
+    if _orq_motor() is False:
+        msg += " (orquestrador pausado: só roda depois que o dono disser retomar)"
+    return msg
+
+
+def _quando_txt(it):
+    q = str(it.get("quando") or "").strip()
+    if not q:
+        return "agora"
+    m = re.fullmatch(r"\+(\d+(?:\.\d+)?)\s*([smhd]?)", q)
+    try:
+        ts = float(it.get("t") or 0) + float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}[m.group(2)] if m else float(q)
+        return time.strftime("%d/%m %H:%M", time.localtime(ts))
+    except (ValueError, OverflowError, OSError):
+        return q[:20]
+
+
+def t_orquestra_status(**_):
+    """Estado do orquestrador: sessão longa (passo atual/total), fila com horários e se está pausado."""
+    try:
+        import orquestra_geral as og
+        st = og.status() or {}
+    except Exception as e:
+        return f"não consegui ler o orquestrador: {str(e)[:160]}"
+    linhas = []
+    try:
+        import orchestrator
+        m = orchestrator.get_orquestrador().motor_estado()
+        linhas.append("motor: " + ("PAUSADO" if m.get("pausado") else ("rodando" if m.get("rodando") else "parado")))
+    except Exception:
+        pass
+    ses = st.get("sessao") or {}
+    if ses:
+        passos = (ses.get("plano") or {}).get("passos") or []
+        feitos = sum(1 for p in passos if p.get("estado") in ("ok", "pulado"))
+        ult = ((ses.get("evidencia") or [{}])[-1] or {}).get("res") or ""
+        linhas.append(f"sessão {ses.get('id')}: {ses.get('status')}, {feitos}/{len(passos)} passos: {str(ses.get('pedido') or '')[:120]}"
+                      + (f"; próximo: {ses.get('proximo')}" if ses.get("proximo") else "") + (f"; último: {str(ult)[:160]}" if ult else ""))
+    else:
+        linhas.append("nenhuma sessão longa")
+    itens = (st.get("fila") or {}).get("itens") or []
+    pend = [i for i in itens if i.get("status") in ("esperando", "ativo")]
+    linhas.append(f"fila: {len(pend)} pendente(s), {sum(1 for i in itens if i.get('status') == 'feito')} feita(s)")
+    linhas += [f"- [{i.get('id')}] {i.get('status')} ({_quando_txt(i)}): {str(i.get('pedido') or '')[:90]}" for i in pend[:8]]
+    return "\n".join(linhas)
+
+
+def t_orquestra_pausar(id="", **_):
+    """Pausa o orquestrador (sessão longa + fila ficam salvas); com id, pausa só aquele objetivo contínuo."""
+    try:
+        import orchestrator
+        orc = orchestrator.get_orquestrador()
+        res = orc.parar_objetivo(id) if str(id or "").strip() else orc.pausar_motor()
+    except Exception as e:
+        return f"não consegui pausar: {str(e)[:160]}"
+    return res.get("mensagem") or res.get("erro") or "pausado"
+
+
+def t_orquestra_retomar(id="", **_):
+    """Retoma o orquestrador pausado (e a sessão que esperava o dono); com id, retoma aquele objetivo contínuo."""
+    try:
+        import orchestrator
+        orc = orchestrator.get_orquestrador()
+        res = orc.retomar_objetivo(str(id).strip()) if str(id or "").strip() else orc.retomar_motor()
+    except Exception as e:
+        return f"não consegui retomar: {str(e)[:160]}"
+    return res.get("mensagem") or res.get("erro") or "retomado"
 
 
 def t_pensar_estrategia(objetivo="", contexto="", **_):
@@ -1831,14 +1977,20 @@ TOOLS = {
     "acao": (t_acao, '{"t":"abrir_app|janela|sistema|agenda|email|holo|manual|programar","...":"parâmetros da ação"}',
              "executa uma ação no PC (abrir app, foco de janela, volume, agenda, e-mail, holograma, programar; NÃO use manual para documentos/planilhas)"),
     "orquestra_iniciar": (t_orquestra_iniciar, '{"pedido":"tarefa completa"}',
-                          "sessão longa: pensa, grava o plano e executa o primeiro passo (retomável)"),
-    "orquestra_fila": (t_orquestra_fila, '{"pedido":"outra tarefa"}',
-                       "coloca um objetivo na fila; só um fica ativo"),
+                          "sessão longa (faz X por horas): pensa, grava o plano, executa o primeiro passo e segue sozinha em segundo plano"),
+    "orquestra_fila": (t_orquestra_fila, '{"pedido":"outra tarefa","quando":"vazio = agora; +30m, +2h, +1d, amanhã 9h, sexta 14h, daqui a 2 horas ou 2026-10-19T09:00"}',
+                       "agenda um objetivo longo para depois (amanhã às 9h faça Y, daqui 2 horas faça Z) ou põe na fila; só um fica ativo"),
+    "orquestra_status": (t_orquestra_status, "{}",
+                         "mostra a sessão longa do orquestrador (passo atual/total), a fila com horários e se está pausado"),
+    "orquestra_pausar": (t_orquestra_pausar, '{"id":"vazio = orquestrador inteiro; ou id de um objetivo contínuo"}',
+                         "pausa o orquestrador (sessão longa e fila ficam salvas) ou um objetivo contínuo pelo id"),
+    "orquestra_retomar": (t_orquestra_retomar, '{"id":"vazio = orquestrador inteiro; ou id de um objetivo contínuo"}',
+                          "retoma o orquestrador pausado (ou a sessão que esperava o dono) ou um objetivo contínuo pelo id"),
 }
 
 # ------------------------------------------------------------------ F6: verificação do EFEITO REAL de cada ferramenta
 LEITURA = {"pesquisar_web", "navegar_web", "tarefa_adaptativa", "analisar_dificuldade_tela", "reconhecer_emocao", "reconhecer_gestos",
-           "percepcao_situacional", "consultar_objetivos_ativos", "pensar_estrategia", "operar_outra_ia", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
+           "percepcao_situacional", "consultar_objetivos_ativos", "orquestra_status", "pensar_estrategia", "operar_outra_ia", "ler_pagina", "ler_arquivo", "resumir", "ver_tela", "listar_apps", "pc_perfil", "resumo_emails",
            "resumo_conversa", "cel_ver", "consultar_ia", "apontar", "camera_ver", "camera_em_volta", "camera_procurar", "camera_zoom", "camera_onde", "zap_ler"}           # só leem: o "final" delas é a própria resposta
 VISUAIS = {"clicar_texto", "clicar_elemento", "digitar", "tecla", "rolar", "abrir_site", "abrir_app", "acao", "pular_anuncio"}
 _NEG = re.compile(r"\b(n[ãa]o consegui|n[ãa]o deu|falhou|n[ãa]o achei|n[ãa]o encontrei|travei|n[ãa]o foi poss[íi]vel)\b", re.I)

@@ -112,6 +112,7 @@ public class MainActivity extends Activity {
         Voz.get(this).preparar();                                   // voz Supertonic (a mesma do PC) carrega em 2º plano
         Sincronizador.iniciarVigia(this);                           // auto-descoberta e sincronização bidirecional do cluster
         assistente(getIntent());
+        pedidoDoIntent(getIntent());
         setContentView(web);
         imersivo();
         if (!temPermissoes()) pedirPermissoes();
@@ -135,7 +136,16 @@ public class MainActivity extends Activity {
         if (asst) web.postDelayed(() -> web.evaluateJavascript("window.modoAssistente&&modoAssistente()", null), 900);
     }
 
-    @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); assistente(i); }
+    @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); assistente(i); pedidoDoIntent(i); }
+
+    private void pedidoDoIntent(Intent i) {
+        if (i == null) return;
+        String t = i.getStringExtra("pedido");
+        if (t == null || t.trim().isEmpty()) return;
+        i.removeExtra("pedido");
+        final String pedido = t.trim();
+        trabalho.submit(() -> Cerebro.get(this).pedir(pedido, "texto"));
+    }
 
     private Ouvido ouvidoInst;
     private Ouvido ouvido() { if (ouvidoInst == null) ouvidoInst = new Ouvido(this); return ouvidoInst; }

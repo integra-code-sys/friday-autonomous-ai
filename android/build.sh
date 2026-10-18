@@ -6,7 +6,8 @@ A="$HOME/.local/android"; export JAVA_HOME="$(ls -d "$A"/jdk-17*)"; PATH="$JAVA_
 BT="$A/sdk/build-tools/34.0.0"; JAR="$A/sdk/platforms/android-34/android.jar"
 B="$D/build"; rm -rf "$B"; mkdir -p "$B/res" "$B/gen" "$B/cls" "$B/dex" "$D/dist"
 "$BT/aapt2" compile --dir "$D/res" -o "$B/res/"
-"$BT/aapt2" link -o "$B/base.apk" -I "$JAR" --manifest "$D/AndroidManifest.xml" -A "$D/assets" --java "$B/gen" "$B"/res/*.flat --auto-add-overlay
+mkdir -p "$B/assets" && cp -r "$D/assets/." "$B/assets/" && rm -f "$B/assets/voz_dono.json"        # perfil de voz é do dono: nunca vai no APK comercial
+"$BT/aapt2" link -o "$B/base.apk" -I "$JAR" --manifest "$D/AndroidManifest.xml" -A "$B/assets" --java "$B/gen" "$B"/res/*.flat --auto-add-overlay
 find "$D/src" "$B/gen" -name '*.java' | sed 's/.*/"&"/' > "$B/fontes.txt"          # o caminho tem espaço: lista via @arquivo
 ORT="$A/libs/ort"                                                                    # ONNX Runtime (voz Supertonic)
 javac -source 11 -target 11 -nowarn -classpath "$JAR:$ORT/classes.jar" -d "$B/cls" @"$B/fontes.txt" > "$B/javac.log" 2>&1 \

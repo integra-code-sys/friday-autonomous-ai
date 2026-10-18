@@ -180,16 +180,22 @@ def _plano_heuristico(pedido):
     t = _norm(pedido)
     def seq(itens):
         return [_passo(i, p) for i, p in enumerate(itens, 1)]
-    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig|procur|loja|site", t):
+    # "abre o chrome" sem busca/site/loja é abrir app, não pesquisa web pela palavra "chrome"
+    so_abrir = not re.search(r"pesquis|busc|investig|procur|loja|site", t) and re.search(r"\b(?:abr(?:e|a|ir|iu))\b", t)
+    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig|procur|loja|site", t) and not so_abrir:
         q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|investig\w*|procur\w*)\s+", "", pedido, count=1)
         # Identifica se o usuário quer preparar mensagem/documento depois da busca
         quer_msg = bool(re.search(r"\b(prepar\w*|escrev\w*|redig\w*|mand\w*|envi\w*)\s+(?:uma\s+)?(?:mensagem|nota|texto|comunicado)\b", pedido, re.I))
         quer_doc = bool(re.search(r"\b(cri\w*|ger\w*|mont\w*|escrev\w*|redig\w*|faz\w*|fa[çc]\w*)\s+(?:um\s+|uma\s+)?(?:documento|relat[óo]rio|resumo|artigo|dossi[êe]|analise|an[áa]lise|docs?|docx|pdf|planilh\w*)\b", pedido, re.I))
-        dest_match = re.search(r"(?:para|pro|pra)\s+([a-zA-Z0-9_\-\s]{2,40})", pedido, re.I)
+        # \b evita casar "para" dentro de "prepara/compara/separa"; \w aceita acento (João); prefere o "para" depois de "mensagem"
+        dest_re = r"\b(?:para|pro|pra)\s+(?:[oa]s?\s+)?([\w\-\s]{2,40})"
+        dest_match = re.search(r"(?:mensagem|nota|texto|comunicado)\b.*?" + dest_re, pedido, re.I) or re.search(dest_re, pedido, re.I)
         dest_nome = dest_match.group(1).strip() if dest_match else "Integra Code"
+        dest_nome = re.split(r"(?i)\s+(?:e|sobre|com|que|dizendo|falando)\s+", dest_nome)[0].strip() or "Integra Code"
 
         q = re.split(r"(?i)\s+e\s+(?:depois\s+)?(?:mand\w*|envi\w*|escrev\w*|cri\w*|mont\w*|prepar\w*|redig\w*)\b", q, maxsplit=1)[0]
-        q = re.sub(r"(?iu)\b(?:e\s+)?(?:entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+|o\s+|a\s+)?(?:site|p[áa]gina|loja|portal)?\s*(?:oficial\s+)?(?:da\s+|do\s+|de\s+)?", " ", q)
+        # só verbos (entra/acesse/abre); entr\w*/acess\w*/abr\w* comiam "entrega", "acessórios", "abril"
+        q = re.sub(r"(?iu)\b(?:e\s+)?(?:entr(?:a|ar|ou)|entre(?=\s+(?:no|na|em)\b)|acess(?:e|a|ar|ou)|abr(?:e|a|ir|iu))\s+(?:no\s+|na\s+|ao\s+|o\s+|a\s+)?(?:site|p[áa]gina|loja|portal)?\s*(?:oficial\s+)?(?:da\s+|do\s+|de\s+)?", " ", q)
         q = re.sub(r"(?iu)\b(?:sexta[- ]?feira|friday|por\s+favor|me\s+fala|me\s+diz|site\s+oficial\s+da|site\s+oficial\s+do|site\s+oficial)\b", " ", q)
         q = re.sub(r"(?iu)\b(?:fortinate)\b", "fortnite", q)
         q = re.sub(r"\s+", " ", q).strip(" ,.!?") or pedido[:120]
@@ -303,7 +309,7 @@ def _focar_digitando(texto):
         return False, "sem ydotool/SendInput"
     try:
         if not str(texto or ""):
-            return True, "sem texto"
+            return False, "sem texto para digitar"
         ih = _input()
         ok = ih.type_text(str(texto))
         return bool(ok), "teclado" if ok else "teclado não aceitou"
@@ -311,16 +317,39 @@ def _focar_digitando(texto):
         return False, str(e)[:120]
 
 
+def _alvo_bate(alvo, w):
+    """A janela em foco (Windows) é a do alvo? Navegador aceita qualquer navegador conhecido."""
+    if not alvo:
+        return True
+    vistos = _norm(str(w.get("app_id") or "") + " " + str(w.get("titulo") or ""))
+    try:
+        import abrir_nativo
+        chave = _norm(abrir_nativo.chave_janela(alvo))
+    except Exception:
+        chave = _norm(alvo)
+    navs = ("chrom", "msedge", "firefox", "brave", "opera")
+    if chave in navs and any(b in vistos for b in navs):
+        return True
+    if chave == "wt":
+        chave = "windowsterminal"
+    return bool(chave) and chave in vistos
+
+
 def _cursor_na_janela(alvo):
     try:
         if sys.platform == "win32":
             import win_compat
             w = win_compat.janela_em_foco() or {}
-            rect = w.get("rect") or [200, 200, 800, 600]
-            if input_disponivel() and len(rect) >= 4:
-                win_compat.mouse_move(int(rect[0]) + int(rect[2]) // 2, int(rect[1]) + 80)
             titulo = w.get("titulo") or w.get("app_id") or ""
-            return bool(titulo or w.get("id")), "cursor na janela " + str(titulo)[:80]
+            if not (titulo or w.get("id")):
+                return False, "nenhuma janela em foco"
+            if not _alvo_bate(alvo, w):
+                return False, "janela em foco não é " + str(alvo)[:40] + ": " + str(titulo)[:60]
+            rect = w.get("rect") or [200, 200, 800, 600]
+            moveu = False
+            if input_disponivel() and len(rect) >= 4:
+                moveu = bool(win_compat.mouse_move(int(rect[0]) + int(rect[2]) // 2, int(rect[1]) + 80))
+            return True, ("cursor na janela " if moveu else "janela em foco, cursor não moveu: ") + str(titulo)[:80]
         import friday as fr
         import abrir_nativo
         key = abrir_nativo.chave_janela(alvo or "navegador")
@@ -328,10 +357,10 @@ def _cursor_na_janela(alvo):
         if not w:
             return False, "janela não apareceu no compositor"
         g = fr._tile_geo(w)
-        if g and input_disponivel():
-            _input().mouse_move(g[0] + g[2] // 2, g[1] + max(40, g[3] // 5))
-        fr._niri("focus-window", "--id", str(w["id"]))
-        return True, "cursor na janela"
+        moveu = bool(g) and input_disponivel() and bool(_input().mouse_move(g[0] + g[2] // 2, g[1] + max(40, g[3] // 5)))
+        if not fr._niri("focus-window", "--id", str(w["id"])):
+            return False, "niri não focou a janela " + str(w.get("app_id") or key)[:60]
+        return True, "cursor na janela" if moveu else "janela focada, cursor não moveu"
     except Exception as e:
         return False, str(e)[:140]
 
@@ -353,6 +382,43 @@ def _ler_tela():
         return "tela não lida: " + str(e)[:120]
 
 
+def _tela_ok(txt):
+    """Leitura válida? O texto de erro de _ler_tela não é conteúdo."""
+    return bool(txt) and not str(txt).startswith("tela não lida")
+
+
+_ESPERA_TELA = 0.4   # tempo para a tela redesenhar antes de conferir
+
+
+def _assinatura_tela():
+    """VER barato: miniatura cinza 96x54 da tela (grim; mss/PIL no Windows). None se a captura falhar."""
+    try:
+        import cv2
+        import numpy as np
+        img = None
+        if sys.platform != "win32" and shutil.which("grim"):
+            raw = subprocess.run(["grim", "-s", "0.25", "-t", "ppm", "-"], capture_output=True, timeout=4).stdout
+            if raw:
+                img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            import win_compat
+            cor = win_compat.capturar_tela()
+            if cor is not None:
+                img = cv2.cvtColor(cor, cv2.COLOR_BGR2GRAY)
+        if img is None:
+            return None
+        return cv2.resize(img, (96, 54), interpolation=cv2.INTER_AREA).tobytes()
+    except Exception:
+        return None
+
+
+def _tela_mudou(antes, depois, tol=3):
+    """CONFERIR: True/False; None sem captura (aí não bloqueia). Conservador: só diz 'não mudou' se nenhum pixel variou."""
+    if antes is None or depois is None or len(antes) != len(depois):
+        return None
+    return any(abs(x - y) > tol for x, y in zip(antes, depois))
+
+
 def _garantir_janela(alvo):
     """Cursor na janela. Se ela não existe, abre o app e leva o cursor. Sem shell."""
     foc, msg = _cursor_na_janela(alvo or "navegador")
@@ -365,10 +431,11 @@ def _garantir_janela(alvo):
         time.sleep(0.5)
         foc, msg = _cursor_na_janela(nome)
         if foc:
-            return True, aberto + "; " + msg, "cursor"
+            return True, str(aberto) + "; " + msg, "cursor"
         if ok:
-            return True, aberto + "; janela ainda sem geometria", "cursor"
-        return False, aberto or msg, ""
+            # app lançado mas o compositor ainda não confirmou: via "app" para a ação ser conferida na tela
+            return True, str(aberto) + "; janela ainda sem geometria", "app"
+        return False, str(aberto or msg), ""
     except Exception as e:
         return False, str(e)[:140], ""
 
@@ -427,24 +494,53 @@ def _urls_da_busca(consulta):
 
 def _abrir_fonte(url):
     ok, msg, _via = _garantir_janela("navegador")
+    como = "sem ydotool/SendInput" if ok else msg
     if ok and input_disponivel():
-        _tecla("ctrl+l")
-        digitou, _como = _focar_digitando(url)
-        if digitou:
-            _tecla("enter")
-            return {"ok": True, "evidencia": "abri na barra: " + url, "via": "teclado"}
+        if _tecla("ctrl+l"):
+            digitou, como = _focar_digitando(url)
+            if digitou and _tecla("enter"):
+                return {"ok": True, "evidencia": "abri na barra: " + url, "via": "teclado"}
+            if digitou:
+                como = "enter não foi aceito"
+        else:
+            como = "ctrl+l não foi aceito"
     import abrir_nativo
     ok2, msg2 = abrir_nativo.abrir_url(url)
-    return {"ok": bool(ok2), "evidencia": "teclado não abriu a fonte; fallback " + str(msg2) + " " + url, "via": "fallback"}
+    return {"ok": bool(ok2), "evidencia": "teclado não abriu a fonte (" + str(como) + "); fallback " + str(msg2) + " " + url, "via": "fallback"}
+
+
+_ACOES_CURSOR = {"cursor", "focar", "abrir_navegador", "navegador", "abrir_app", "app"}
+_CONFERE_TELA = {"clicar", "teclado", "digitar"} | _ACOES_CURSOR
 
 
 def executar_acao(acao, args=None):
-    args = args or {}
+    """VER -> AGIR -> CONFERIR. Exceção vira falha (não derruba o loop) e ação de tela
+    sem efeito visível vira falha com 'tela não mudou' (avancar() troca de caminho)."""
     a = (acao or "").strip().lower()
-    if a in {"cursor", "focar", "abrir_navegador", "navegador", "abrir_app", "app"}:
-        alvo = args.get("alvo") or args.get("nome") or ("navegador" if "naveg" in a or a == "navegador" else "")
+    antes = _assinatura_tela() if a in _CONFERE_TELA else None
+    try:
+        r = _executar_acao(a, args if isinstance(args, dict) else {})
+    except Exception as e:
+        return {"ok": False, "evidencia": "ação " + a + " falhou: " + type(e).__name__ + ": " + str(e)[:160], "via": "erro"}
+    if not isinstance(r, dict):
+        r = {"ok": bool(r), "evidencia": str(r or "")[:800], "via": ""}
+    # sem captura (antes/depois None) a ação não é bloqueada; foco confirmado pelo compositor dispensa pixel
+    if antes is not None and r.get("ok") and not r.get("conferido"):
+        time.sleep(_ESPERA_TELA * (1 if a in {"clicar", "teclado", "digitar"} else 3))
+        if _tela_mudou(antes, _assinatura_tela()) is False:
+            r["ok"] = False
+            r["evidencia"] = "tela não mudou após " + a + "; " + str(r.get("evidencia") or "")[:600]
+    return r
+
+
+def _executar_acao(a, args):
+    if a in _ACOES_CURSOR:
+        alvo = args.get("alvo") or args.get("nome") or args.get("app") or ("navegador" if "naveg" in a or a == "navegador" else "")
         ok, msg, via = _garantir_janela(alvo or "navegador")
-        return {"ok": ok, "evidencia": msg, "via": via or "cursor"}
+        r = {"ok": ok, "evidencia": msg, "via": via or "cursor"}
+        if ok and via == "cursor":
+            r["conferido"] = "compositor"
+        return r
     if a == "coletar":
         q = args.get("consulta") or args.get("q") or ""
         urls, bruto = _urls_da_busca(q)
@@ -516,7 +612,7 @@ def executar_acao(acao, args=None):
         lidos = [x for x in _ACHADOS.get("textos") or [] if len(x.get("txt") or "") >= 20]
         if not lidos:
             tela = _ler_tela()
-            if len(tela) > 30:
+            if _tela_ok(tela) and len(tela) > 30:
                 lidos = [{"url": "tela_atual", "txt": tela}]
         if not lidos:
             return {"ok": False, "evidencia": "nenhuma informação encontrada na tela ou fontes.", "via": "tela"}
@@ -551,14 +647,14 @@ def executar_acao(acao, args=None):
         resumo = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', resumo)
         resumo = re.sub(r'<think>.*?</think>', '', resumo, flags=re.DOTALL).strip()
         return {"ok": True, "evidencia": resumo, "via": "tela"}
-    if a in {"preparar_mensagem", "redigir_mensagem", "mensagem"}:
+    if a in {"preparar_mensagem", "redigir_mensagem"}:   # "mensagem" vai para mensagem() (mensageiro na tela)
         dest = args.get("para") or "Integra Code"
         pedido = args.get("pedido") or ""
         achados = _ACHADOS.get("textos") or []
         dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in achados])
         if not dados_fonte:
             tela = _ler_tela()
-            dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else "Dados apurados na navegação."
+            dados_fonte = f"Contexto visual da tela:\n{tela}" if _tela_ok(tela) and len(tela) > 20 else "Dados apurados na navegação."
 
         data_atual = time.strftime("%d/%m/%Y")
         prompt_msg = (
@@ -623,8 +719,9 @@ def executar_acao(acao, args=None):
         except Exception as e:
             return {"ok": False, "evidencia": f"falha ao gravar mensagem: {e}", "via": "fallback"}
     if a == "perguntar":
-        return {"ok": True, "bloqueio": True, "evidencia": args.get("texto") or "falta um dado que só o dono sabe", "via": "tela"}
-    if a in {"escrever_doc", "montar_documento", "documento", "criar_relatorio"}:
+        return {"ok": False, "bloqueio": True, "evidencia": args.get("texto") or "falta um dado que só o dono sabe", "via": "tela"}
+    # "documento" com caminho abre o arquivo no editor (documento()); sem caminho redige o relatório
+    if a in {"escrever_doc", "montar_documento", "documento", "criar_relatorio"} and not (a == "documento" and args.get("caminho")):
         import agent
         pedido = args.get("pedido") or args.get("texto") or args.get("conteudo") or ""
         consulta = args.get("consulta") or pedido
@@ -632,7 +729,7 @@ def executar_acao(acao, args=None):
         dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in achados])
         if not dados_fonte:
             tela = _ler_tela()
-            dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else ""
+            dados_fonte = f"Contexto visual da tela:\n{tela}" if _tela_ok(tela) and len(tela) > 20 else ""
 
         data_atual = time.strftime("%d/%m/%Y")
         prompt_doc = (
@@ -715,42 +812,64 @@ def executar_acao(acao, args=None):
             return {"ok": False, "evidencia": "arquivo ausente ou vazio: " + p, "via": "tela"}
         return {"ok": True, "evidencia": p + " " + str(os.path.getsize(p)) + " bytes", "via": "tela"}
     if a in {"pesquisar", "pesquisa"}:
-        q = args.get("consulta") or args.get("q") or ""
+        q = str(args.get("consulta") or args.get("q") or "").strip()
+        if not q:
+            return {"ok": False, "evidencia": "pesquisa sem consulta: nada digitado", "via": "teclado"}
         ok, msg, via = _garantir_janela("navegador")
         if not ok:
             return {"ok": False, "evidencia": msg, "via": "cursor"}
-        _tecla("ctrl+l")
-        digitou, como = _focar_digitando(q)
-        if digitou:
-            _tecla("enter")
-            return {"ok": True, "evidencia": "digitei a busca; " + _ler_tela()[:400], "via": "teclado"}
+        if _tecla("ctrl+l"):
+            digitou, como = _focar_digitando(q)
+            if digitou and _tecla("enter"):
+                return {"ok": True, "evidencia": "digitei a busca; " + _ler_tela()[:400], "via": "teclado"}
+            if digitou:
+                como = "enter não foi aceito"
+        else:
+            como = "ctrl+l não foi aceito"
         import urllib.parse
         import abrir_nativo
         ok2, msg2 = abrir_nativo.abrir_url("https://www.google.com/search?q=" + urllib.parse.quote_plus(q))
-        return {"ok": ok2, "evidencia": "teclado falhou (" + como + "); fallback " + msg2, "via": "fallback"}
+        return {"ok": bool(ok2), "evidencia": "teclado falhou (" + como + "); fallback " + str(msg2), "via": "fallback"}
     if a == "ler_tela":
         txt = _ler_tela()
-        return {"ok": "não lida" not in txt[:20], "evidencia": txt, "via": "tela"}
+        return {"ok": _tela_ok(txt), "evidencia": txt, "via": "tela"}
     if a == "clicar":
         ok, msg, via = _garantir_janela(args.get("alvo") or "navegador")
-        clicou = False
-        if ok and input_disponivel():
-            try:
-                clicou = bool(_input().mouse_click(args.get("botao") or "left"))
-            except Exception:
-                clicou = False
+        if not ok or not input_disponivel():
+            return {"ok": False, "evidencia": (msg or "janela não focou") + "; clique não saiu", "via": via or "cursor"}
+        x, y = args.get("x"), args.get("y")
+        if x is not None and y is not None:
+            if not _input().mouse_move(int(x), int(y)):
+                return {"ok": False, "evidencia": msg + "; cursor não foi até " + str(x) + "," + str(y), "via": "cursor"}
+        elif via != "cursor" or "cursor não moveu" in msg:
+            return {"ok": False, "evidencia": msg + "; cursor fora da janela, não cliquei às cegas", "via": via or "cursor"}
+        try:
+            clicou = bool(_input().mouse_click(args.get("botao") or "left"))
+        except Exception:
+            clicou = False
         if clicou:
             return {"ok": True, "evidencia": msg + "; clique. " + _ler_tela()[:240], "via": "cursor"}
-        return {"ok": False, "evidencia": msg or "clique não saiu", "via": via or "cursor"}
+        return {"ok": False, "evidencia": msg + "; clique não saiu", "via": via or "cursor"}
     if a in {"teclado", "digitar"}:
-        if args.get("atalho"):
-            _tecla(args.get("atalho"))
-        ok, como = _focar_digitando(args.get("texto") or "")
-        if ok and args.get("enter"):
-            _tecla("enter")
-        if not ok and not args.get("atalho"):
-            return {"ok": False, "evidencia": como, "via": "teclado"}
-        return {"ok": True, "evidencia": (como or "atalho") + "; " + _ler_tela()[:300], "via": "teclado"}
+        atalho = args.get("atalho") or args.get("tecla") or ""
+        texto = str(args.get("texto") or "")
+        if not (atalho or texto or args.get("enter")):
+            return {"ok": False, "evidencia": "teclado sem atalho, texto ou enter: nada a fazer", "via": "teclado"}
+        feito = []
+        if atalho:
+            if not _tecla(atalho):
+                return {"ok": False, "evidencia": "atalho " + str(atalho) + " não foi aceito; não digitei", "via": "teclado"}
+            feito.append(str(atalho))
+        if texto:
+            ok, como = _focar_digitando(texto)
+            if not ok:
+                return {"ok": False, "evidencia": "; ".join(feito + [como]), "via": "teclado"}
+            feito.append(como)
+        if args.get("enter"):
+            if not _tecla("enter"):
+                return {"ok": False, "evidencia": "; ".join(feito + ["enter não foi aceito"]), "via": "teclado"}
+            feito.append("enter")
+        return {"ok": True, "evidencia": "; ".join(feito) + "; " + _ler_tela()[:300], "via": "teclado"}
     if a == "claude":
         return claude_cli(args.get("pedido") or args.get("prompt") or "", continuar=bool(args.get("continuar")))
     if a == "email":
@@ -767,12 +886,19 @@ def executar_acao(acao, args=None):
         return rea(args.get("alvo") or args.get("caminho") or "")
     if a == "pensar":
         return {"ok": True, "evidencia": "plano mantido: " + str(args.get("texto") or "")[:200], "via": "plano"}
-    if a == "notar":
+    if a in {"notar", "nota"}:   # _passo() cria "nota" para passo em texto puro
         return {"ok": True, "evidencia": str(args.get("texto") or "")[:300], "via": "estado"}
+    if a == "esperar":
+        try:
+            seg = max(0.0, min(float(args.get("segundos") or args.get("s") or 2), 30.0))
+        except (TypeError, ValueError):
+            seg = 2.0
+        time.sleep(seg)
+        return {"ok": True, "evidencia": "esperei " + str(round(seg, 1)) + "s", "via": "plano"}
     if a == "shell":
         return _shell_fallback(args.get("comando") or "")
     txt = _ler_tela()
-    return {"ok": True, "evidencia": "ação " + a + " virou leitura de tela. " + txt[:400], "via": "tela"}
+    return {"ok": _tela_ok(txt), "evidencia": "ação " + a + " virou leitura de tela. " + txt[:400], "via": "tela"}
 
 
 _CLAUDE_PTY = {"proc": None, "fd": None, "buf": ""}
@@ -1018,8 +1144,8 @@ def rea(alvo):
 
 
 def _shell_fallback(comando):
-    if not str(comando or "").strip():
-        return {"ok": False, "evidencia": "tela falhou e não há comando de fallback", "via": "fallback"}
+    if not isinstance(comando, str) or not comando.strip():
+        return {"ok": False, "evidencia": "shell NÃO executado: comando vazio ou inválido (a tela falhou e não há comando de fallback)", "via": "fallback"}
     if recusar(comando):
         return {"ok": False, "evidencia": recusar(comando), "via": "recusa"}
     try:
@@ -1074,13 +1200,13 @@ def avancar(ses=None):
     p["evidencia"] = str(r.get("evidencia") or "")[:800]
     p["via"] = r.get("via") or ""
     if r.get("bloqueio"):
-        p["estado"] = "ok"
+        p["estado"] = "bloqueado"   # parado esperando o dono; não é sucesso
         p["evidencia"] = str(r.get("evidencia") or "")[:800]
         ses["status"] = "bloqueada"
         ses["proximo"] = ""
         ses["atualizado"] = time.time()
         _salvar(SESSAO, ses)
-        return {"ok": True, "fala": p["evidencia"], "via": "tela", "sessao": ses}
+        return {"ok": False, "bloqueio": True, "fala": p["evidencia"], "via": "tela", "sessao": ses}
     if r.get("ok"):
         p["estado"] = "ok"
         ses["erros"] = 0
@@ -1088,12 +1214,15 @@ def avancar(ses=None):
         p["estado"] = "pulado"
         ses["erros"] = int(ses.get("erros") or 0) + 1
         if ses["erros"] <= 3 and p.get("acao") != "shell":
-            alt = "ler_tela" if p.get("acao") != "ler_tela" else "teclado"
-            ses["plano"]["passos"].append(_passo(len(ses["plano"]["passos"]) + 1, {
-                "acao": alt,
-                "args": {"texto": (p.get("pronto") or "")[:180]},
-                "pronto": "outro caminho na tela",
-            }))
+            if p.get("acao") != "ler_tela":
+                alt = {"acao": "ler_tela", "args": {}, "pronto": "outro caminho na tela"}
+            else:
+                # leitura falhou: refoca a janela do plano. Antes virava "teclado" e digitava o critério
+                # de pronto ("tela lida"...) na janela do dono.
+                alvo = next((s.get("args", {}).get("alvo") for s in reversed(ses["plano"]["passos"])
+                             if s.get("acao") == "cursor" and (s.get("args") or {}).get("alvo")), "")
+                alt = {"acao": "cursor", "args": {"alvo": alvo}, "pronto": "janela refocada para reler"}
+            ses["plano"]["passos"].append(_passo(len(ses["plano"]["passos"]) + 1, alt))
         elif p.get("acao") != "shell":
             ses["plano"]["passos"].append(_passo(len(ses["plano"]["passos"]) + 1, {
                 "acao": "shell",
@@ -1110,26 +1239,72 @@ def avancar(ses=None):
     return {"ok": bool(r.get("ok")), "fala": p["evidencia"], "via": p.get("via"), "sessao": ses}
 
 
+_TRAVA = None
+
+
+def trava_unica():
+    """Um único executor por máquina (daemon OU serviço). True = este processo é o dono; idempotente."""
+    global _TRAVA
+    if _TRAVA is not None:
+        return True
+    f = open(os.path.join(MEM, "orquestra.lock"), "a+")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        f.close()
+        return False
+    _TRAVA = f
+    return True
+
+
+def _fila_tick_seguro():
+    try:
+        return fila_tick()
+    except Exception as e:
+        print("erro na fila:", type(e).__name__, str(e)[:160], flush=True)
+        return None
+
+
 def loop(horas=8, intervalo=20, max_passos=500, sempre=False):
     """Roda até acabar o plano, o tempo ou max_passos. Erro não encerra.
     sempre=True (ou horas<=0): não para com fila vazia, espera novos pedidos indefinidamente."""
     sempre = sempre or float(horas) <= 0
+    if not trava_unica():
+        return {"passos": 0, "ultimo": "outro orquestrador já está rodando nesta máquina", "sessao": _ler(SESSAO, {})}
     fim = float("inf") if sempre else time.time() + float(horas) * 3600
     n = 0
     ultimo = ""
     while time.time() < fim and (sempre or n < max_passos):
         ses = _ler(SESSAO, None)
         if not ses or ses.get("status") in {"concluida", "pausada", "bloqueada"}:
-            if not fila_tick():
+            if not _fila_tick_seguro():
                 if not sempre:
                     break
                 time.sleep(max(1.0, float(intervalo)))
                 continue
-        r = avancar()
+        try:
+            r = avancar()
+        except Exception as e:   # erro não encerra: o passo pendente vira "pulado" para não repetir em loop
+            r = {"fala": "erro no passo: " + type(e).__name__ + ": " + str(e)[:160]}
+            try:
+                s = _ler(SESSAO, None)
+                pend = _pendente(s) if s else None
+                if pend:
+                    pend["estado"] = "pulado"
+                    pend["evidencia"] = r["fala"]
+                    _salvar(SESSAO, s)
+            except Exception:
+                pass
         n += 1
         ultimo = r.get("fala") or ""
         if _ler(SESSAO, {}).get("status") == "concluida":
-            if not fila_tick() and not sempre:
+            if not _fila_tick_seguro() and not sempre:
                 break
         time.sleep(max(1.0, float(intervalo)))
     return {"passos": n, "ultimo": ultimo, "sessao": _ler(SESSAO, {})}
@@ -1183,15 +1358,224 @@ def fila_tick():
             continue
         if _quando_ts(it) > agora:
             continue
-        it["status"] = "ativo"
+        s = sessao_nova(it["pedido"])          # planeja ANTES de marcar: queda no meio não deixa item "ativo" órfão
+        it["status"] = "ativo" if s.get("ok") else "recusada"
         _salvar(FILA, fila)
-        sessao_nova(it["pedido"])
-        return it
+        if s.get("ok"):
+            return it
     return None
 
 
 def status():
     return {"sessao": _ler(SESSAO, {}), "fila": _ler(FILA, {"itens": []})}
+
+
+def _smoke_correcoes():
+    """Asserts das correções com tudo mockado: input, tela, janelas, shell e sessão (nada real é tocado)."""
+    import types
+
+    class FakeInput:
+        def __init__(self):
+            self.res = {"type": True, "key": True, "click": True, "move": True}
+            self.recusa = set()
+            self.log = []
+
+        def type_text(self, t):
+            self.log.append(("type", t))
+            return self.res["type"]
+
+        def press_key(self, k):
+            self.log.append(("key", k))
+            return self.res["key"] and k not in self.recusa
+
+        def mouse_click(self, botao="left", duplo=False):
+            self.log.append(("click", botao))
+            return self.res["click"]
+
+        def mouse_move(self, x, y, passos=15):
+            self.log.append(("move", x, y))
+            return self.res["move"]
+
+    g = globals()
+    nomes = ("input_disponivel", "_input", "_ler_tela", "_assinatura_tela", "_garantir_janela",
+             "_urls_da_busca", "mensagem", "documento", "fila_tick", "avancar", "SESSAO", "_ESPERA_TELA")
+    salvo = {k: g[k] for k in nomes}
+    mods = {k: sys.modules.get(k) for k in ("abrir_nativo", "friday", "shell_seguro", "win_compat")}
+    sono, plataforma = time.sleep, sys.platform
+    chamadas = {"shell": [], "url": []}
+    smoke_ses = os.path.join(MEM, "orquestra_smoke_sessao.json")
+    try:
+        fake = FakeInput()
+        g["input_disponivel"] = lambda: True
+        g["_input"] = lambda: fake
+        g["_ler_tela"] = lambda: "janela em foco: teste"
+        g["_garantir_janela"] = lambda alvo: (True, "cursor na janela", "cursor")
+        g["_ESPERA_TELA"] = 0
+        g["SESSAO"] = smoke_ses
+        time.sleep = lambda s: None
+        sys.modules["abrir_nativo"] = types.SimpleNamespace(
+            abrir_url=lambda u: (chamadas["url"].append(u) or (True, "url aberta (fake)")),
+            abrir_app=lambda n: (False, "fake não abre app"),
+            chave_janela=lambda n: str(n or "").lower())
+        sys.modules["shell_seguro"] = types.SimpleNamespace(
+            executar=lambda c: (chamadas["shell"].append(c) or {"ok": True, "saida": "rodou"}))
+
+        # 1. VER->AGIR->CONFERIR: tela igual = falha "tela não mudou"; diferente = ok; sem captura não bloqueia
+        telas = iter([b"\x10" * 8, b"\x10" * 8])
+        g["_assinatura_tela"] = lambda: next(telas)
+        r = executar_acao("teclado", {"texto": "abc"})
+        assert not r["ok"] and "tela não mudou" in r["evidencia"], r
+        telas = iter([b"\x10" * 8, b"\x90" * 8])
+        assert executar_acao("teclado", {"texto": "abc"})["ok"]
+        g["_assinatura_tela"] = lambda: None
+        assert executar_acao("teclado", {"texto": "abc"})["ok"], "sem captura não pode bloquear"
+        g["_assinatura_tela"] = lambda: b"\x10" * 8
+        assert executar_acao("cursor", {"alvo": "kitty"})["ok"], "foco confirmado pelo compositor dispensa pixel"
+        r = executar_acao("clicar", {"alvo": "kitty"})
+        assert not r["ok"] and "tela não mudou" in r["evidencia"], r
+        g["_garantir_janela"] = lambda alvo: (True, "app aberto; janela ainda sem geometria", "app")
+        r = executar_acao("abrir_app", {"nome": "spotify"})
+        assert not r["ok"] and "tela não mudou" in r["evidencia"], r
+        g["_garantir_janela"] = lambda alvo: (True, "cursor na janela", "cursor")
+        g["_assinatura_tela"] = lambda: None
+
+        # 2. teclado: input que falhou não vira ok; atalho recusado não digita; passo vazio falha; enter conferido
+        fake.res["type"] = False
+        assert not executar_acao("teclado", {"texto": "abc"})["ok"]
+        assert not executar_acao("teclado", {"atalho": "ctrl+n", "texto": "abc"})["ok"], "antes: ok só por ter atalho"
+        fake.res.update(type=True, key=False)
+        fake.log.clear()
+        r = executar_acao("teclado", {"atalho": "ctrl+n", "texto": "abc"})
+        assert not r["ok"] and not any(c[0] == "type" for c in fake.log), (r, fake.log)
+        fake.res["key"] = True
+        fake.recusa = {"enter"}
+        r = executar_acao("teclado", {"texto": "abc", "enter": True})
+        assert not r["ok"] and "enter" in r["evidencia"], r
+        assert not executar_acao("teclado", {"enter": True})["ok"]
+        fake.recusa = set()
+        assert not executar_acao("teclado", {})["ok"]
+        assert _focar_digitando("") == (False, "sem texto para digitar")
+
+        # 3. pesquisar/_abrir_fonte: consulta vazia não digita; ctrl+l ou enter recusado cai no fallback
+        assert not executar_acao("pesquisar", {"consulta": "  "})["ok"]
+        fake.recusa = {"ctrl+l"}
+        fake.log.clear()
+        r = executar_acao("pesquisar", {"consulta": "clima"})
+        assert r["via"] == "fallback" and chamadas["url"] and not any(c[0] == "type" for c in fake.log), r
+        fake.recusa = {"enter"}
+        r = _abrir_fonte("https://exemplo.org")
+        assert r["via"] == "fallback" and "enter" in r["evidencia"], r
+        fake.recusa = set()
+        assert _abrir_fonte("https://exemplo.org")["via"] == "teclado"
+
+        # 4. clicar: usa x/y; clique recusado falha com evidência; cursor fora da janela não clica às cegas
+        fake.log.clear()
+        assert executar_acao("clicar", {"x": 10, "y": 20})["ok"] and ("move", 10, 20) in fake.log, fake.log
+        fake.res["click"] = False
+        r = executar_acao("clicar", {})
+        assert not r["ok"] and "clique não saiu" in r["evidencia"], r
+        fake.res["click"] = True
+        g["_garantir_janela"] = lambda alvo: (True, "app aberto; janela ainda sem geometria", "app")
+        fake.log.clear()
+        assert not executar_acao("clicar", {})["ok"] and not any(c[0] == "click" for c in fake.log)
+        g["_garantir_janela"] = lambda alvo: (True, "cursor na janela", "cursor")
+
+        # 5. foco: niri recusou focar = falha (antes devolvia ok); no Windows a janela em foco tem de ser o alvo
+        fr_fake = types.SimpleNamespace(find_window=lambda k: {"id": 7, "app_id": k},
+                                        _tile_geo=lambda w: (0, 0, 800, 600), _niri=lambda *a: False)
+        sys.modules["friday"] = fr_fake
+        ok, msg = _cursor_na_janela("kitty")
+        assert not ok and "niri" in msg, msg
+        fr_fake._niri = lambda *a: True
+        assert _cursor_na_janela("kitty") == (True, "cursor na janela")
+        sys.platform = "win32"
+        sys.modules["win_compat"] = types.SimpleNamespace(
+            janela_em_foco=lambda: {"id": "1", "app_id": "Code.exe", "titulo": "VS Code", "rect": [0, 0, 800, 600]},
+            mouse_move=lambda x, y: True)
+        assert not _cursor_na_janela("thunderbird")[0], "antes: qualquer janela em foco valia"
+        assert _cursor_na_janela("code")[0]
+        sys.platform = plataforma
+
+        # 6. exceção dentro da ação vira falha e não derruba o loop
+        def explode(q):
+            raise RuntimeError("busca caiu")
+        g["_urls_da_busca"] = explode
+        r = executar_acao("coletar", {"consulta": "x"})
+        assert not r["ok"] and "RuntimeError" in r["evidencia"], r
+        assert not executar_acao("abrir_pagina", {"indice": "primeira"})["ok"]
+
+        # 7. shell com comando vazio não executa nada e conta como falha com evidência clara
+        for vazio in ("", "   ", None):
+            r = executar_acao("shell", {"comando": vazio})
+            assert not r["ok"] and "NÃO executado" in r["evidencia"], r
+        assert not chamadas["shell"], chamadas
+
+        # 8. roteamento: "nota" registra; "mensagem" vai ao mensageiro; "documento" com caminho abre o arquivo
+        g["_ler_tela"] = lambda: "tela não lida: sem agent"
+        assert executar_acao("nota", {"texto": "x"})["via"] == "estado"
+        g["mensagem"] = lambda texto: {"ok": True, "evidencia": "mensageiro:" + texto, "via": "teclado"}
+        assert executar_acao("mensagem", {"texto": "oi"})["evidencia"] == "mensageiro:oi"
+        g["documento"] = lambda caminho, tipo="docx": {"ok": True, "evidencia": "doc:" + caminho, "via": "teclado"}
+        assert executar_acao("documento", {"caminho": "~/a.odt"})["evidencia"] == "doc:~/a.odt"
+
+        # 9. erro de leitura de tela não vira conteúdo nem sucesso
+        _ACHADOS["textos"] = []
+        assert not executar_acao("concluir_pesquisa", {"consulta": "x"})["ok"]
+        assert not executar_acao("ler_tela")["ok"]
+        assert not executar_acao("acao_inexistente")["ok"]
+        assert executar_acao("esperar", {"segundos": 1})["ok"]
+
+        # 10. avancar: "perguntar" fica bloqueado (não ok); ler_tela que falha não digita o critério de pronto;
+        #     escalada para shell vazio falha sem executar
+        def ses_teste(passos, erros=0):
+            return {"id": "smoke", "status": "ativa", "erros": erros, "evidencia": [],
+                    "plano": {"passos": [_passo(i, p) for i, p in enumerate(passos, 1)]}}
+        s = ses_teste([{"acao": "perguntar", "args": {"texto": "Para quem?"}}])
+        r = avancar(s)
+        assert r["sessao"]["plano"]["passos"][0]["estado"] == "bloqueado" and r["sessao"]["status"] == "bloqueada" and not r["ok"], r
+        s = ses_teste([{"acao": "cursor", "args": {"alvo": "kitty"}}, {"acao": "ler_tela"}])
+        s["plano"]["passos"][0]["estado"] = "ok"
+        novo = avancar(s)["sessao"]["plano"]["passos"][-1]
+        assert novo["acao"] == "cursor" and novo["args"].get("alvo") == "kitty" and "texto" not in novo["args"], novo
+        r = avancar(ses_teste([{"acao": "ler_tela"}], erros=3))
+        assert r["sessao"]["plano"]["passos"][-1]["acao"] == "shell"
+        r = avancar(r["sessao"])
+        sh = r["sessao"]["plano"]["passos"][-1]
+        assert not r["ok"] and sh["estado"] == "pulado" and "NÃO executado" in sh["evidencia"] and not chamadas["shell"], sh
+
+        # 11. loop: exceção no avancar não derruba; o passo pendente vira "pulado"
+        _salvar(smoke_ses, ses_teste([{"acao": "teclado", "args": {"texto": "x"}}]))
+
+        def quebra(ses=None):
+            raise RuntimeError("estado corrompido")
+        g["avancar"] = quebra
+        g["fila_tick"] = lambda: None
+        out = loop(horas=1, intervalo=0, max_passos=2)
+        assert out["passos"] == 2 and "RuntimeError" in out["ultimo"], out
+        assert out["sessao"]["plano"]["passos"][0]["estado"] == "pulado", out["sessao"]
+
+        # 12. plano heurístico: regex
+        assert "coletar" not in [s["acao"] for s in _plano_heuristico("abre o chrome")]
+        assert _plano_heuristico("abre o chrome")[0]["args"]["alvo"] == "chrome"
+        c = next(s for s in _plano_heuristico("pesquise acessórios para notebook") if s["acao"] == "coletar")
+        assert "acessórios" in c["args"]["consulta"], c
+        c = next(s for s in _plano_heuristico("pesquise o preço em abril de 2026") if s["acao"] == "coletar")
+        assert "abril" in c["args"]["consulta"], c
+        pm = next(s for s in _plano_heuristico("pesquise a loja do fortnite e prepara uma mensagem para o João")
+                  if s["acao"] == "preparar_mensagem")
+        assert pm["args"]["para"] == "João", pm
+    finally:
+        g.update(salvo)
+        time.sleep, sys.platform = sono, plataforma
+        for k, v in mods.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+        try:
+            os.remove(smoke_ses)
+        except OSError:
+            pass
 
 
 def main(argv):
@@ -1225,7 +1609,8 @@ def main(argv):
         assert devolta.get("id") == "smoke"
         assert _quando_ts({"quando": "+2m", "t": 100}) == 220
         assert _quando_ts({"quando": ""}) == 0.0
-        print("smoke ok", len(p["passos"]), "passos", "provedor", p.get("provedor"))
+        _smoke_correcoes()
+        print("smoke ok", len(p["passos"]), "passos", "provedor", p.get("provedor"), "| correções ok")
         return 0
     if cmd == "status":
         print(json.dumps(status(), ensure_ascii=False, indent=2)[:4000])
@@ -1250,7 +1635,7 @@ def main(argv):
             horas = float(args[i + 1])
             del args[i:i + 2]
         pedido = " ".join(args).strip()
-        if not pedido and not _ler(SESSAO, None):
+        if not pedido and not sempre and not _ler(SESSAO, None):
             print("falta o pedido")
             return 2
         if pedido:
