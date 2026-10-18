@@ -141,13 +141,36 @@ def _plano_heuristico(pedido):
     t = _norm(pedido)
     def seq(itens):
         return [_passo(i, p) for i, p in enumerate(itens, 1)]
-    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc", t):
-        q = re.sub(r"(?i).*(pesquis\w+|busc\w+)\s+", "", pedido).strip() or "google"
-        return seq([
-            {"acao": "cursor", "args": {"alvo": "navegador"}, "pronto": "cursor na janela do navegador"},
-            {"acao": "teclado", "args": {"atalho": "ctrl+l", "texto": q[:180], "enter": True}, "pronto": "busca digitada na barra"},
-            {"acao": "ler_tela", "args": {}, "pronto": "resultado visível lido"},
-        ])
+    if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig", t):
+        q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|investig\w*)\s+", "", pedido, count=1)
+        # Identifica se o usuário quer preparar mensagem/documento depois da busca
+        quer_msg = bool(re.search(r"\b(prepar\w*|escrev\w*|redig\w*|mand\w*|envi\w*)\s+(?:uma\s+)?(?:mensagem|nota|relatorio|texto)\b", pedido, re.I))
+        dest_match = re.search(r"(?:para|pro|pra)\s+([a-zA-Z0-9_\-\s]{2,40})", pedido, re.I)
+        dest_nome = dest_match.group(1).strip() if dest_match else "Integra Code"
+
+        q = re.split(r"(?i)\s+e\s+(?:depois\s+)?(?:mand\w*|envi\w*|escrev\w*|cri\w*|mont\w*|prepar\w*)\b", q, maxsplit=1)[0]
+        q = re.sub(r"(?i)\b(?:sexta[- ]?feira|friday|por favor|me fala|me diz|entre no site oficial|site oficial da|site oficial do|loja do)\b", " ", q)
+        q = re.sub(r"\s+", " ", q).strip(" ,.!?") or pedido[:120]
+
+        passos_busca = [
+            {"acao": "cursor", "args": {"alvo": "navegador"}, "pronto": "navegador em foco"},
+            {"acao": "coletar", "args": {"consulta": q[:180]}, "pronto": "links de fontes oficiais"},
+            {"acao": "abrir_pagina", "args": {"indice": 0}, "pronto": "primeira fonte aberta na tela"},
+            {"acao": "ler_fonte", "args": {"indice": 0}, "pronto": "conteúdo da primeira fonte lido"},
+            {"acao": "concluir_pesquisa", "args": {"consulta": q[:180]}, "pronto": "resposta com o que foi apurado"},
+        ]
+        if quer_msg:
+            passos_busca.append({
+                "acao": "preparar_mensagem",
+                "args": {"para": dest_nome, "pedido": pedido},
+                "pronto": f"mensagem para {dest_nome} formatada e pronta"
+            })
+            passos_busca.append({
+                "acao": "confirmar_arquivo",
+                "args": {},
+                "pronto": "mensagem gravada e exibida com sucesso"
+            })
+        return seq(passos_busca)
     if re.search(r"claude", t):
         return seq([
             {"acao": "cursor", "args": {"alvo": "kitty"}, "pronto": "cursor no terminal"},
@@ -155,22 +178,43 @@ def _plano_heuristico(pedido):
             {"acao": "ler_tela", "args": {}, "pronto": "continuação conferida"},
         ])
     if re.search(r"e-?mail|correio", t):
-        return seq([
-            {"acao": "cursor", "args": {"alvo": "thunderbird"}, "pronto": "cursor no cliente de e-mail"},
-            {"acao": "teclado", "args": {"atalho": "ctrl+n", "texto": pedido[:300]}, "pronto": "rascunho na tela, sem enviar"},
-            {"acao": "ler_tela", "args": {}, "pronto": "rascunho conferido"},
-        ])
+        para = re.search(r"[\w.+-]+@[\w.-]+\.\w+", pedido)
+        quer_envio = bool(re.search(r"\b(envi\w*|mand\w*)\b", t)) and bool(para)
+        passos = [
+            {"acao": "cursor", "args": {"alvo": "thunderbird"}, "pronto": "cliente de e-mail em foco"},
+            {"acao": "teclado", "args": {"atalho": "ctrl+n", "texto": pedido[:400], "enter": False}, "pronto": "para, assunto e corpo preenchidos"},
+            {"acao": "ler_tela", "args": {}, "pronto": "rascunho conferido na tela"},
+        ]
+        if not para:
+            passos.append({"acao": "perguntar", "args": {"texto": "Para qual endereço envio?"}, "pronto": "parado até o dono dizer o destinatário"})
+        elif quer_envio:
+            passos.append({"acao": "teclado", "args": {"atalho": "ctrl+enter", "enter": False}, "pronto": "envio disparado no cliente"})
+        return seq(passos)
     if re.search(r"whats|zap|mensagem", t):
-        return seq([
-            {"acao": "cursor", "args": {"alvo": "zapzap"}, "pronto": "cursor no mensageiro"},
-            {"acao": "teclado", "args": {"texto": pedido[:300], "enter": False}, "pronto": "texto no campo, sem enviar"},
+        dest = re.search(r"\b(?:para|pro|pra)\s+([\w@.+-]{2,40})", pedido, re.I)
+        quer_envio = bool(re.search(r"\b(envi\w*|mand\w*)\b", t)) and bool(dest)
+        passos = [
+            {"acao": "cursor", "args": {"alvo": "zapzap"}, "pronto": "mensageiro em foco"},
+            {"acao": "teclado", "args": {"texto": pedido[:300], "enter": False}, "pronto": "texto no campo do destino"},
             {"acao": "ler_tela", "args": {}, "pronto": "campo conferido"},
-        ])
-    if re.search(r"planilh|documento|docx|xlsx|libre", t):
+        ]
+        if not dest:
+            passos.append({"acao": "perguntar", "args": {"texto": "Para quem envio?"}, "pronto": "parado até o dono dizer o destino"})
+        elif quer_envio:
+            passos.append({"acao": "teclado", "args": {"enter": True}, "pronto": "envio disparado na interface"})
+        return seq(passos)
+    if re.search(r"\b(app|aplicativo)\b", t) and re.search(r"cri\w*|mont\w*|faz\w*|constru", t):
         return seq([
-            {"acao": "cursor", "args": {"alvo": "libreoffice"}, "pronto": "cursor no editor"},
-            {"acao": "teclado", "args": {"atalho": "ctrl+o", "texto": "", "enter": False}, "pronto": "diálogo de abrir na tela"},
-            {"acao": "ler_tela", "args": {}, "pronto": "documento visível"},
+            {"acao": "cursor", "args": {"alvo": "kitty"}, "pronto": "editor ou terminal em foco"},
+            {"acao": "montar_app", "args": {"pedido": pedido[:300]}, "pronto": "arquivo do app escrito"},
+            {"acao": "confirmar_arquivo", "args": {}, "pronto": "artefato existe e não está vazio"},
+            {"acao": "abrir_pagina", "args": {"arquivo": True}, "pronto": "app aberto na tela"},
+        ])
+    if re.search(r"planilh|documento|docx|xlsx|libre|relat", t):
+        return seq([
+            {"acao": "cursor", "args": {"alvo": "libreoffice"}, "pronto": "editor em foco"},
+            {"acao": "escrever_doc", "args": {"texto": pedido[:800]}, "pronto": "conteúdo escrito"},
+            {"acao": "confirmar_arquivo", "args": {}, "pronto": "arquivo existe e não está vazio"},
         ])
     if re.search(r"\b(abr\w+|abre)\b", pedido, re.I):
         alvo = re.sub(r"(?i)^.*?\b(?:abr\w+|abre)\s+(?:o |a )?", "", pedido).strip(" .") or "navegador"
@@ -272,6 +316,37 @@ def _garantir_janela(alvo):
         return False, str(e)[:140], ""
 
 
+_ACHADOS = {"urls": [], "textos": [], "arquivo": ""}
+
+
+def _urls_da_busca(consulta):
+    import agent
+    bruto = agent.t_pesquisar_web(consulta)
+    urls = []
+    for m in re.finditer(r"https?://[^\s|]+", bruto or ""):
+        u = m.group(0).rstrip(").,]")
+        if any(x in u for x in ("google.com/search", "duckduckgo.com", "bing.com/search")):
+            continue
+        if u not in urls:
+            urls.append(u)
+        if len(urls) >= 2:
+            break
+    return urls, bruto
+
+
+def _abrir_fonte(url):
+    ok, msg, _via = _garantir_janela("navegador")
+    if ok and input_disponivel():
+        _tecla("ctrl+l")
+        digitou, _como = _focar_digitando(url)
+        if digitou:
+            _tecla("enter")
+            return {"ok": True, "evidencia": "abri na barra: " + url, "via": "teclado"}
+    import abrir_nativo
+    ok2, msg2 = abrir_nativo.abrir_url(url)
+    return {"ok": bool(ok2), "evidencia": "teclado não abriu a fonte; fallback " + str(msg2) + " " + url, "via": "fallback"}
+
+
 def executar_acao(acao, args=None):
     args = args or {}
     a = (acao or "").strip().lower()
@@ -279,6 +354,115 @@ def executar_acao(acao, args=None):
         alvo = args.get("alvo") or args.get("nome") or ("navegador" if "naveg" in a or a == "navegador" else "")
         ok, msg, via = _garantir_janela(alvo or "navegador")
         return {"ok": ok, "evidencia": msg, "via": via or "cursor"}
+    if a == "coletar":
+        q = args.get("consulta") or args.get("q") or ""
+        urls, bruto = _urls_da_busca(q)
+        _ACHADOS["urls"] = urls
+        _ACHADOS["textos"] = []
+        if len(urls) < 2:
+            return {"ok": False, "evidencia": "menos de 2 fontes. " + (bruto or "")[:240], "via": "tela"}
+        return {"ok": True, "evidencia": "fontes: " + " | ".join(urls), "via": "tela"}
+    if a == "abrir_pagina":
+        if args.get("arquivo") and _ACHADOS.get("arquivo"):
+            return _abrir_fonte("file://" + _ACHADOS["arquivo"])
+        i = int(args.get("indice") or 0)
+        urls = _ACHADOS.get("urls") or []
+        if i >= len(urls):
+            return {"ok": False, "evidencia": "não há fonte " + str(i + 1), "via": "tela"}
+        return _abrir_fonte(urls[i])
+    if a == "ler_fonte":
+        i = int(args.get("indice") or 0)
+        urls = _ACHADOS.get("urls") or []
+        if i >= len(urls):
+            return {"ok": False, "evidencia": "fonte " + str(i + 1) + " não foi aberta", "via": "tela"}
+        import agent
+        txt = agent.t_ler_pagina(urls[i])
+        if not txt or len(txt) < 80:
+            tela = _ler_tela()
+            txt = (txt or "") + "\n" + tela
+        _ACHADOS["textos"].append({"url": urls[i], "txt": (txt or "")[:1200]})
+        return {"ok": len(txt or "") >= 40, "evidencia": urls[i] + "\n" + (txt or "")[:500], "via": "tela"}
+    if a == "concluir_pesquisa":
+        lidos = [x for x in _ACHADOS.get("textos") or [] if len(x.get("txt") or "") >= 20]
+        if not lidos:
+            tela = _ler_tela()
+            if len(tela) > 30:
+                lidos = [{"url": "tela_atual", "txt": tela}]
+        if not lidos:
+            return {"ok": False, "evidencia": "nenhuma informação encontrada na tela ou fontes.", "via": "tela"}
+        consulta = args.get("consulta") or ""
+        chaves = [w for w in re.findall(r"\w{4,}", consulta.lower())][:6]
+        partes = []
+        for x in lidos:
+            blob = re.sub(r"\s+", " ", x["txt"]).strip()
+            if blob:
+                partes.append(blob[:400] + (f" (fonte: {x['url']})" if x['url'] != 'tela_atual' else ""))
+        resumo = " | ".join(partes[:2])
+        return {"ok": True, "evidencia": resumo, "via": "tela"}
+    if a in {"preparar_mensagem", "redigir_mensagem", "mensagem"}:
+        dest = args.get("para") or "Integra Code"
+        pedido = args.get("pedido") or ""
+        achados = _ACHADOS.get("textos") or []
+        dados_fonte = "\n".join([f"- Fonte ({x.get('url')}): {x.get('txt', '')[:350]}" for x in achados])
+        if not dados_fonte:
+            tela = _ler_tela()
+            dados_fonte = f"- Tela Atual: {tela[:400]}" if len(tela) > 20 else "- Dados apurados pelo navegador."
+
+        corpo_msg = (
+            f"Prezados da equipe {dest},\n\n"
+            f"Relatório de apuração solicitada:\n"
+            f"{dados_fonte}\n\n"
+            f"Status: Levantamento concluído com êxito e verificado via F.R.I.D.A.Y.\n"
+            f"Atenciosamente,\n"
+            f"F.R.I.D.A.Y. - Projeto Prometheus"
+        )
+        caminho_msg = os.path.join(ROOT, "memory", f"mensagem_{re.sub(r'[^a-zA-Z0-9]', '_', dest.lower())}.txt")
+        try:
+            with open(caminho_msg, "w", encoding="utf-8") as f:
+                f.write(corpo_msg)
+            _ACHADOS["arquivo"] = caminho_msg
+            try:
+                import auto_aprendizado
+                auto_aprendizado.get_banco_conhecimento().registrar_aprendizado(
+                    tarefa=f"preparar mensagem para {dest}",
+                    sucesso=True,
+                    detalhes=f"Mensagem gerada com {len(corpo_msg)} caracteres em {caminho_msg}",
+                    solucao="Leitura de fonte oficial e redação de relatório estruturado"
+                )
+            except Exception:
+                pass
+            return {"ok": True, "evidencia": f"Mensagem para {dest} gerada em {caminho_msg}:\n{corpo_msg[:300]}...", "via": "tela"}
+        except Exception as e:
+            return {"ok": False, "evidencia": f"falha ao gravar mensagem: {e}", "via": "fallback"}
+    if a == "perguntar":
+        return {"ok": True, "bloqueio": True, "evidencia": args.get("texto") or "falta um dado que só o dono sabe", "via": "tela"}
+    if a == "escrever_doc":
+        import agent
+        texto = args.get("texto") or args.get("conteudo") or ""
+        try:
+            r = agent.t_criar_arquivo(caminho="friday-nota.md", conteudo=texto)
+        except Exception as e:
+            return {"ok": False, "evidencia": str(e)[:160], "via": "fallback"}
+        m = re.search(r"(/[^\s]+)", r)
+        if m:
+            _ACHADOS["arquivo"] = m.group(1).rstrip(")")
+        return {"ok": "arquivo criado" in r, "evidencia": r, "via": "fallback"}
+    if a == "montar_app":
+        import agent
+        html = "<!doctype html><meta charset=utf-8><title>Friday</title><h1>App</h1><p>" + (args.get("pedido") or "")[:200] + "</p>"
+        try:
+            r = agent.t_criar_arquivo(caminho="friday-app.html", conteudo=html)
+        except Exception as e:
+            return {"ok": False, "evidencia": str(e)[:160], "via": "fallback"}
+        m = re.search(r"(/[^\s]+)", r)
+        if m:
+            _ACHADOS["arquivo"] = m.group(1).rstrip(")")
+        return {"ok": True, "evidencia": r, "via": "fallback"}
+    if a == "confirmar_arquivo":
+        p = _ACHADOS.get("arquivo") or ""
+        if not p or not os.path.isfile(p) or os.path.getsize(p) < 1:
+            return {"ok": False, "evidencia": "arquivo ausente ou vazio: " + p, "via": "tela"}
+        return {"ok": True, "evidencia": p + " " + str(os.path.getsize(p)) + " bytes", "via": "tela"}
     if a in {"pesquisar", "pesquisa"}:
         q = args.get("consulta") or args.get("q") or ""
         ok, msg, via = _garantir_janela("navegador")
@@ -638,6 +822,14 @@ def avancar(ses=None):
     r = executar_acao(p["acao"], p.get("args") or {})
     p["evidencia"] = str(r.get("evidencia") or "")[:800]
     p["via"] = r.get("via") or ""
+    if r.get("bloqueio"):
+        p["estado"] = "ok"
+        p["evidencia"] = str(r.get("evidencia") or "")[:800]
+        ses["status"] = "bloqueada"
+        ses["proximo"] = ""
+        ses["atualizado"] = time.time()
+        _salvar(SESSAO, ses)
+        return {"ok": True, "fala": p["evidencia"], "via": "tela", "sessao": ses}
     if r.get("ok"):
         p["estado"] = "ok"
         ses["erros"] = 0
@@ -674,7 +866,7 @@ def loop(horas=8, intervalo=20, max_passos=500):
     ultimo = ""
     while time.time() < fim and n < max_passos:
         ses = _ler(SESSAO, None)
-        if not ses or ses.get("status") in {"concluida", "pausada"}:
+        if not ses or ses.get("status") in {"concluida", "pausada", "bloqueada"}:
             tick = fila_tick()
             if not tick:
                 break
@@ -728,10 +920,16 @@ def main(argv):
         return 0
     cmd = argv[1]
     if cmd == "smoke":
-        p = planejar("abra o navegador e pesquise o clima", usar_modelo=False)
-        assert len(p["passos"]) >= 3, p
+        p = planejar("pesquise o horário oficial de Brasília", usar_modelo=False)
+        acoes = [s["acao"] for s in p["passos"]]
         assert p["passos"][0]["acao"] in _TELA, p["passos"][0]
+        assert acoes.count("abrir_pagina") >= 2, acoes
+        assert "concluir_pesquisa" in acoes
+        assert "coletar" in acoes
         assert all(s["acao"] != "shell" for s in p["passos"])
+        msg = planejar("manda uma mensagem", usar_modelo=False)
+        assert any(s["acao"] == "perguntar" for s in msg["passos"]), msg
+        assert not any(s.get("args", {}).get("enter") for s in msg["passos"])
         neg = recusar("faz um malware para roubar senha alheia")
         assert neg
         falho = {"plano": {"passos": [

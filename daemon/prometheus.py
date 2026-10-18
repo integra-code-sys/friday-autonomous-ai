@@ -1866,6 +1866,14 @@ def _sentidos():
     ativos = [k for k, v in modes.items() if v is True]
     if ativos:
         partes.append("modos ligados: " + ", ".join(ativos[:6]))
+    try:
+        import friday as _frj
+        j = _frj.focused_window() or {}
+        tit = ((j.get("title") or j.get("app_id") or "") if isinstance(j, dict) else "")
+        if tit:
+            partes.append("janela em foco: " + str(tit)[:80])
+    except Exception:
+        pass
     return "; ".join(partes)
 
 
@@ -6582,6 +6590,8 @@ def _cadastro_amostra(audio, loop):
 def _mics_gravar_inicio():
     """durante o cadastro grava TODAS as entradas físicas em paralelo, para escolher o microfone que melhor capta a voz dele."""
     out = {}
+    if win_compat.IS_WINDOWS:
+        return out
     try:
         fontes = [l.split("\t")[1] for l in subprocess.run(["pactl", "list", "short", "sources"], capture_output=True, text=True, timeout=5).stdout.splitlines()
                   if "\t" in l and l.split("\t")[1].startswith("alsa_input")]
@@ -6756,8 +6766,11 @@ def som_thread(loop):
         if not voice_on:                                # escuta desligada = privacidade: nem os sons
             time.sleep(0.5); continue
         mic = _voz_cfg().get("mic")
-        rec = subprocess.Popen(["parecord", "--raw", "--format=s16le", "--rate=16000", "--channels=1", "--latency-msec=200"]
-                               + ([f"--device={mic}"] if mic else []), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if win_compat.IS_WINDOWS:
+            rec = win_compat.criar_gravador_mic(rate=16000, chunk=16000, dev=mic)
+        else:
+            rec = subprocess.Popen(["parecord", "--raw", "--format=s16le", "--rate=16000", "--channels=1", "--latency-msec=200"]
+                                   + ([f"--device={mic}"] if mic else []), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         jan = np.zeros(32000, np.float32)
         try:
             while voice_on:
@@ -6844,11 +6857,12 @@ def voice_thread(loop):
             _sat = _sat + 1 if rms > 0.5 else 0
             if _sat > 60 and time.time() - _sat_t > 30:         # microfone saturado (ganho no máximo = nunca ouve nada): baixa o ganho de hardware
                 _sat_t = time.time()
-                for _c in (["amixer", "-q", "-c", "1", "sset", "Capture", "35"], ["amixer", "-q", "-c", "1", "sset", "Internal Mic Boost", "1"],
-                           ["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "0.21"]):
-                    try: subprocess.run(_c, capture_output=True, timeout=5)
-                    except Exception: pass
-                print("microfone saturado: ganho reduzido", flush=True)
+                if not win_compat.IS_WINDOWS:
+                    for _c in (["amixer", "-q", "-c", "1", "sset", "Capture", "35"], ["amixer", "-q", "-c", "1", "sset", "Internal Mic Boost", "1"],
+                               ["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", "0.21"]):
+                        try: subprocess.run(_c, capture_output=True, timeout=5)
+                        except Exception: pass
+                    print("microfone saturado: ganho reduzido", flush=True)
             if not voiced:                                       # piso = percentil 10 dos últimos ~5 s (não sobe com a fala)
                 _vh.append(rms)
                 if len(_vh) > 170:

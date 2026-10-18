@@ -108,18 +108,30 @@ class OrquestradorContinuo:
             "t": time.time(),
         }
 
-        # 1. Avalia dificuldades na tela se fornecidas
+        # 1. Leitura unificada da tela e consulta de lições compactas
+        try:
+            import auto_aprendizado
+            pv = auto_aprendizado.pensar_com_visao_e_licoes(objetivo, contexto)
+            if pv.get("licoes_consultadas"):
+                pensamento["licoes_consultadas"] = pv["licoes_consultadas"]
+            if pv.get("tela_atual", {}).get("janela"):
+                pensamento["tela_foco"] = pv["tela_atual"]["janela"]
+                pensamento["analise_situacional"] += f" Janela em foco: '{pv['tela_atual']['janela']}'."
+        except Exception:
+            pass
+
+        # 2. Avalia dificuldades na tela se fornecidas
         dificuldades = contexto.get("dificuldade_tela") or []
         if dificuldades:
             pensamento["riscos_detectados"].append(f"Detectadas dificuldades na tela: {len(dificuldades)} erros")
             pensamento["analise_situacional"] += " A tela contém erros que precisam de contorno adaptativo."
 
-        # 2. Avalia emoção do usuário
+        # 3. Avalia emoção do usuário
         emocao = contexto.get("emocao_usuario") or "neutro"
         if emocao in ("frustrado", "triste", "cansado"):
             pensamento["analise_situacional"] += f" Usuário está {emocao}; priorizar resposta direta, sem rodeios."
 
-        # 3. Trava de segurança para ações perigosas
+        # 4. Trava de segurança para ações perigosas
         perigosos = [r"\brm\s+-rf\b", r"\bmkfs\b", r"\bdd\s+if=", r"\bformat\b", r"\bdrop\s+database\b", r"\bpay\b", r"\btransfer\b"]
         for p in perigosos:
             if re.search(p, acao_planejada, re.I):
@@ -129,7 +141,8 @@ class OrquestradorContinuo:
                 break
 
         if pensamento["autorizado"]:
-            pensamento["estrategia"] = f"Executar {acao_planejada} com verificação adaptativa de pós-condição."
+            licoes_txt = f" (aplicando lições de {', '.join(pensamento.get('licoes_consultadas', []))})" if pensamento.get("licoes_consultadas") else ""
+            pensamento["estrategia"] = f"Executar {acao_planejada}{licoes_txt} com verificação adaptativa de pós-condição."
 
         # Notifica HUD e sistema
         self.emitir({
@@ -258,6 +271,16 @@ class OrquestradorContinuo:
                     with self.lock:
                         obj["status"] = "concluido"
                         self.salvar_checkpoint()
+                    try:
+                        import auto_aprendizado
+                        auto_aprendizado.get_banco_conhecimento().registrar_aprendizado(
+                            tarefa=obj.get("titulo", obj_id),
+                            sucesso=True,
+                            detalhes=str(obj.get("ultimo_resultado", "Concluído com sucesso"))[:240],
+                            solucao="Orquestração rápida finalizada"
+                        )
+                    except Exception:
+                        pass
                     break
 
             except Exception as e:
@@ -265,6 +288,16 @@ class OrquestradorContinuo:
                 with self.lock:
                     obj["ultimo_erro"] = str(e)
                     self.salvar_checkpoint()
+                try:
+                    import auto_aprendizado
+                    auto_aprendizado.get_banco_conhecimento().registrar_aprendizado(
+                        tarefa=obj.get("titulo", obj_id),
+                        sucesso=False,
+                        detalhes=str(e)[:240],
+                        solucao="Replanejamento e adaptação contínua"
+                    )
+                except Exception:
+                    pass
 
             # Espera intervalo ou sinal de parada
             intervalo = obj.get("intervalo_s", 60.0)

@@ -13,12 +13,30 @@ MAPA = os.path.join(ROOT, "memory", "mapa_pc.json")
 
 _NAV = {
     "navegador", "browser", "internet", "web", "chrome", "chromium",
-    "googlechrome", "firefox", "edge", "msedge", "brave",
+    "googlechrome", "firefox", "edge", "msedge", "brave", "opera",
 }
 _WIN = {
     "firefox": "firefox", "edge": "msedge", "msedge": "msedge", "brave": "brave",
     "notepad": "notepad", "explorer": "explorer", "arquivos": "explorer",
-    "terminal": "wt", "console": "wt", "powershell": "powershell", "calculadora": "calc",
+    "terminal": "wt", "console": "cmd", "powershell": "powershell", "calculadora": "calc",
+    "calc": "calc", "cmd": "cmd", "tarefas": "taskmgr", "gerenciadordetarefas": "taskmgr",
+    "bloco": "notepad", "blocodenotas": "notepad", "config": "ms-settings:",
+    "configuracoes": "ms-settings:", "ajustes": "ms-settings:", "camera": "microsoft.windows.camera:",
+}
+_CAT_LINUX = {
+    "calculadora": ["gnome-calculator", "kcalc", "galculator", "xcalc"],
+    "calc": ["gnome-calculator", "kcalc", "galculator", "xcalc"],
+    "terminal": ["x-terminal-emulator", "kitty", "alacritty", "gnome-terminal", "konsole", "xfce4-terminal"],
+    "arquivos": ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"],
+    "gerenciadordearquivos": ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"],
+    "pastas": ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"],
+    "bloco": ["gedit", "kate", "mousepad", "kwrite", "code"],
+    "blocodenotas": ["gedit", "kate", "mousepad", "kwrite", "code"],
+    "editor": ["gedit", "kate", "mousepad", "kwrite", "code"],
+    "configuracoes": ["gnome-control-center", "systemsettings", "xfce4-settings-manager"],
+    "ajustes": ["gnome-control-center", "systemsettings", "xfce4-settings-manager"],
+    "tarefas": ["gnome-system-monitor", "ksysguard", "htop"],
+    "gerenciadordetarefas": ["gnome-system-monitor", "ksysguard"],
 }
 
 
@@ -32,8 +50,22 @@ def norm(s):
     return re.sub(r"[^a-z0-9]+", "", t)
 
 
+def limpar_nome_app(s):
+    t = unicodedata.normalize("NFKD", str(s or "").lower())
+    t = "".join(c for c in t if not unicodedata.combining(c)).strip()
+    t = re.sub(r"^(?:abrir|abra|abre|inicie|iniciar|inicia|execute|executar|roda|rodar|lan[cç]ar|lan[cç]e|acessar|acesse|ver|mostrar|mostre)\s+", "", t)
+    t = re.sub(r"^(?:o|a|os|as|um|uma|uns|umas|meu|minha|meus|minhas|o\s+meu|a\s+minha)\s+", "", t)
+    t = re.sub(r"^(?:aplicativo|aplica[cç][aã]o|app|programa|ferramenta)\s+(?:de|do|da|dos|das)?\s*", "", t)
+    return re.sub(r"[^a-z0-9]+", "", t)
+
+
 def eh_navegador(nome):
-    return norm(nome) in _NAV
+    nl = limpar_nome_app(nome)
+    nn = norm(nome)
+    for c in (nl, nn):
+        if c in _NAV or any(nav in c for nav in ("navegador", "browser", "chrome", "firefox", "edge", "brave", "opera")):
+            return True
+    return False
 
 
 def _bin_linux():
@@ -45,7 +77,7 @@ def _bin_linux():
 
 
 def chave_janela(nome):
-    n = norm(nome)
+    n = limpar_nome_app(nome) or norm(nome)
     if n == "firefox":
         return "firefox"
     if n in {"edge", "msedge"}:
@@ -63,7 +95,7 @@ def chave_janela(nome):
 
 
 def nome_exibicao(nome):
-    n = norm(nome)
+    n = limpar_nome_app(nome) or norm(nome)
     if n == "firefox":
         return "Firefox"
     if n in {"edge", "msedge"}:
@@ -163,24 +195,38 @@ def _desktops():
 
 def abrir_app(nome):
     bruto = str(nome or "").strip()
+    nl = limpar_nome_app(bruto)
     n = norm(bruto)
-    if not n:
+    chave = nl or n
+    if not chave:
         return False, "nome vazio"
-    especifico = n in {"firefox", "brave", "edge", "msedge"}
+    especifico = chave in {"firefox", "brave", "edge", "msedge"}
     if eh_navegador(bruto) and not especifico:
         if windows():
             return _win_start("https://www.google.com/")
         return abrir_url("https://www.google.com/")
     if windows():
-        return _win_start(_WIN.get(n) or _WIN.get(bruto.lower()) or bruto)
+        cmd_win = _WIN.get(chave) or _WIN.get(n) or _WIN.get(bruto.lower()) or bruto
+        return _win_start(cmd_win)
     if especifico:
-        exe = shutil.which(n if n != "msedge" else "microsoft-edge") or shutil.which("firefox" if n == "firefox" else n)
+        exe = shutil.which(chave if chave != "msedge" else "microsoft-edge") or shutil.which("firefox" if chave == "firefox" else chave)
         if exe:
             return _popen([exe])
+
+    # Categoria Linux conhecida
+    if chave in _CAT_LINUX:
+        for candidato in _CAT_LINUX[chave]:
+            w = shutil.which(candidato)
+            if w:
+                return _popen([w])
+
     melhor, nota = None, 0
     for did, titulo, exe in _desktops():
         nn, nd = norm(titulo), norm(did)
-        v = 100 if nn == n or nd == n else 80 if nn.startswith(n) or nd.startswith(n) else 60 if n in nn or n in nd else 0
+        nl_t = limpar_nome_app(titulo)
+        v = 100 if (nn == chave or nd == chave or nl_t == chave) else \
+            80 if (nn.startswith(chave) or nd.startswith(chave) or nl_t.startswith(chave)) else \
+            60 if (chave in nn or chave in nd or chave in nl_t) else 0
         if v > nota:
             nota, melhor = v, (did, titulo, exe)
     if not melhor:
@@ -188,7 +234,7 @@ def abrir_app(nome):
             import json
             apps = json.load(open(MAPA, encoding="utf-8")).get("apps") or {}
             for did, a in apps.items():
-                if isinstance(a, dict) and (n in norm(a.get("nome", "")) or n in norm(did)):
+                if isinstance(a, dict) and (chave in norm(a.get("nome", "")) or chave in norm(did)):
                     melhor = (did, a.get("nome") or did, a.get("exec") or "")
                     break
         except Exception:
@@ -205,7 +251,7 @@ def abrir_app(nome):
                 ok, msg = _popen(cmd)
                 if ok:
                     return True, f"abrindo {titulo}"
-    w = shutil.which(bruto)
+    w = shutil.which(chave) or shutil.which(bruto)
     if w:
         return _popen([w])
     return False, f"app '{bruto}' não está instalado ou não tem atalho"

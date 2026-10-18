@@ -18,16 +18,30 @@ if "%PYTHON_CMD%"=="" (
     where py >nul 2>nul
     if %errorlevel% equ 0 set PYTHON_CMD=py -3
 )
+if "%PYTHON_CMD%"=="" (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+    if exist "C:\Program Files\Python311\python.exe" set PYTHON_CMD="C:\Program Files\Python311\python.exe"
+    if exist "C:\Program Files\Python312\python.exe" set PYTHON_CMD="C:\Program Files\Python312\python.exe"
+    if exist "C:\Program Files\Python310\python.exe" set PYTHON_CMD="C:\Program Files\Python310\python.exe"
+)
 
 if "%PYTHON_CMD%"=="" (
     echo [ERRO] Python 3 não foi detectado no sistema!
     echo Baixando instalador oficial do Python 3.11...
-    powershell -Command "Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile 'python_installer.exe'"
+    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile 'python_installer.exe'"
     if exist python_installer.exe (
         echo Instalando Python com PATH ativado...
         start /wait python_installer.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
         del python_installer.exe >nul 2>nul
-        set PYTHON_CMD=python
+        if exist "C:\Program Files\Python311\python.exe" (
+            set PYTHON_CMD="C:\Program Files\Python311\python.exe"
+        ) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+            set PYTHON_CMD="%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+        ) else (
+            set PYTHON_CMD=python
+        )
     ) else (
         echo [ERRO] Por favor, instale o Python 3.10+ manualmente marcando 'Add Python to PATH' e execute este instalador novamente.
         pause

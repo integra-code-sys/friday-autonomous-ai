@@ -102,6 +102,20 @@ PROPRIAS = {
                  "required": ["busca"]},
                 "Consulta a MEMÓRIA PRÓPRIA (repertório do PC: apps, contatos do WhatsApp, pins do Chromium, pastas, rostos, "
                 "objetos, janelas e processos já vistos, resumos de dias). Use ANTES de procurar algo na tela."),
+    "criar_tela_interna": ({"type": "object", "properties": {
+        "nome": {"type": "string", "description": "identificador da tela (ex: painel_jogos, monitor_servidor, status_vendas)"},
+        "tipo": {"type": "string", "enum": ["html", "qml"], "description": "html (Web/Android/HUD) ou qml (desktop Linux)"},
+        "codigo": {"type": "string", "description": "código completo HTML5/CSS/JS ou QML com tema Mark 85 laranja"},
+        "titulo": {"type": "string", "description": "título para o topo da tela"}},
+        "required": ["nome", "codigo"]},
+        "CRIA OU MODIFICA instantaneamente telas internas da F.R.I.D.A.Y. acessíveis no HUD, app Android ou navegador."),
+    "orquestrar_tarefa": ({"type": "object", "properties": {
+        "titulo": {"type": "string", "description": "título do objetivo"},
+        "instrucao": {"type": "string", "description": "instrução completa e detalhada da tarefa contínua ou rápida"},
+        "tipo": {"type": "string", "enum": ["rapida", "longa", "continua", "intermitente"], "description": "tipo de execução"},
+        "intervalo_s": {"type": "number", "description": "segundos de espera entre passos contínuos"}},
+        "required": ["titulo", "instrucao"]},
+        "Orquestrador autônomo contínuo: executa objetivos complexos com cursor real, auto-aprendizado e checkpoints."),
 }
 
 
@@ -258,7 +272,8 @@ def _chat(msgs, tools, timeout=120):
     except Exception as e:
         _log("cloud_providers fallback direto:", e)
     import friday as F
-    body = {"model": F.MODEL, "stream": False, "messages": msgs, "tools": tools,
+    msgs = [{k: v for k, v in m.items() if k != "images"} for m in msgs]
+    body = {"model": F.MODEL, "stream": False, "messages": msgs, "tools": tools, "think": True,
             "options": {"temperature": 0.2, "num_predict": 600, "num_ctx": F.NUM_CTX, "num_gpu": F.NUM_GPU}}
     req = urllib.request.Request(F.OLLAMA + "/api/chat", json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -401,6 +416,12 @@ def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
         msgs.append({"role": "assistant", "content": m.get("content", "") or "", **({"tool_calls": calls} if calls else {})})
         if not calls:
             final = (m.get("content") or "").strip()
+            if not final and passos and passo < MAX_PASSOS - 1:
+                msgs.append({"role": "user", "content": "[sistema] Você parou sem falar e sem ferramenta. "
+                             "O texto da tela já está acima. Chame a próxima ferramenta (rolar, ler, whatsapp) "
+                             "ou responda com o que foi lido. Não invente item que não está no texto."})
+                final = None
+                continue
             # afirmou que FEZ algo sem ter chamado nenhuma ferramenta de efeito = ação inventada ("Modo de repouso ativado"
             # com passos=0, 16/10/2026). Rejeita UMA vez: chame a ferramenta de verdade ou pergunte.
             if not usou_efeito and not cobrou_acao and (_AFIRMA_ACAO.search(final) or "FALHOU" in final):
@@ -453,6 +474,26 @@ def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
                     res, imagem = _olhar(**args)
                 elif nome_t == "camera":
                     res = _camera(fr=fr, ops=ops, **args)
+                elif nome_t == "criar_tela_interna":
+                    try:
+                        import orchestrator
+                        r_t = orchestrator.get_orquestrador().criar_ou_modificar_tela_interna(**args)
+                        res = r_t.get("mensagem") or ("ok" if r_t.get("ok") else r_t.get("erro", "falha"))
+                    except Exception as e_ct:
+                        res = f"falha ao criar tela: {e_ct}"
+                elif nome_t == "orquestrar_tarefa":
+                    try:
+                        import orchestrator
+                        r_o = orchestrator.get_orquestrador().iniciar_ou_retomar_objetivo(
+                            objetivo_id=f"obj_{int(time.time())}",
+                            titulo=args.get("titulo", "Tarefa Geral"),
+                            instrucao=args.get("instrucao", ""),
+                            tipo=args.get("tipo", "rapida"),
+                            intervalo_s=float(args.get("intervalo_s", 30.0))
+                        )
+                        res = r_o.get("mensagem") or ("ok" if r_o.get("ok") else r_o.get("erro", "falha"))
+                    except Exception as e_ot:
+                        res = f"falha ao iniciar orquestrador: {e_ot}"
                 elif nome_t in A.TOOLS:
                     if A.REPOUSO[0] and nome_t in A.TELA:
                         raise RuntimeError("modo repouso: tela bloqueada/apagada; use ferramentas sem tela ou peça ao dono para dizer 'acordar'")
@@ -498,8 +539,18 @@ def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
             _log("  ", passos[-1], "|", str(conteudo.get("resultado") or conteudo.get("erro"))[:200])
             msgs.append({"role": "tool", "tool_name": nome_t, "content": json.dumps(conteudo, ensure_ascii=False)})
             if imagem:
-                msgs.append({"role": "user", "content": f"[{res}] Analise esta imagem para continuar a tarefa.",
-                             "images": [base64.b64encode(imagem).decode()]})
+                legenda = ""
+                try:
+                    import friday as F
+                    legenda = F.vision_describe(imagem, "Descreva em português só o que está visível. Sem palpite.") or ""
+                except Exception:
+                    legenda = ""
+                msgs.append({"role": "user", "content": "[visão] " + (legenda or str(res)[:500])})
+                try:
+                    import memoria
+                    memoria.evento("visao", (legenda or "frame visto")[:180])
+                except Exception:
+                    pass
             if parar:
                 break
         if parar:
