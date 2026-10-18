@@ -50,9 +50,9 @@ def wants_agent(text):
     t = text or ""
     if GATILHO.search(t):
         return True
-    if re.search(r"\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+)\b.*?\b(?:para|pra|pro)\b", t, re.I):
+    if re.search(r"\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+|prepar\w+|escrev\w+|redij\w+)\b.*?\b(?:para|pra|pro)\b", t, re.I):
         return True
-    if re.search(r"\b(?:zap|whatsapp|wpp)\b.*?\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+)\b", t, re.I):
+    if re.search(r"\b(?:zap|whatsapp|wpp)\b.*?\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+|prepar\w+|escrev\w+)\b", t, re.I):
         return True
     return False
 
@@ -94,11 +94,21 @@ def _http(url, timeout=15, limit=400000):
     p = urllib.parse.urlparse(url)
     if p.scheme not in ("http", "https") or re.match(r"^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.)", p.hostname or ""):
         raise ValueError("endereço não permitido")
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "pt-BR,pt;q=0.9"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read(limit)
-        enc = r.headers.get_content_charset() or "utf-8"
-    return raw.decode(enc, errors="replace")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "pt-BR,pt;q=0.9"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read(limit)
+            enc = r.headers.get_content_charset() or "utf-8"
+        return raw.decode(enc, errors="replace")
+    except Exception:
+        # Fallback resiliente via curl com headers modernos de navegador
+        try:
+            r_curl = subprocess.run(["curl", "-sL", "-A", UA, "--max-time", str(timeout), url], capture_output=True, text=True, timeout=timeout + 2)
+            if r_curl.stdout and len(r_curl.stdout.strip()) > 50:
+                return r_curl.stdout[:limit]
+        except Exception:
+            pass
+        raise
 
 
 def _texto(htm):

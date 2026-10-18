@@ -45,7 +45,7 @@ _JS_OPEN = r"""((nome)=>{
   
   const nn = norm(n);
   const cn = clean(n);
-  const ehDono = cn === 'integracode' || cn === 'integra' || cn === 'eu' || cn === 'mim' || cn === 'voce' || cn === 'me';
+  const ehDono = cn === 'integracode' || cn === 'integreacode' || cn === 'integra' || cn === 'integrea' || cn === 'eu' || cn === 'mim' || cn === 'voce' || cn === 'me';
   const wordsN = nn.split(/\s+/).filter(w => w.length >= 3);
 
   // pontua TODAS as conversas; empate entre nomes parecidos = ambíguo (não abre a errada; a Friday pergunta qual)
@@ -56,7 +56,7 @@ _JS_OPEN = r"""((nome)=>{
     const ct = clean(rawTitle);
     const isYou = !!(r.querySelector('[data-testid="you-label"]') || r.querySelector('[data-testid="message-yourself-row"]'));
     let score = 0;
-    if (ehDono && (isYou || ct.includes('integracode') || ct.includes('integra'))) score = 101;
+    if (ehDono && (isYou || ct.includes('integracode') || ct.includes('integreacode') || ct.includes('integra') || ct.includes('integrea'))) score = 101;
     else if (t === nn || ct === cn) score = 100;
     else if (t.includes(nn) || (nn.length >= 3 && nn.includes(t)) || ct.includes(cn) || (cn.length >= 4 && cn.includes(ct))) score = 85;
     else {

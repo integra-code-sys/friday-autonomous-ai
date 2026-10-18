@@ -127,11 +127,9 @@ echo.
 echo [6/6] Instalação concluída com sucesso!
 echo =======================================================
 echo A F.R.I.D.A.Y. está pronta para rodar de forma autônoma
-echo e sincronizada no seu Windows.
+echo e sincronizada no seu Windows (Visual Mark 85 1:1).
 echo =======================================================
 echo.
-set /p INICIAR="Deseja iniciar a F.R.I.D.A.Y. agora? (S/N): "
-if /i "%INICIAR%"=="S" (
-    start Friday.bat
-)
+echo Iniciando F.R.I.D.A.Y. Centro de Comando Stark...
+start "" Friday.bat
 exit /b 0

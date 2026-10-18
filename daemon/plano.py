@@ -93,11 +93,12 @@ def ultimo_concluido():
 def _limpa_contato(c):
     if not c:
         return ""
-    c = re.sub(r"^(?:(?:prepare|preparar|favor|por favor|tente)?\s*(?:para\s+)?(?:enviar|mandar|avisar|dizer|passar)\s+(?:mensagem\s+)?(?:para|a|ao|pro)\s+)", "", c, flags=re.I)
+    c = re.sub(r"^(?:(?:prepare|preparar|favor|por favor|tente|escreva|escrever|envie|enviar|mande|mandar)?\s*(?:para\s+)?(?:uma\s+)?(?:mensagem\s+)?(?:para|a|ao|pro)\s+)", "", c, flags=re.I)
     c = re.sub(r"^(?:(?:o|a|meu|minha|um|uma)\s+)?(?:amig[oa]|contat[oa]|coleg[oa]|brother|parceir[oa]|irm[ãa]o)\b[:,]?\s*", "", c, flags=re.I)
     c = re.sub(r"^(?:para|ao|pro|a)\s+", "", c, flags=re.I)
     c = re.sub(r"\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)\b.*$", "", c, flags=re.I)
     c = re.sub(r"^[^\w]+|[^\w]+$", "", c).strip()
+    c = re.sub(r"\bintegrea\b", "integra", c, flags=re.I)
     return c
 
 
@@ -142,9 +143,14 @@ def planejar(pedido, fr, ctx=""):
                     fmt = "xlsx" if re.search(r"planilh|xlsx", e["objetivo"], re.I) else "pptx" if re.search(r"apresenta|slide|pptx", e["objetivo"], re.I) else "docx"
                 e["formato"] = fmt
 
-    # Se o pedido é para enviar no zap mas o modelo não incluiu a etapa zap, inclui no final
-    if re.search(r"\b(zap|whatsapp|mande para|manda para|enviar para|envie para)\b", ped_lower) and not any(e["tipo"] == "zap" for e in et):
-        m_alvo = re.search(r"(?:enviar|mandar|avise|avisar|mande|manda)?\s*(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", pedido, re.I)
+    # Se o pedido é para enviar no zap/mensagem mas o modelo não incluiu a etapa zap, inclui no final
+    _pede_msg = bool(re.search(
+        r"\b(zap|whatsapp|msg|mensag\w*|prepare\s+uma\s+mensagem|preparar\s+uma\s+mensagem|escreva\s+uma\s+mensagem|"
+        r"escrever\s+uma\s+mensagem|mande\s+uma\s+mensagem|mandar\s+uma\s+mensagem|envie\s+uma\s+mensagem|"
+        r"enviar\s+uma\s+mensagem|mande\s+para|manda\s+para|enviar\s+para|envie\s+para|avise\s+para|avisar\s+para|"
+        r"prepare\s+mensagem|preparar\s+mensagem|escreva\s+mensagem|escrever\s+mensagem)\b", ped_lower))
+    if _pede_msg and not any(e["tipo"] == "zap" for e in et):
+        m_alvo = re.search(r"(?:prepare|preparar|escreva|escrever|enviar|mandar|avise|avisar|mande|manda)?\s*(?:uma\s+)?(?:mensagem\s+)?(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+com\b|\s+dizendo|\s+sobre|\s+as\s+informa|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", pedido, re.I)
         alvo = _limpa_contato(m_alvo.group(1).strip()) if m_alvo else "contato"
         et.append({"tipo": "zap", "contato": alvo, "objetivo": f"Enviar mensagem no WhatsApp para {alvo} com as informações apuradas"})
 
@@ -152,11 +158,11 @@ def planejar(pedido, fr, ctx=""):
         if e.get("tipo") in ("zap", "whatsapp"):
             c = _limpa_contato(e.get("contato") or "")
             if not c:
-                m_c = re.search(r"(?:enviar|mandar|avise|avisar|mande|manda)?\s*(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+com\b|\s+dizendo|\s+sobre|\s+as\s+informa|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", e.get("objetivo", ""), re.I)
+                m_c = re.search(r"(?:prepare|preparar|escreva|escrever|enviar|mandar|avise|avisar|mande|manda)?\s*(?:uma\s+)?(?:mensagem\s+)?(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+com\b|\s+dizendo|\s+sobre|\s+as\s+informa|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", e.get("objetivo", ""), re.I)
                 if m_c:
                     c = _limpa_contato(m_c.group(1).strip())
             if not c:
-                m_c = re.search(r"(?:enviar|mandar|avise|avisar|mande|manda)?\s*(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", pedido, re.I)
+                m_c = re.search(r"(?:prepare|preparar|escreva|escrever|enviar|mandar|avise|avisar|mande|manda)?\s*(?:uma\s+)?(?:mensagem\s+)?(?:para|ao|pro)\s+([A-ZÀ-Úa-zà-ú0-9_ -]+?)(?::|\s+com\b|\s+dizendo|\s+sobre|\s+as\s+informa|\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)|$)", pedido, re.I)
                 if m_c:
                     c = _limpa_contato(m_c.group(1).strip())
             if c and c.lower() not in ("amigo", "um amigo", "meu amigo", "alguém", "alguem", "um contato", "contato"):
@@ -305,8 +311,14 @@ def _ver_no_navegador(q, urls, ag, fr, ops=None, progress=None):
             ag.t_rolar(n=4)
             time.sleep(0.5)
     if not clicou:
-        if not (_chromium_em_foco(ag, fr) and fr._pc("goto", u, timeout=20)):
-            return
+        # Garante navegação direta e foco no site alvo sem falhar
+        try:
+            ag.t_abrir_site(url=u, fr=fr, ops=ops)
+        except Exception:
+            if _chromium_em_foco(ag, fr):
+                fr._pc("goto", u, timeout=15)
+        time.sleep(1.5)
+    else:
         time.sleep(1.2)
     _ler_ate_o_fim(ag, fr, m, max_rolagens=5)
 
@@ -373,7 +385,10 @@ def _etapa(e, p, fr, ag, ops, ctx, programar, progress, visivel=True, ver=None):
                 # Remove sites de enciclopédia/história geral que não refletem a loja diária
                 urls = [u for u in urls if not re.search(r"wikipedia\.org|fandom\.com|wikia\.com", u, re.I)]
                 if re.search(r"fortnite", obj, re.I):
-                    urls.sort(key=lambda u: 0 if re.search(r"fortnite\.gg|op\.gg", u) else 1)
+                    if re.search(r"oficial", obj, re.I):
+                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.com|epicgames\.com", u, re.I) else 1)
+                    else:
+                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.gg|fortnite\.com|epicgames\.com", u, re.I) else 1)
             if urls and visivel:
                 _ver_no_navegador(q, urls[:3], ag, fr, ops=ops, progress=progress)       # o dono VÊ: busca no Chromium, cursor clica em cada fonte
             textos = []
