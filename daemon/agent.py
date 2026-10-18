@@ -112,7 +112,8 @@ def _http(url, timeout=15, limit=400000):
 
 
 def _texto(htm):
-    htm = re.sub(r"(?is)<(script|style|noscript|svg|nav|footer|header)[^>]*>.*?</\1>", " ", htm)
+    htm = re.sub(r"(?is)<(script|style|noscript|svg|nav|footer|header|aside|iframe)[^>]*>.*?</\1>", " ", htm)
+    htm = re.sub(r"(?is)<(div|section|aside)[^>]+(?:class|id)=[\"'][^\"']*\b(ad|ads|advert|banner|cookie|consent|popup|modal|overlay|sponsor|commercial|promo)\b[^\"']*[\"'][^>]*>.*?</\1>", " ", htm)
     htm = re.sub(r"(?s)<[^>]+>", " ", htm)
     return re.sub(r"\s+", " ", html.unescape(htm)).strip()
 
@@ -1247,8 +1248,10 @@ def t_rolar(n=3, **_):
 
 
 _AVISO = re.compile(
-    r"^(?:aceitar(?:\s+tudo)?|accept(?:\s+all)?|concordo|entendi|fechar|close|agora n[ãa]o|"
-    r"n[ãa]o,?\s*obrigado|pular(?:\s+an[úu]ncio)?|skip(?:\s+ads?)?|rejeitar|recusar)$",
+    r"^(?:aceitar(?:\s+tudo|\s+todos|\s+cookies)?|accept(?:\s+all)?|concordo|entendi|"
+    r"fechar(?:\s+an[úu]ncio|\s+aviso)?|close(?:\s+ad)?|agora\s+n[ãa]o|n[ãa]o,?\s*obrigado|"
+    r"pular(?:\s+an[úu]ncio)?|skip(?:\s+ads?)?|rejeitar|recusar|dispensar|dismiss|"
+    r"continuar(?:\s+para\s+o\s+site)?|prosseguir)$",
     re.I)
 
 
@@ -1289,7 +1292,7 @@ def t_fechar_sobreposicao(**_):
         rot = re.sub(r"\s*@\d+,\d+$", "", (l.get("t") or "").strip())
         if not rot or len(rot) > 40:
             continue
-        fechar = _SKIP.match(rot) or _AVISO.match(rot) or re.search(r"lembrar mais tarde", rot, re.I)
+        fechar = _SKIP.match(rot) or _AVISO.match(rot) or re.search(r"lembrar mais tarde|dispensar|fechar anúncio|close ad|pular anúncio|continuar para o site", rot, re.I)
         if not fechar and re.fullmatch(r"[x×✕]", rot, re.I) and int(l.get("y") or 0) > 90:
             fechar = True
         if not fechar:
@@ -1359,9 +1362,10 @@ def _linhas_de_leitura(texto):
             continue
         if re.search(
             r"verifica[çc][ãa]o de seguran|um momento|cloudflare|endere[çc]o ip|id da sess[ãa]o|"
-            r"esperando a resposta|mova suas guias|learn more|sponsored|caixa de|"
+            r"esperando a resposta|mova suas guias|learn more|sponsored|patrocinad|caixa de|"
             r"sign in|repositor|developers|gestos de janela|monitor gamer|pichau|nexus|"
-            r"\d+\s*hz\b|resets in|sunday|0?october|whatsapp",
+            r"\d+\s*hz\b|resets in|sunday|0?october|whatsapp|aceitar cookies|pol[íi]tica de privacidade|"
+            r"todos os direitos reservados|inscreva-se|assine nossa newsletter|an[úu]ncio|publicidade",
             s, re.I):
             continue
         if re.match(r"^\(\d+\)", s):
@@ -1373,28 +1377,38 @@ def _linhas_de_leitura(texto):
     return out
 
 
-def t_ler_rolando(vezes=5, url="", **_):
-    """Fecha aviso, rola a página de verdade e junta o texto de cada tela."""
+def t_ler_rolando(vezes=8, url="", **_):
+    """Fecha aviso, rola a página de verdade até o final e junta o texto de cada tela sem anúncios."""
     try:
         _manual()._pc("move", 960, 540)
     except Exception:
         pass
     t_fechar_sobreposicao()
     vistos, linhas = set(), []
-    n = max(1, min(int(vezes or 5), 8))
+    n = max(1, min(int(vezes or 8), 15))
+    ultimo_tamanho = 0
+    repeticoes = 0
     for i in range(n):
+        t_fechar_sobreposicao()
         for s in _linhas_de_leitura(_texto_tela_rapido()):
             if s not in vistos:
                 vistos.add(s)
                 linhas.append(s)
+        if len(linhas) == ultimo_tamanho:
+            repeticoes += 1
+            if repeticoes >= 2:
+                break
+        else:
+            repeticoes = 0
+            ultimo_tamanho = len(linhas)
         if i + 1 < n:
-            t_rolar(4)
+            t_rolar(5)
             time.sleep(0.45)
     for s in _linhas_de_leitura(_dump_legivel(url)):
         if s not in vistos:
             vistos.add(s)
             linhas.append(s)
-    texto = "\n".join("• " + s for s in linhas[:30])
+    texto = "\n".join("• " + s for s in linhas[:40])
     try:
         import memoria
         if url:
@@ -2206,7 +2220,8 @@ def _paginas_do_assunto(tema):
 
 
 _LIXO_TELA = re.compile(
-    r"exibindo resultados|vou pesquisar|cookie|aceitar tudo|javascript|inscreva|menu principal|barra de endere",
+    r"exibindo resultados|vou pesquisar|cookie|aceitar tudo|javascript|inscreva|menu principal|barra de endere|"
+    r"publicidade|an[úu]ncio|anuncios?|patrocinad|todos os direitos|pol[íi]tica de privacidade|termos de uso|propaganda|newsletter",
     re.I)
 
 
@@ -2292,13 +2307,13 @@ def _entrar_e_ler(tema, fr, ops, progress=None):
     for u in urls[:2]:
         try:
             _ir_para_url(u, fr, progress)
-            bloco = t_ler_rolando(vezes=3, url="")
+            bloco = t_ler_rolando(vezes=8, url=u)
         except Exception:
             bloco = ""
         for s in _linhas_de_leitura(bloco):
             if s not in linhas:
                 linhas.append(s)
-    uso = [s for s in linhas if re.search(r"[A-Za-zÀ-ÿ]{4,}", s) or re.search(r"\d[\d.,]{2,}", s)][:16]
+    uso = [s for s in linhas if re.search(r"[A-Za-zÀ-ÿ]{4,}", s) or re.search(r"\d[\d.,]{2,}", s)][:35]
     if len(uso) < 2:
         return ""
     return "\n".join("• " + s for s in uso)
@@ -2341,12 +2356,13 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
             except Exception:
                 pass
         conteudo = None
+        data_atual = time.strftime("%d/%m/%Y")
         if fr is not None:
             try:
                 conteudo = fr.llm(
                     "Você é a F.R.I.D.A.Y., analista executiva. Escreva um relatório analítico estruturado e aprofundado em Markdown "
-                    "(com título #, ## 1. Resumo Executivo, ## 2. Análise Detalhada dos Fatos, ## 3. Tabela Comparativa de Dados/Valores, "
-                    "## 4. Conclusão) sobre o tema pesquisado. Escreva texto fluído de alta qualidade, sem colar trechos brutos.",
+                    f"(com título #, ## 1. Resumo Executivo na data {data_atual}, ## 2. Análise Detalhada dos Fatos, ## 3. Tabela Comparativa de Dados/Valores, "
+                    "## 4. Conclusão) sobre o tema pesquisado. PROIBIDO O USO DE QUALQUER EMOJI. Escreva texto fluído de alta qualidade, sem colar trechos brutos.",
                     f"Tema: {tema}\n\nDados apurados:\n{corpo[:5000]}", None, False, 1200, 0.2, 90
                 )
             except Exception:
@@ -2355,12 +2371,14 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
             try:
                 import orquestra_geral as _og
                 conteudo = _og._modelo(
-                    f"Escreva um relatório analítico completo em Markdown sobre '{tema}' com introdução, análise detalhada, tabela de dados e conclusão.\n\nMaterial:\n{corpo[:5000]}",
+                    f"Escreva um relatório analítico completo em Markdown sobre '{tema}' com introdução, análise detalhada na data {data_atual}, tabela de dados e conclusão. PROIBIDO O USO DE EMOJIS.\n\nMaterial:\n{corpo[:5000]}",
                     max_tokens=1400
                 )
             except Exception:
                 pass
         conteudo = (conteudo or corpo).strip()
+        conteudo = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', conteudo)
+        conteudo = re.sub(r'<think>.*?</think>', '', conteudo, flags=re.DOTALL).strip()
         if not nome_arq:
             slug = re.sub(r"[^a-z0-9]+", "-", tema.lower()).strip("-")[:36] or "pesquisa"
             nome_arq = f"{slug}.md"
@@ -2377,14 +2395,22 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
 
     # Síntese analítica articulada para mensagens e agenda
     sintese_msg = None
+    data_atual = time.strftime("%d/%m/%Y")
+    contato_dest = "contato"
+    if m_zap:
+        contato_dest = m_zap.group(1).strip()
+        contato_dest = re.sub(r"(?i)^(?:\s*(?:o|a|os|as|meu|minha|@))+", "", contato_dest).strip()
+        contato_dest = re.sub(r"(?i)\s+(?:no|pelo|via|por)\s+(?:whatsapp|zap|zapzap|mensagem|wpp).*$", "", contato_dest).strip(" ,.!?")
+
     if fr is not None:
         try:
             sintese_msg = fr.llm(
-                "Você é a F.R.I.D.A.Y. Redija uma mensagem objetiva, fluida e clara para enviar a um contato via WhatsApp. "
+                f"Você é a F.R.I.D.A.Y. Redija uma mensagem corporativa analítica, fluida e clara para o contato '{contato_dest}' sobre o tema: '{tema}'. "
+                f"Data atual de referência: {data_atual}. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão. "
                 "Sintetize os pontos principais apurados sobre o tema, valores ou novidades encontradas, sem jargões de robô, "
-                "sem colar URLs cruas e sem colar trechos soltos. Seja direta e prestativa.",
+                "sem colar URLs cruas, sem anúncios ou avisos de cookies e sem colar trechos soltos. Estruture a mensagem com Resumo Executivo, Destaques Apurados com valores, e Assinatura formal da F.R.I.D.A.Y. - Integra Code.",
                 f"Tema: {tema}\n\nDados apurados:\n{corpo[:4500]}",
-                None, False, 350, 0.2, 60
+                None, False, 500, 0.2, 60
             )
         except Exception:
             pass
@@ -2392,16 +2418,21 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
         try:
             import orquestra_geral as _og
             sintese_msg = _og._modelo(
-                f"Você é a F.R.I.D.A.Y. Analise as informações sobre '{tema}' e elabore uma mensagem clara e executiva sintetizando os achados de forma fluida.\n\nDados:\n{corpo[:4000]}",
-                max_tokens=400
+                f"Você é a F.R.I.D.A.Y. Analise as informações sobre '{tema}' e elabore uma mensagem corporativa executiva para '{contato_dest}'.\n"
+                f"Data atual de referência: {data_atual}.\n"
+                f"PROIBIDO O USO DE QUALQUER EMOJI.\n\nDados apurados:\n{corpo[:4000]}",
+                max_tokens=500
             )
         except Exception:
             pass
+    if sintese_msg:
+        sintese_msg = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', sintese_msg)
+        sintese_msg = re.sub(r'<think>.*?</think>', '', sintese_msg, flags=re.DOTALL).strip()
     resumo = (sintese_msg or corpo).strip()
 
     # 2) Pesquisa + Enviar no WhatsApp
     if m_zap:
-        contato = m_zap.group(1).strip()
+        contato = contato_dest
         contato = re.sub(r"(?i)^(?:\s*(?:o|a|os|as|meu|minha|@))+", "", contato).strip()
         contato = re.sub(r"(?i)\s+(?:no|pelo|via|por)\s+(?:whatsapp|zap|zapzap|mensagem|wpp).*$", "", contato).strip(" ,.!?")
         if contato:

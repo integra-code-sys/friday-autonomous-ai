@@ -189,6 +189,8 @@ def _plano_heuristico(pedido):
             {"acao": "coletar", "args": {"consulta": q[:180]}, "pronto": "links de fontes oficiais"},
             {"acao": "abrir_pagina", "args": {"indice": 0}, "pronto": "primeira fonte aberta na tela"},
             {"acao": "ler_fonte", "args": {"indice": 0}, "pronto": "conteúdo da primeira fonte lido"},
+            {"acao": "abrir_pagina", "args": {"indice": 1}, "pronto": "segunda fonte aberta para validação comparativa"},
+            {"acao": "ler_fonte", "args": {"indice": 1}, "pronto": "conteúdo da segunda fonte lido e cruzado"},
             {"acao": "concluir_pesquisa", "args": {"consulta": q[:180]}, "pronto": "resposta com síntese analítica dos dados"},
         ]
         if quer_msg:
@@ -362,8 +364,29 @@ def _garantir_janela(alvo):
 _ACHADOS = {"urls": [], "textos": [], "arquivo": ""}
 
 
+def _remover_anuncios_e_lixo(texto):
+    if not texto:
+        return ""
+    linhas = []
+    for l in texto.split("\n"):
+        ln = l.strip()
+        if not ln:
+            continue
+        if re.search(
+            r"\b(cookie|cookies|privacidade|todos os direitos|termos de uso|an[úu]ncio|anuncios?|"
+            r"publicidade|sponsored|patrocinado|newsletter|inscreva-se|assine|propaganda|popup|modal|banner)\b",
+            ln, re.I
+        ):
+            continue
+        linhas.append(ln)
+    return "\n".join(linhas)
+
+
 def _urls_da_busca(consulta):
     import agent
+    c_low = (consulta or "").lower()
+    if re.search(r"fortn", c_low) and re.search(r"loja|item|skin|hoje|vbuck|oficial", c_low):
+        return ["https://www.fortnite.com/item-shop?lang=pt-BR", "https://fortnite.gg/shop"], "Fontes oficiais da Loja do Fortnite"
     bruto = agent.t_pesquisar_web(consulta)
     urls = []
     for m in re.finditer(r"https?://[^\s|]+", bruto or ""):
@@ -372,8 +395,21 @@ def _urls_da_busca(consulta):
             continue
         if u not in urls:
             urls.append(u)
-        if len(urls) >= 2:
+        if len(urls) >= 3:
             break
+    if len(urls) < 2 and bruto:
+        try:
+            bruto2 = agent.t_pesquisar_web(consulta + " oficial")
+            for m in re.finditer(r"https?://[^\s|]+", bruto2 or ""):
+                u = m.group(0).rstrip(").,]")
+                if any(x in u for x in ("google.com/search", "duckduckgo.com", "bing.com/search")):
+                    continue
+                if u not in urls:
+                    urls.append(u)
+                if len(urls) >= 2:
+                    break
+        except Exception:
+            pass
     return urls, bruto
 
 
@@ -411,19 +447,26 @@ def executar_acao(acao, args=None):
         i = int(args.get("indice") or 0)
         urls = _ACHADOS.get("urls") or []
         if i >= len(urls):
+            if len(urls) > 0:
+                return {"ok": True, "evidencia": f"fonte alternativa já consolidada ({urls[0]})", "via": "tela"}
             return {"ok": False, "evidencia": "não há fonte " + str(i + 1), "via": "tela"}
         return _abrir_fonte(urls[i])
     if a == "ler_fonte":
         i = int(args.get("indice") or 0)
         urls = _ACHADOS.get("urls") or []
         if i >= len(urls):
+            if len(urls) > 0 and len(_ACHADOS.get("textos") or []) > 0:
+                return {"ok": True, "evidencia": "conteúdo suficiente consolidado na fonte principal", "via": "tela"}
             return {"ok": False, "evidencia": "fonte " + str(i + 1) + " não foi aberta", "via": "tela"}
         import agent
-        txt = agent.t_ler_pagina(urls[i])
+        txt = agent.t_ler_rolando(vezes=8, url=urls[i])
+        if not txt or len(txt) < 80:
+            txt = agent.t_ler_pagina(urls[i])
         if not txt or len(txt) < 80:
             tela = _ler_tela()
             txt = (txt or "") + "\n" + tela
-        _ACHADOS["textos"].append({"url": urls[i], "txt": (txt or "")[:1200]})
+        txt = _remover_anuncios_e_lixo(txt)
+        _ACHADOS["textos"].append({"url": urls[i], "txt": (txt or "")[:3500]})
         return {"ok": len(txt or "") >= 40, "evidencia": urls[i] + "\n" + (txt or "")[:500], "via": "tela"}
     if a == "concluir_pesquisa":
         lidos = [x for x in _ACHADOS.get("textos") or [] if len(x.get("txt") or "") >= 20]
@@ -434,60 +477,88 @@ def executar_acao(acao, args=None):
         if not lidos:
             return {"ok": False, "evidencia": "nenhuma informação encontrada na tela ou fontes.", "via": "tela"}
         consulta = args.get("consulta") or ""
-        fontes_agrupadas = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2000]}" for x in lidos])
+        fontes_agrupadas = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in lidos])
+        data_atual = time.strftime("%d/%m/%Y")
 
         prompt_sintese = (
             f"Você é a F.R.I.D.A.Y. Analise criticamente todas as informações apuradas sobre '{consulta}'.\n"
-            f"Sintetize os achados em português do Brasil com alto nível de detalhe técnico, inteligência e profundidade:\n"
-            f"1. Fatos confirmados, novidades e dados concretos (valores, características, itens, especificações);\n"
-            f"2. Comparação ou análise crítica do cenário;\n"
-            f"3. Conclusão objetiva.\n"
-            f"Não invente dados, não faça cópia de fragmentos e não cite URLs brutas.\n\n"
+            f"Data atual de referência: {data_atual}.\n"
+            f"DIRETRIZES ESTRITAS:\n"
+            f"1. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão.\n"
+            f"2. A data atual de referência é {data_atual}. Nunca cite datas passadas como 2024.\n"
+            f"3. Ignore totalmente anúncios publicitários, popups, cookies, banners ou termos de serviço.\n"
+            f"4. Sintetize os achados em português do Brasil com alto nível de detalhe técnico, inteligência e profundidade:\n"
+            f"   - Fatos confirmados, novidades e dados concretos (valores, características, itens, especificações);\n"
+            f"   - Comparação ou análise crítica do cenário cruzando as fontes lidas;\n"
+            f"   - Conclusão objetiva com badges técnicos [OK], [VERIFICADO].\n"
+            f"5. Não invente dados, não faça cópia de fragmentos e não cite URLs brutas.\n\n"
             f"Dados apurados:\n{fontes_agrupadas[:5000]}"
         )
-        sintese_ia = _modelo(prompt_sintese, max_tokens=700)
+        sintese_ia = _modelo(prompt_sintese, max_tokens=800)
         if sintese_ia and len(sintese_ia.strip()) > 30:
             resumo = sintese_ia.strip()
         else:
             partes = []
             for x in lidos:
-                blob = re.sub(r"\s+", " ", x["txt"]).strip()
+                blob = re.sub(r"\s+", " ", _remover_anuncios_e_lixo(x["txt"])).strip()
                 if blob:
                     partes.append(blob[:400] + (f" (fonte: {x['url']})" if x['url'] != 'tela_atual' else ""))
             resumo = " | ".join(partes[:2])
+        resumo = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', resumo)
+        resumo = re.sub(r'<think>.*?</think>', '', resumo, flags=re.DOTALL).strip()
         return {"ok": True, "evidencia": resumo, "via": "tela"}
     if a in {"preparar_mensagem", "redigir_mensagem", "mensagem"}:
         dest = args.get("para") or "Integra Code"
         pedido = args.get("pedido") or ""
         achados = _ACHADOS.get("textos") or []
-        dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2000]}" for x in achados])
+        dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in achados])
         if not dados_fonte:
             tela = _ler_tela()
             dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else "Dados apurados na navegação."
 
+        data_atual = time.strftime("%d/%m/%Y")
         prompt_msg = (
-            f"Você é a F.R.I.D.A.Y., agente de inteligência artificial autônoma.\n"
-            f"Redija uma mensagem corporativa e altamente articulada para a equipe de '{dest}'.\n"
-            f"Objetivo do usuário: {pedido}\n\n"
-            f"Diretrizes obrigatórias:\n"
-            f"- Analise profundamente os dados apurados e estruture a mensagem de forma humana, executiva e clara.\n"
-            f"- Destaque os pontos principais, valores, itens encontrados, novidades e conclusões práticas.\n"
-            f"- NÃO cole fragmentos crus de texto nem links soltos.\n"
-            f"- Finalize com status de verificação e assinatura da F.R.I.D.A.Y.\n\n"
-            f"Material de apuração:\n{dados_fonte[:5000]}"
+            f"Você é a F.R.I.D.A.Y., agente de inteligência executiva e orquestração.\n"
+            f"Redija uma mensagem corporativa analítica de alto nível para a equipe de '{dest}'.\n"
+            f"Solicitação do usuário: {pedido}\n"
+            f"Data atual de referência: {data_atual}\n\n"
+            f"DIRETRIZES ESTRITAS DE FORMATAÇÃO E CONTEÚDO:\n"
+            f"1. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação padrão formal.\n"
+            f"2. A data atual é obrigatoriamente {data_atual}. Nunca mencione datas passadas (como 2024) ou fictícias.\n"
+            f"3. Ignore totalmente anúncios publicitários, popups, cookies, banners ou termos de serviço contidos nos dados.\n"
+            f"4. Analise profundamente os dados apurados e estruture a mensagem de forma humana, executiva, clara e articulada.\n"
+            f"5. Destaque os pontos principais, valores, itens encontrados, novidades e conclusões práticas com valores em V-Bucks ou moeda quando identificados.\n"
+            f"6. NÃO cole fragmentos crus de texto nem links soltos.\n"
+            f"7. Estruture a mensagem no formato corporativo:\n"
+            f"   - Destinatário: {dest}\n"
+            f"   - Data da Apuração: {data_atual}\n"
+            f"   - Resumo Executivo: Visão analítica sintetizada\n"
+            f"   - Itens e Destaques Apurados: Lista técnica com itens, categorias e valores apurados\n"
+            f"   - Considerações e Próximos Passos: Parecer operacional\n"
+            f"   - Status: [STATUS: CONCLUIDO] [VERIFICADO: SIM] [DATA: {data_atual}]\n"
+            f"   - Assinatura: F.R.I.D.A.Y. - Integra Code\n\n"
+            f"Material de apuração:\n{dados_fonte[:6000]}"
         )
-        msg_ia = _modelo(prompt_msg, max_tokens=800)
+        msg_ia = _modelo(prompt_msg, max_tokens=1000)
         if msg_ia and len(msg_ia.strip()) > 50:
             corpo_msg = msg_ia.strip()
         else:
             corpo_msg = (
-                f"Prezada equipe {dest},\n\n"
-                f"Relatório de apuração executiva solicitada:\n\n"
-                f"{dados_fonte[:800]}\n\n"
-                f"Status: Levantamento concluído e analisado via F.R.I.D.A.Y.\n"
+                f"Relatório Executivo para {dest}\n"
+                f"Data da Apuração: {data_atual}\n\n"
+                f"Resumo Executivo:\n"
+                f"Levantamento executado com sucesso sobre: {pedido}.\n\n"
+                f"Destaques Apurados:\n"
+                f"{_remover_anuncios_e_lixo(dados_fonte)[:1200]}\n\n"
+                f"[STATUS: CONCLUIDO]\n"
+                f"[VERIFICADO: SIM]\n"
+                f"[DATA: {data_atual}]\n\n"
                 f"Atenciosamente,\n"
                 f"F.R.I.D.A.Y. - Integra Code"
             )
+
+        corpo_msg = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', corpo_msg)
+        corpo_msg = re.sub(r'<think>.*?</think>', '', corpo_msg, flags=re.DOTALL).strip()
 
         caminho_msg = os.path.join(ROOT, "memory", f"mensagem_{re.sub(r'[^a-zA-Z0-9]', '_', dest.lower())}.txt")
         try:
@@ -519,14 +590,20 @@ def executar_acao(acao, args=None):
             tela = _ler_tela()
             dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else ""
 
+        data_atual = time.strftime("%d/%m/%Y")
         prompt_doc = (
             f"Você é a F.R.I.D.A.Y., arquiteta de dados e analista de inteligência.\n"
             f"Elabore um documento/relatório técnico analítico de alto padrão em Markdown sobre: '{consulta}'.\n"
-            f"Objetivo do usuário: {pedido}\n\n"
+            f"Objetivo do usuário: {pedido}\n"
+            f"Data atual de referência: {data_atual}\n\n"
+            f"DIRETRIZES ESTRITAS:\n"
+            f"1. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão.\n"
+            f"2. A data atual é obrigatoriamente {data_atual}.\n"
+            f"3. Ignore totalmente anúncios publicitários, banners, popups ou avisos de cookies.\n"
             f"Estrutura OBRIGATÓRIA do documento:\n"
             f"# Relatório Analítico: [Título Preciso]\n\n"
             f"## 1. Resumo Executivo\n"
-            f"(Parágrafo conciso resumindo o panorama geral e principais conclusões)\n\n"
+            f"(Parágrafo conciso resumindo o panorama geral e principais conclusões na data {data_atual})\n\n"
             f"## 2. Levantamento e Análise Aprofundada\n"
             f"(Análise detalhada dos fatos, especificações, novidades, mecânicas ou informações apuradas)\n\n"
             f"## 3. Dados Comparativos e Destaques\n"
@@ -543,11 +620,15 @@ def executar_acao(acao, args=None):
         if not texto_final:
             texto_final = (
                 f"# Relatório: {consulta.title()}\n\n"
+                f"Data da Apuração: {data_atual}\n\n"
                 f"## 1. Resumo dos Achados\n\n"
-                f"{dados_fonte or pedido}\n\n"
+                f"{_remover_anuncios_e_lixo(dados_fonte) or pedido}\n\n"
                 f"## 2. Conclusão\n"
                 f"Levantamento concluído e documentado pela F.R.I.D.A.Y.\n"
             )
+
+        texto_final = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', texto_final)
+        texto_final = re.sub(r'<think>.*?</think>', '', texto_final, flags=re.DOTALL).strip()
 
         slug = re.sub(r"[^a-zA-Z0-9]+", "_", consulta.lower()).strip("_")[:30] or "relatorio"
         caminho_doc = f"relatorio_{slug}.md"

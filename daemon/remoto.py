@@ -471,23 +471,36 @@ async def llm(req):
     if not p or len(p) > 60000:
         return web.json_response({"ok": False, "erro": "prompt vazio ou grande demais"}, status=400)
     import friday as F
-    body = {"model": F.MODEL, "prompt": p, "raw": True, "stream": False,      # sem keep_alive: vale o do serviço (sem recarga)
-            "options": {"temperature": float(d.get("temp", 0.3)), "num_predict": max(1, min(1200, int(d.get("max", 400)))),
+    body = {"model": F.MODEL, "prompt": p, "raw": True, "stream": False, "think": False,
+            "options": {"temperature": float(d.get("temp", 0.3)), "num_predict": max(1, min(1200, int(d.get("max", 500)))),
                         "num_ctx": F.NUM_CTX, "num_gpu": F.NUM_GPU, "stop": ["<|im_end|>", "<|im_start|>"]}}
     if d.get("json"):
         body["format"] = "json"
 
     def _chamar():
         import urllib.request
-        rq = urllib.request.Request(F.OLLAMA + "/api/generate", json.dumps(body).encode(), {"Content-Type": "application/json"})
-        with urllib.request.urlopen(rq, timeout=120) as r:
-            return json.loads(r.read())
+        try:
+            rq = urllib.request.Request(F.OLLAMA + "/api/generate", json.dumps(body).encode(), {"Content-Type": "application/json"})
+            with urllib.request.urlopen(rq, timeout=120) as r:
+                return json.loads(r.read())
+        except Exception as e_ollama:
+            try:
+                import cloud_providers
+                cp_txt = cloud_providers.gerar_com_provedor(p, max_tokens=int(d.get("max", 500)))
+                if cp_txt:
+                    return {"response": cp_txt, "prompt_eval_count": 0}
+            except Exception:
+                pass
+            raise e_ollama
     t0 = time.time()
     try:
         r = await asyncio.to_thread(_chamar)
     except Exception as e:
         return web.json_response({"ok": False, "erro": repr(e)[:160]}, status=502)
-    return web.json_response({"ok": True, "texto": r.get("response", ""), "ms": int((time.time() - t0) * 1000),
+    resp_txt = r.get("response", "")
+    resp_txt = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', resp_txt)
+    resp_txt = re.sub(r'<think>.*?</think>', '', resp_txt, flags=re.DOTALL).strip()
+    return web.json_response({"ok": True, "texto": resp_txt, "ms": int((time.time() - t0) * 1000),
                               "prompt_tok": r.get("prompt_eval_count"), "modelo": F.MODEL})
 
 
