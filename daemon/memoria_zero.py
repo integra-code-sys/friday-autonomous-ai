@@ -30,7 +30,7 @@ CONFIG_COMERCIAL = os.path.join(MEM, "config_comercial.json")
 _LOCK = threading.RLock()
 
 CONFIG_PADRAO = {
-    "versao": "1.0.0-commercial",
+    "versao": "2.3.1-commercial",
     "onboarding_concluido": False,
     "usuario": {
         "nome": "Chefe",

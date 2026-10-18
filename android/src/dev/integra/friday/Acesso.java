@@ -466,6 +466,33 @@ public class Acesso extends AccessibilityService {
         return r;
     }
 
+    private static boolean ehNavegador(String alvo) {
+        return alvo.equals("navegador") || alvo.equals("browser") || alvo.equals("internet") || alvo.equals("web")
+            || alvo.equals("chrome") || alvo.equals("chromium") || alvo.equals("googlechrome") || alvo.equals("google");
+    }
+
+    private JSONObject abrirNavegador() throws Exception {
+        android.content.pm.PackageManager pm = getPackageManager();
+        String[] pkgs = {"com.android.chrome", "com.chrome.beta", "org.mozilla.firefox", "com.sec.android.app.sbrowser",
+            "com.android.browser", "com.brave.browser", "com.opera.browser", "com.microsoft.emmx", "com.mi.globalbrowser"};
+        for (String p : pkgs) {
+            Intent i = pm.getLaunchIntentForPackage(p);
+            if (i != null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return new JSONObject().put("ok", true).put("app", "Navegador").put("pacote", p);
+            }
+        }
+        Intent view = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/"));
+        view.addCategory(Intent.CATEGORY_BROWSABLE);
+        view.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (view.resolveActivity(pm) != null) {
+            startActivity(view);
+            return new JSONObject().put("ok", true).put("app", "Navegador").put("pacote", "intent");
+        }
+        return new JSONObject().put("ok", false).put("erro", "não achei um navegador que responda a https");
+    }
+
     private static String norm(String s) {
         return java.text.Normalizer.normalize(s == null ? "" : s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "")
             .toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
@@ -474,6 +501,7 @@ public class Acesso extends AccessibilityService {
     private JSONObject abrir(String nome) throws Exception {
         String alvo = norm(nome);
         if (alvo.isEmpty()) return new JSONObject().put("ok", false).put("erro", "nome vazio");
+        if (ehNavegador(alvo)) return abrirNavegador();
         if (alvo.equals("agenda") || alvo.equals("calendario") || alvo.equals("minhaagenda") || alvo.contains("agendafriday")) {
             Intent i = new Intent(this, MainActivity.class)
                 .putExtra("aba", "agenda")
@@ -513,6 +541,11 @@ public class Acesso extends AccessibilityService {
         Integer g = m.get(a == null ? "" : a);
         if (g == null) return new JSONObject().put("ok", false).put("erro", "ação global desconhecida: " + a);
         return ok(performGlobalAction(g));
+    }
+
+    public boolean toque(int x, int y) {
+        try { return gesto(x, y, x, y, 70); }
+        catch (Exception e) { return false; }
     }
 
     private boolean gesto(int x0, int y0, int x1, int y1, int ms) throws Exception {

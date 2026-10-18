@@ -272,10 +272,19 @@ class OrquestradorContinuo:
                 break
 
     def _executar_passo_orquestrado(self, obj: Dict[str, Any]) -> str:
-        """Executa comandos, navegação, scripts ou chamadas a outras IAs conforme a instrução."""
+        """Um passo real do plano persistente. Shell cru só se a instrução começar com sh:."""
         instrucao = obj.get("instrucao", "")
-        # Integração nativa com ferramentas
-        # 1. Se envolve execução de comando shell
+        try:
+            import orquestra_geral as og
+            if not obj.get("_plano"):
+                ses = og.sessao_nova(instrucao)
+                if not ses.get("ok"):
+                    return ses.get("fala") or "recusado"
+                obj["_plano"] = True
+            r = og.avancar()
+            return (r.get("fala") or "sem resultado")[:800]
+        except Exception as e:
+            _log_ev("orquestra_fallback", {"erro": str(e)[:180]})
         if instrucao.startswith("sh:") or instrucao.startswith("bash:"):
             cmd = instrucao.split(":", 1)[1].strip()
             r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60)

@@ -137,7 +137,7 @@ final class Cerebro {
         return true;
     }
 
-    private static final String NOMES_LOCAL = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria|bateria|hora|data";
+    private static final String NOMES_LOCAL = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|claude|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria|bateria|hora|data";
     private static final String NOMES_PC = NOMES_LOCAL + "|pc";
     private String ultimaBusca = "";
 
@@ -171,7 +171,7 @@ final class Cerebro {
             + "REGRA DE MENSAGENS / WHATSAPP: NUNCA use números inventados ou fictícios como +123456789 ou 123456789. Coloque SEMPRE o NOME do contato (ex: 'Carlos', 'Mãe', 'Amor') no argumento 'contato'. A Friday local busca o contato no aparelho.\n"
             + "REGRA DE DOCUMENTOS: Para criar PDFs ou documentos, use 'criar_documento' com 'titulo', 'formato' (pdf|docx) e 'conteudo' bem estruturado com seções usando # e tópicos com •.\n"
             + "Regras: conversa simples -> responder direto. Horas/Bateria/Dispositivo -> use as ferramentas hora e bateria ou responda direto. Pesquisa no navegador/Google/eBay/Amazon -> pesquisar. Navegar num app: abrir_app, depois ler_tela, tocar/digitar, conferir com ler_tela. "
-            + "Não invente resultado: se uma ferramenta falhar, diga. "
+            + "Não invente resultado. Se uma ferramenta falhar, tente outro caminho na tela antes de desistir. "
             + "Mensagem para alguém: whatsapp (o dono confirma).\n"
             + "Nunca mexa nas Configurações de acessibilidade nem em você mesma. A data e a hora estão entre [ ] no pedido.\n"
             + "Responda SEMPRE ao pedido ATUAL: nunca copie uma resposta anterior. Perguntas sobre fatos, pessoas, preços ou notícias -> pesquisar_links e responda "
@@ -567,11 +567,11 @@ final class Cerebro {
                 "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:abr[ae]|inici[ae]|rod[ae]|execut[ae])\\s+(?:o\\s+|a\\s+|os\\s+|as\\s+)?(?:app|aplicativo\\s+)?([\\p{L}0-9_+\\- ]+?)\\s*[.!?]*$").matcher(p);
             if (ma.matches()) {
                 String app = ma.group(1).trim();
-                if (!app.equalsIgnoreCase("agenda") && !app.equalsIgnoreCase("clima") && !app.equalsIgnoreCase("navegador")) {
-                    String r = ferr.executar("abrir_app", new JSONObject().put("nome", app));
-                    if (!r.toLowerCase(Locale.ROOT).startsWith("não encontrei") && !r.toLowerCase(Locale.ROOT).startsWith("falhou")) {
-                        return "Pronto, abri o aplicativo " + app + ".";
-                    }
+                avisar("passo", "plano: abrir " + app);
+                String r = ferr.executar("abrir_app", new JSONObject().put("nome", app));
+                String rl = r.toLowerCase(Locale.ROOT);
+                if (!rl.startsWith("não encontrei") && !rl.startsWith("falhou") && !rl.contains("não encontr") && !rl.contains("não achei")) {
+                    return "Pronto, abri " + app + ".";
                 }
             }
             // Cálculos diretos: "quanto é 15 x 30", "calcule 120 / 4"
@@ -582,6 +582,14 @@ final class Cerebro {
                 String r = ferr.executar("calcular", new JSONObject().put("expressao", expr));
                 if (r.contains("=")) return "Dá " + r.substring(r.lastIndexOf('=') + 1).trim() + ".";
                 return r;
+            }
+            String pl = p.toLowerCase(Locale.ROOT);
+            if (pl.contains("navegador") || pl.contains("browser") || pl.contains("pesquis") || pl.contains("busc")) {
+                avisar("passo", "plano: navegador, gesto, leitura");
+                String termo = Ferramentas.limparTermoBusca(p);
+                if (termo.length() < 2) termo = "google";
+                String r = ferr.executar("pesquisar", new JSONObject().put("consulta", termo).put("onde", "google"));
+                if (r != null && !r.toLowerCase(Locale.ROOT).startsWith("não")) return r;
             }
             // Perguntas gerais -> pesquisa na web e síntese
             String fw = respostaWeb(p);
@@ -742,7 +750,7 @@ final class Cerebro {
                 List<String[]> passos = new ArrayList<>();
                 int falhas = 0;
                 boolean ultimoFalhou = false;
-                for (int passo = 0; passo < 8 && fala == null; passo++) {
+                for (int passo = 0; passo < 16 && fala == null; passo++) {
                     p.append(assist());
                     String out = null;
                     if (temLocal) {
@@ -794,7 +802,7 @@ final class Cerebro {
                     if (atalho != null) { fala = atalho; break; }
                     try { Thread.sleep(acao.equals("abrir_app") || acao.equals("tocar") || acao.equals("pesquisar") ? 900 : 150); } catch (InterruptedException ignored) {}
                 }
-                if (fala == null) { fala = "Fiz o que consegui em 8 passos, mas não terminei. Quer que eu continue?"; falhas++; }
+                if (fala == null) { fala = "Ainda não terminei. Sigo de onde parei se você pedir para continuar."; falhas++; }
                 Aprende.registrar(c, pedido.trim(), passos, falhas == 0 && !ultimoFalhou, fala);
                 historico.add(new String[]{pedido.trim(), fala});
                 while (historico.size() > 6) historico.remove(0);

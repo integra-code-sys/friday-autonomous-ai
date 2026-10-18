@@ -2,6 +2,6 @@ package dev.integra.friday;
 
 /** versão exposta em /estado (o PC confere se a ponte está atualizada). */
 final class BuildConfigVersao {
-    static final String NOME = "4.0";
+    static final String NOME = "4.4";
     private BuildConfigVersao() {}
 }

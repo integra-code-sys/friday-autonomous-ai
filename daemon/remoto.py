@@ -708,6 +708,16 @@ async def web_mark85(req):
     return web.Response(text="Quadro não encontrado", status=404)
 
 
+async def web_tela_dinamica(req):
+    arquivo = os.path.basename(req.match_info.get("arquivo", ""))
+    if not arquivo.endswith((".html", ".css", ".js")):
+        return web.Response(text="não encontrado", status=404)
+    p = os.path.join(WEB_DIR, "telas", arquivo)
+    if os.path.isfile(p):
+        return web.FileResponse(p)
+    return web.Response(text="tela não encontrada", status=404)
+
+
 async def web_static(req):
     """Serve arquivos estáticos da interface web (app.js, novnc.js, voz_dono.json)."""
     arquivo = os.path.basename(req.match_info.get("arquivo", ""))
@@ -751,6 +761,7 @@ def criar_app(ctx):
                     web.get("/mark85/{arquivo:.*}", web_mark85),
                     web.get("/friday.apk", web_apk), web.get("/apk", web_apk), web.get("/friday-commercial.apk", web_apk),
                     web.get("/api/local_token", local_token),
+                    web.get("/telas/{arquivo}", web_tela_dinamica),
                     web.get("/{arquivo:(?:app\\.js|novnc\\.js|voz_dono\\.json|favicon\\.ico)}", web_static),
                     web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
                     web.get("/config", config_center.handle_config_page),

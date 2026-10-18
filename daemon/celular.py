@@ -366,7 +366,8 @@ def abrir_app(nome):
                 import unicodedata
                 n = lambda t: "".join(ch for ch in unicodedata.normalize("NFD", t.lower()) if ch.isalnum())
                 sin = {"configuracoes": "configurar", "ajustes": "configurar", "definicoes": "configurar", "zap": "whatsapp",
-                       "camera": "camera", "galeria": "fotos", "navegador": "chrome", "email": "gmail", "musica": "spotify"}
+                       "camera": "camera", "galeria": "fotos", "navegador": "chrome", "browser": "chrome", "internet": "chrome",
+                       "email": "gmail", "musica": "spotify"}
                 alvo = sin.get(n(nome), n(nome))
                 rotulos = [x["nome"] for x in ponte("/apps").get("apps", [])]
                 melhor = max(rotulos, key=lambda r_: difflib.SequenceMatcher(None, alvo, n(r_)).ratio(), default="")

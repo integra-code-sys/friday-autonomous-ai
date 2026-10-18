@@ -1180,9 +1180,16 @@ def app_find(q):
 
 
 def app_launch(q):
+    try:
+        import abrir_nativo
+        ok, msg = abrir_nativo.abrir(q)
+        if ok:
+            return True, msg
+    except Exception:
+        pass
     hit = app_find(q)
     if not hit:
-        return False, f"app '{q}' não encontrado no mapa (rode `prom pc refresh`)"
+        return False, f"app '{q}' não encontrado no mapa nem no sistema"
     did, a = hit[0]
     if subprocess.run(["which", "gtk-launch"], capture_output=True).returncode == 0:
         subprocess.Popen(["gtk-launch", did], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

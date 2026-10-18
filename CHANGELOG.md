@@ -1,5 +1,16 @@
 # Changelog — F.R.I.D.A.Y. Commercial Edition
 
+## [2.3.1-commercial] - 2026-10-17
+### Alterado
+- Plano composto começa em cursor, teclado ou gesto. Shell só depois que a tela falha.
+- Android 4.4: pesquisa abre o navegador por intent, toca a tela e lê o resultado.
+
+## [2.3.0-commercial] - 2026-10-17
+### Adicionado
+- Orquestrador geral com CLI longa (`prom-orquestra run`), fila persistente e plano antes da ação.
+- Navegador do sistema nas três plataformas (intent Android, xdg-open no Linux, Start-Process no Windows).
+- Instalador Windows Inno Setup (`installer/Friday.iss`), no lugar do extrator 7z.
+
 ## [2.2.0-commercial] - 2026-10-17
 ### Adicionado
 - **Agenda única PC ↔ celular**: prioridade (alta/normal/baixa), **nível do dia** (livre → crítico), foco do dia, conflitos e tempo livre; espelho do Google Agenda do celular no PC e calendário local "Sexta-Feira (PC)" no Android com lembretes; fila offline (`/api/agenda`, `/api/agenda/sync`, `/api/agenda/add`).

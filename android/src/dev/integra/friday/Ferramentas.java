@@ -33,7 +33,8 @@ final class Ferramentas {
     static final String LISTA =
         "responder{texto} — fala final ao dono (sempre termine com ela)\n" +
         "calcular{expressao} — conta exata (ex.: 15*23, (1200-350)/4, 2^10, 15% de 80 = 0.15*80); use SEMPRE para contas\n" +
-        "abrir_app{nome} — abre um app instalado (WhatsApp, YouTube, Câmera, Configurações...)\n" +
+        "abrir_app{nome} — abre um app. navegador/chrome/internet abre o navegador do sistema por intent, mesmo que o rótulo seja Chrome ou Firefox\n" +
+        "claude{pedido} — Claude Code no Termux, se o binário existir\n" +
         "abrir_tela{tela: agenda|clima|alarmes|timers|contatos|galeria|mapas|mensagens|email|musica|downloads|camera|notificacoes}\n" +
         "flutuante{tipo: agenda|bolha|texto|fechar, titulo, texto} — mostra uma janela flutuante por cima de tudo (agenda dos próximos dias, nota, resultado)\n" +
         "abrir_site{url}\n" +
@@ -73,6 +74,7 @@ final class Ferramentas {
             switch (acao) {
                 case "calcular": return calcular(a.optString("expressao"));
                 case "abrir_app": return abrirApp(a.optString("nome"));
+                case "claude": return claude(a.optString("pedido"));
                 case "abrir_tela": return abrirTela(a.optString("tela"));
                 case "flutuante": return flutuar(c, a.optString("tipo", "texto"), a.optString("titulo"), a.optString("texto"));
                 case "tailscale": return Link.tailscale(c, a.optBoolean("ligar", true));
@@ -293,8 +295,29 @@ final class Ferramentas {
 
     private String ver(Uri u, String ok) { return iniciar(new Intent(Intent.ACTION_VIEW, u), ok); }
 
+    private String claude(String pedido) {
+        String tem = Dev.rodar(c, "command -v claude || command -v \"$HOME/bin/claude\" || echo AUSENTE", 25);
+        if (tem.contains("AUSENTE") || tem.startsWith("Termux não") || tem.startsWith("falta a permissão") || tem.startsWith("o Termux"))
+            return "Claude CLI não está utilizável no Termux. Instale com npm i -g @anthropic-ai/claude-code e faça login uma vez. Detalhe: " + tem;
+        return Dev.claude(c, pedido == null ? "" : pedido);
+    }
+
+    private static boolean ehNavegador(String alvo) {
+        return alvo.equals("navegador") || alvo.equals("browser") || alvo.equals("internet") || alvo.equals("web")
+            || alvo.equals("chrome") || alvo.equals("chromium") || alvo.equals("google");
+    }
+
+    private String abrirNavegador() throws Exception {
+        Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/"));
+        view.addCategory(Intent.CATEGORY_BROWSABLE);
+        if (view.resolveActivity(c.getPackageManager()) == null)
+            return "não achei um navegador que responda a https";
+        return iniciar(view, "navegador do sistema aberto");
+    }
+
     private String abrirApp(String nome) throws Exception {
         String alvoNorm = Agenda.norm(nome).replaceAll("[^a-z0-9]", "");
+        if (ehNavegador(alvoNorm)) return abrirNavegador();
         if (alvoNorm.equals("agenda") || alvoNorm.equals("calendario") || alvoNorm.equals("minhaagenda")) {
             return abrirTela("agenda");
         }
@@ -353,7 +376,18 @@ final class Ferramentas {
             case "maps": return ver(Uri.parse("geo:0,0?q=" + e), "Maps procurando: " + limpo);
             case "playstore": return ver(Uri.parse("market://search?q=" + e), "Play Store procurando: " + limpo);
             case "spotify": return ver(Uri.parse("spotify:search:" + e), "Spotify procurando: " + limpo);
-            default: return ver(Uri.parse("https://www.google.com/search?q=" + e), "pesquisa no navegador (Google): " + limpo);
+            default:
+                String aberto = ver(Uri.parse("https://www.google.com/search?q=" + e), "pesquisa no navegador (Google): " + limpo);
+                if (acesso() != null) {
+                    try {
+                        android.util.DisplayMetrics dm = c.getResources().getDisplayMetrics();
+                        Acesso.inst.toque(dm.widthPixels / 2, (int) (dm.heightPixels * 0.22f));
+                        Thread.sleep(450);
+                        String lido = Acesso.inst.telaTexto(24);
+                        if (lido != null && !lido.isEmpty()) return aberto + " | tela: " + lido;
+                    } catch (Exception ignored) {}
+                }
+                return aberto;
         }
     }
 

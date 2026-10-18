@@ -97,12 +97,12 @@ Fale SEMPRE no feminino (obrigada, pronta, atenta). CURTO (1-2 frases), sem mark
 
 
 AUTO-CONHECIMENTO, SENSORES E MODOS OPERACIONAIS (PARÂMETROS):
-1. PESQUISA WEB: você navega visualmente pelo Chromium como um ser humano — o dono assiste em tempo real o cursor suave, cliques e leitura da página.
-2. TAREFAS COMPLEXAS DE SISTEMA: opera com a velocidade e precisão da CLI direta e scripts.
-3. MENSAGERIA DE RISCO (WhatsApp / ZapZap e E-mail): opera via protocolo controlado CLI (CDP), gera rascunho no espelho e NUNCA despacha mensagens sem autorização expressa do dono dizendo "aprovado".
-4. VISÃO MULTIMODAL: você possui 3 sensores integrados: a TELA ATIVA do computador (o que o usuário vê), a CÂMERA NATIVA do notebook (mãos, teclado e mesa) e a CÂMERA EXTERNA (ambiente e sala). Quando perguntarem da tela ou das câmeras, use as informações de visão do Contexto. Se a luz estiver fraca, admita honestamente que está escuro.
+1. PESQUISA WEB: você navega visualmente pelo navegador do sistema como um ser humano — cursor, clique e leitura da página.
+2. TAREFAS NO APARELHO: primeiro a tela (focar, cursor, teclado, conferir). Script e shell só se a tela não alcançou o alvo.
+3. MENSAGERIA (WhatsApp e e-mail): rascunho na janela do app. NUNCA despacha sem o dono dizer "aprovado".
+4. VISÃO MULTIMODAL: TELA ATIVA, câmera do notebook e câmera externa. Se a luz estiver fraca, diga que está escuro.
 5. DATAS E HORAS: sempre como gente: "hoje", "amanhã", "dia 13 de outubro", "às três da tarde".
-6. NUNCA invente fatos: se não souber, diga "não tenho essa informação".
+6. NUNCA invente fatos. Se não souber, olhe a tela ou pesquise. Não desista de uma tarefa lícita no aparelho do dono no primeiro erro.
 
 EXEMPLOS DE TOM: "Pronta, chefe." · "Feito. Mais alguma coisa?" · "Essa ação precisa da sua aprovação no espelho antes de enviar."
 · "A tela mostra o VS Code aberto no projeto Prometheus." · "A câmera nativa mostra que o ambiente está com pouca luz agora."
@@ -707,12 +707,22 @@ def fechar_paineis():
 
 
 def focus_or_launch(nome, ops, espera=7.0, visivel=True, grande=True):
-    """foca o app se já houver janela; senão abre. VISÍVEL: o cursor real vai até o launcher / até a janela (movimento humano),
-    depois a janela ocupa a coluna inteira."""
-    key = {"zapzap": "zapzap", "chromium": "chromium", "kitty": "kitty", "files": "files", "code - oss": "code"}.get(nome.lower(), nome.lower())
+    """foca se já houver janela (cursor vai até ela). Senão abre pelo atalho nativo do SO.
+    Digitar no launcher é o último recurso, só no Linux com Noctalia."""
+    import abrir_nativo
+    bruto = str(nome or "").strip()
+    key = abrir_nativo.chave_janela(bruto)
+    if key in {"zapzap", "chromium", "kitty", "files", "code"}:
+        pass
+    else:
+        key = {"zapzap": "zapzap", "chromium": "chromium", "kitty": "kitty", "files": "files", "code - oss": "code"}.get(bruto.lower(), key)
     fechar_paineis()
     from prom_ops import _daemon_send
-    _daemon_send({"type": "nano", "op": "app", "nome": nome})          # interface: nanopartículas começam a formar a janela
+    _daemon_send({"type": "painel", "op": "plano", "data": {
+        "titulo": abrir_nativo.nome_exibicao(bruto), "objetivo": "Abrir " + bruto,
+        "etapa": 1, "total": 2, "etapas": [["abrir pelo sistema", "executando"], ["cursor na janela", "pendente"]],
+    }})
+    _daemon_send({"type": "nano", "op": "app", "nome": bruto})
     w = find_window(key)
     if w:
         if visivel:
@@ -723,23 +733,29 @@ def focus_or_launch(nome, ops, espera=7.0, visivel=True, grande=True):
         if grande:
             _ampliar(find_window(key) or w)
         if holo_mode():
-            holo_live(nome, ops)
-        _daemon_send({"type": "nano", "op": "app_pronto", "nome": nome})
-        return True, f"focando {nome}"
-    msg = f"abrindo {nome}"
-    if visivel:
-        _pc("launch", nome, timeout=60)
+            holo_live(bruto, ops)
+        _daemon_send({"type": "nano", "op": "app_pronto", "nome": bruto})
+        return True, f"focando {bruto}"
+    ok, msg = abrir_nativo.abrir(bruto)
     t0 = time.time()
     while time.time() - t0 < espera:
         time.sleep(0.4)
         w = find_window(key)
         if w:
             break
-    if not w:                                                       # o launcher não achou: caminho direto
-        ok, msg = ops.app_launch(nome)
-        if not ok:
-            _daemon_send({"type": "nano", "op": "app_falhou", "nome": nome})     # interface/app desmontam a janela
-            return False, msg
+    if not w and not ok and ops is not None:
+        try:
+            ok, msg = ops.app_launch(bruto)
+        except Exception as e:
+            ok, msg = False, str(e)[:160]
+        t0 = time.time()
+        while time.time() - t0 < espera:
+            time.sleep(0.4)
+            w = find_window(key)
+            if w:
+                break
+    if not w and visivel and not abrir_nativo.windows():
+        _pc("launch", bruto, timeout=20)
         t0 = time.time()
         while time.time() - t0 < espera:
             time.sleep(0.4)
@@ -747,14 +763,20 @@ def focus_or_launch(nome, ops, espera=7.0, visivel=True, grande=True):
             if w:
                 break
     if w:
+        g = _tile_geo(w)
+        if visivel and g:
+            _pc("move", g[0] + g[2] // 2, g[1] + g[3] // 3)
         _niri("focus-window", "--id", str(w["id"]))
         if grande:
-            time.sleep(0.5)
+            time.sleep(0.4)
             _ampliar(find_window(key) or w)
         if holo_mode():
-            holo_live(nome, ops)
-    _daemon_send({"type": "nano", "op": "app_pronto" if w else "app_falhou", "nome": nome})
-    return True, msg
+            holo_live(bruto, ops)
+    if not w and not ok:
+        _daemon_send({"type": "nano", "op": "app_falhou", "nome": bruto})
+        return False, msg or f"não consegui abrir {bruto}"
+    _daemon_send({"type": "nano", "op": "app_pronto" if w else "app_falhou", "nome": bruto})
+    return True, msg or f"abrindo {bruto}"
 
 
 _live = {"gen": 0, "parked": None, "key": None}

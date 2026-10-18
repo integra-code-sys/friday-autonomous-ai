@@ -20,7 +20,7 @@ ACOES = os.path.join(MEM, "acoes.jsonl")
 LICOES = os.path.join(MEM, "licoes.json")
 DOCS = os.path.expanduser("~/Documentos/Friday")
 UA = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-MAX_STEPS = 12
+MAX_STEPS = 24
 CANCEL = threading.Event()          # "pare/desisti": interrompe o laço entre um passo e outro
 PROG = {"pesquisar_web": "Pesquisando na web.", "ler_pagina": "Lendo a página.", "onlyoffice_criar": "Criando o documento.",
         "pesquisa_para_documento": "Pesquisando e montando o documento.", "abrir_app": "Abrindo o aplicativo.", "consultar_ia": "Vou consultar o ChatGPT para isso.", "ver_tela": "Olhando a tela.", "clicar_elemento": "Clicando.", "apontar": "Apontando.", "clicar_texto": "Clicando.", "pular_anuncio": "Procurando o botão de pular anúncio.",
@@ -642,15 +642,15 @@ def t_abrir_site(url="", busca="", contexto_lojas="", fr=None, ops=None, **_):
             fr.fechar_paineis()
         except Exception:
             pass
-    for idx, u_alvo in enumerate(urls):
-        subprocess.Popen(["setsid", "chromium", "--new-tab", u_alvo], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if idx < len(urls) - 1:
-            time.sleep(0.25)
+    import abrir_nativo
+    ok_nav, msg_nav = abrir_nativo.abrir_urls(urls)
+    if not ok_nav:
+        raise RuntimeError(msg_nav or "não abri o navegador do sistema")
     if fr is not None:
         w = None
         t0 = time.time()
         while time.time() - t0 < 6.0:
-            w = fr.find_window("chromium")
+            w = fr.find_window(abrir_nativo.chave_janela("navegador"))
             if w:
                 break
             time.sleep(0.3)
@@ -1077,6 +1077,22 @@ def t_criar_ou_modificar_tela(nome="", tipo="qml", codigo="", titulo="", **_):
     orc = orchestrator.get_orquestrador()
     res = orc.criar_ou_modificar_tela_interna(nome=nome, tipo=tipo, codigo=codigo, titulo=titulo)
     return res.get("mensagem") or res.get("erro") or "Tela processada."
+
+
+def t_orquestra_iniciar(pedido="", **_):
+    """Abre uma sessão longa: plano, primeiro passo, estado em disco."""
+    import orquestra_geral as og
+    s = og.sessao_nova(pedido)
+    if not s.get("ok"):
+        return s.get("fala") or "recusado"
+    r = og.avancar()
+    return (r.get("fala") or "sessão aberta")[:800]
+
+
+def t_orquestra_fila(pedido="", **_):
+    import orquestra_geral as og
+    r = og.enfileirar(pedido)
+    return r.get("fala") or ("na fila: " + str((r.get("item") or {}).get("id")))
 
 
 def t_pensar_estrategia(objetivo="", contexto="", **_):
@@ -1609,6 +1625,10 @@ TOOLS = {
                          "executa raciocínio tático de pré-ação avaliando contexto, tela, riscos e alternativas"),
     "acao": (t_acao, '{"t":"abrir_app|janela|sistema|agenda|email|holo|manual|programar","...":"parâmetros da ação"}',
              "executa uma ação no PC (abrir app, foco de janela, volume, agenda, e-mail, holograma, programar; NÃO use manual para documentos/planilhas)"),
+    "orquestra_iniciar": (t_orquestra_iniciar, '{"pedido":"tarefa completa"}',
+                          "sessão longa: pensa, grava o plano e executa o primeiro passo (retomável)"),
+    "orquestra_fila": (t_orquestra_fila, '{"pedido":"outra tarefa"}',
+                       "coloca um objetivo na fila; só um fica ativo"),
 }
 
 # ------------------------------------------------------------------ F6: verificação do EFEITO REAL de cada ferramenta
@@ -1846,7 +1866,7 @@ Responda SOMENTE JSON, sempre um destes dois formatos:
 Ferramentas:
 {ferramentas}
 Regras: pesquisa = pesquisar_web, depois ler_pagina do melhor link se precisar, depois resumir. Para criar documento escreva você mesmo o conteúdo
-completo em "conteudo". Não invente fatos: só o que as ferramentas devolveram. Se uma ferramenta falhar, tente outra abordagem uma vez.
+completo em "conteudo". Não invente fatos: só o que as ferramentas devolveram. Se uma ferramenta falhar, replaneje na tela (ver_tela, cursor, teclado) e tente outro caminho. Não encerre no primeiro erro. Shell só depois que a tela não alcançou o alvo.
 No "final" diga o que fez e o essencial do resultado (nunca leia URLs inteiras). Máximo {max} passos.
 CELULAR: se o pedido for no CELULAR do dono, use SÓ as ferramentas cel_* (cel_desbloquear se a tela estiver apagada/bloqueada, cel_abrir_app, cel_ver, cel_tocar_texto, cel_digitar, cel_tecla, cel_rolar; cel_espelhar para mostrar a tela dele ao vivo no holograma);
 sempre cel_ver depois de cada ação para conferir. Nunca pague, transfira, apague ou mexa em senha no celular: pare e diga que é com o dono.
@@ -2294,6 +2314,19 @@ def run(text, ctx, fr, ops, historico=None, progress=None, direto=True):
         if nome in PROG and nome not in vistos_prog:
             vistos_prog.add(nome); _say(progress, PROG[nome])
         antes = _snap(nome) if nome in VERIF else None
+        try:
+            import orquestra_geral as _og
+            _neg = _og.recusar(text or "")
+            if _neg:
+                return {"fala": _neg, "acoes": [], "pose": "neutro", "humor": "serio", "lembrar": {}}
+            import orchestrator as _orc
+            _pens = _orc.get_orquestrador().pensar_antes_de_agir(text or "", {"ferramenta": nome}, f"{nome}")
+            if not _pens.get("autorizado", True):
+                passos.append(f"[{nome}] bloqueado: {_pens.get('estrategia', '')[:160]}")
+                continue
+            _say(progress, (_pens.get("estrategia") or "Vou fazer isso.")[:160])
+        except Exception:
+            pass
         t0 = time.time()
         try:
             if REPOUSO[0] and nome in TELA:
