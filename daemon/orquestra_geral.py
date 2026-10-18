@@ -451,7 +451,7 @@ def _remover_anuncios_e_lixo(texto):
         ln = l.strip()
         if not ln:
             continue
-        if re.search(
+        if len(ln) < 200 and re.search(          # linha longa é conteúdo (página em 1 linha só): não apaga por 1 palavra
             r"\b(cookie|cookies|privacidade|todos os direitos|termos de uso|an[úu]ncio|anuncios?|"
             r"publicidade|sponsored|patrocinado|newsletter|inscreva-se|assine|propaganda|popup|modal|banner)\b",
             ln, re.I
@@ -461,7 +461,26 @@ def _remover_anuncios_e_lixo(texto):
     return "\n".join(linhas)
 
 
+def _nav():
+    """navegador próprio da Friday (CDP lê, cursor/teclado reais agem). FRIDAY_NAV=0 desliga e volta à visão."""
+    if os.environ.get("FRIDAY_NAV", "1") == "0" or not (shutil.which("chromium") or shutil.which("google-chrome")):
+        return None
+    try:
+        import navegador
+        return navegador
+    except Exception:
+        return None
+
+
 def _urls_da_busca(consulta):
+    nav = _nav()
+    if nav:
+        try:
+            res = nav.resultados_busca(consulta, n=4)
+            if len(res) >= 2:
+                return [r["url"] for r in res], "\n".join(f"{r['site']} | {r['titulo']}" for r in res)
+        except Exception:
+            pass
     import agent
     c_low = (consulta or "").lower()
     if re.search(r"fortn", c_low) and re.search(r"loja|item|skin|hoje|vbuck|oficial", c_low):
@@ -493,6 +512,16 @@ def _urls_da_busca(consulta):
 
 
 def _abrir_fonte(url):
+    nav = _nav()
+    if nav and not url.startswith("file://"):
+        try:
+            r = nav.abrir(url)
+            if r.get("ok"):
+                ads = r.get("anuncios_fechados") or []
+                return {"ok": True, "evidencia": "abri no navegador da Friday: " + str(r.get("url")) + (" | fechei: " + "; ".join(ads) if ads else ""),
+                        "via": "navegador", "conferido": "cdp", "url_final": r.get("url") or url}
+        except Exception:
+            pass
     ok, msg, _via = _garantir_janela("navegador")
     como = "sem ydotool/SendInput" if ok else msg
     if ok and input_disponivel():
@@ -558,7 +587,10 @@ def _executar_acao(a, args):
             if len(urls) > 0:
                 return {"ok": True, "evidencia": f"fonte alternativa já consolidada ({urls[0]})", "via": "tela"}
             return {"ok": False, "evidencia": "não há fonte " + str(i + 1), "via": "tela"}
-        return _abrir_fonte(urls[i])
+        r = _abrir_fonte(urls[i])
+        if r.get("url_final"):
+            urls[i] = r["url_final"]              # link /goto do Google -> site real (ler_fonte compara com a página aberta)
+        return r
     if a == "ler_fonte":
         i = int(args.get("indice") or 0)
         urls = _ACHADOS.get("urls") or []
@@ -594,7 +626,17 @@ def _executar_acao(a, args):
             except Exception:
                 pass
 
-        # 2. Leitura HTTP direta da página sem ruído de tela
+        # 2. Página já renderizada no navegador da Friday (JS executado, anúncios fechados): texto do DOM, sem OCR
+        nav = _nav()
+        if nav and (not txt or len(txt) < 80):
+            try:
+                if not nav.disponivel() or nav.estado().get("url", "").split("#")[0] != url_alvo.split("#")[0]:
+                    nav.abrir(url_alvo)
+                txt = (nav.ler() or {}).get("texto") or ""
+            except Exception:
+                txt = ""
+
+        # 3. Leitura HTTP direta da página sem ruído de tela
         if not txt or len(txt) < 80:
             import agent
             txt = agent.t_ler_pagina(url_alvo)
@@ -1586,6 +1628,10 @@ def main(argv):
         return 0
     cmd = argv[1]
     if cmd == "smoke":
+        os.environ["FRIDAY_NAV"] = "0"           # teste nunca abre o navegador de verdade
+        global MEM                                # nem disputa a trava do serviço friday-orquestra em execução
+        import tempfile
+        MEM = tempfile.mkdtemp(prefix="orq-smoke-")
         p = planejar("pesquise o horário oficial de Brasília", usar_modelo=False)
         acoes = [s["acao"] for s in p["passos"]]
         assert p["passos"][0]["acao"] in _TELA, p["passos"][0]
