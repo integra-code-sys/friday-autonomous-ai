@@ -52,8 +52,8 @@ public class Assistente extends VoiceInteractionService {
     }
 
     static class Sessao extends VoiceInteractionSession {
-        private static final int CIANO = Color.rgb(54, 214, 255), AMBAR = Color.rgb(255, 170, 70), TEAL = Color.rgb(70, 255, 214),
-            VERDE = Color.rgb(108, 196, 143), VERMELHO = Color.rgb(255, 107, 107), TEXTO2 = Color.argb(150, 200, 220, 230);
+        private static final int CIANO = Color.rgb(255, 157, 36), AMBAR = Color.rgb(255, 170, 70), TEAL = Color.rgb(255, 119, 0),
+            VERDE = Color.rgb(108, 196, 143), VERMELHO = Color.rgb(255, 107, 107), TEXTO2 = Color.argb(150, 255, 225, 200);
         private final Handler main = new Handler(Looper.getMainLooper());
         private Particulas part;
         private LinearLayout msgs;
@@ -101,13 +101,13 @@ public class Assistente extends VoiceInteractionService {
             Context c = getContext();
             FrameLayout raiz = new FrameLayout(c);
             raiz.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.argb(40, 0, 0, 0), Color.argb(165, 0, 5, 10), Color.argb(235, 0, 8, 14)}));
+                new int[]{Color.argb(40, 0, 0, 0), Color.argb(165, 8, 5, 3), Color.argb(235, 12, 8, 4)}));
             raiz.setOnClickListener(v -> hide());                     // toque fora fecha
             LinearLayout folha = new LinearLayout(c);
             folha.setOrientation(LinearLayout.VERTICAL);
             folha.setPadding(dp(16), dp(10), dp(16), dp(16));
-            GradientDrawable gf = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.rgb(9, 22, 32), Color.rgb(3, 8, 13)});
-            gf.setCornerRadius(dp(30)); gf.setStroke(dp(1), Color.argb(110, 54, 214, 255));
+            GradientDrawable gf = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.rgb(20, 13, 7), Color.rgb(10, 6, 3)});
+            gf.setCornerRadius(dp(30)); gf.setStroke(dp(1), Color.argb(110, 255, 157, 36));
             folha.setBackground(gf);
             folha.setElevation(dp(18));
             folha.setClickable(true);                                 // toque na folha não fecha
@@ -134,7 +134,7 @@ public class Assistente extends VoiceInteractionService {
             modeloTag = tv(nomeModeloCurto(), CIANO, 9.5f, Typeface.BOLD);
             modeloTag.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
             modeloTag.setPadding(dp(9), dp(4), dp(9), dp(4));
-            modeloTag.setBackground(fundo(Color.argb(30, 54, 214, 255), 12, Color.argb(95, 54, 214, 255)));
+            modeloTag.setBackground(fundo(Color.argb(30, 255, 157, 36), 12, Color.argb(95, 255, 157, 36)));
             modeloTag.setOnClickListener(v -> {
                 String novo = Cerebro.get(getContext()).trocarModelo(null);
                 modeloTag.setText(nomeModeloCurto());
@@ -172,7 +172,7 @@ public class Assistente extends VoiceInteractionService {
             pilula.setOrientation(LinearLayout.HORIZONTAL);
             pilula.setGravity(Gravity.CENTER_VERTICAL);
             pilula.setPadding(dp(14), dp(6), dp(16), dp(6));
-            pilula.setBackground(fundo(Color.argb(30, 54, 214, 255), 16, Color.argb(70, 54, 214, 255)));
+            pilula.setBackground(fundo(Color.argb(30, 255, 157, 36), 16, Color.argb(70, 255, 157, 36)));
             ponto = new View(c);
             GradientDrawable gp = new GradientDrawable(); gp.setShape(GradientDrawable.OVAL); gp.setColor(CIANO);
             ponto.setBackground(gp);
@@ -216,7 +216,7 @@ public class Assistente extends VoiceInteractionService {
             fuiEuBtn = tv("FUI EU — ERA A MINHA VOZ", Color.WHITE, 12, Typeface.BOLD);
             fuiEuBtn.setLetterSpacing(0.12f); fuiEuBtn.setGravity(Gravity.CENTER);
             fuiEuBtn.setPadding(dp(18), dp(10), dp(18), dp(10));
-            fuiEuBtn.setBackground(fundo(Color.argb(60, 54, 214, 255), 20, CIANO));
+            fuiEuBtn.setBackground(fundo(Color.argb(60, 255, 157, 36), 20, CIANO));
             fuiEuBtn.setVisibility(View.GONE);
             fuiEuBtn.setOnClickListener(v -> {
                 fuiEuBtn.setVisibility(View.GONE);
@@ -284,9 +284,9 @@ public class Assistente extends VoiceInteractionService {
             linha.setGravity(Gravity.CENTER_VERTICAL);
             campo = new EditText(c);
             campo.setHint("Escreva para a Sexta-Feira…");
-            campo.setHintTextColor(Color.argb(115, 200, 220, 230)); campo.setTextColor(Color.WHITE);
+            campo.setHintTextColor(Color.argb(115, 255, 225, 200)); campo.setTextColor(Color.WHITE);
             campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-            campo.setBackground(fundo(Color.argb(255, 13, 26, 34), 24, Color.argb(85, 54, 214, 255)));
+            campo.setBackground(fundo(Color.argb(255, 24, 15, 8), 24, Color.argb(85, 255, 157, 36)));
             campo.setPadding(dp(16), dp(12), dp(16), dp(12));
             campo.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
             campo.setImeOptions(EditorInfo.IME_ACTION_SEND);
@@ -294,11 +294,11 @@ public class Assistente extends VoiceInteractionService {
             linha.addView(campo, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
             // Botão ENVIAR MENSAGEM visível e dedicado
-            enviarBtn = tv(">", Color.rgb(4, 14, 20), 20, Typeface.BOLD);
+            enviarBtn = tv(">", Color.rgb(18, 9, 2), 20, Typeface.BOLD);
             enviarBtn.setGravity(Gravity.CENTER);
             enviarBtn.setContentDescription("Enviar mensagem");
             GradientDrawable ge = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.rgb(70, 255, 214), Color.rgb(54, 214, 255)});
+                new int[]{Color.rgb(255, 119, 0), Color.rgb(255, 157, 36)});
             ge.setShape(GradientDrawable.OVAL);
             enviarBtn.setBackground(ge);
             enviarBtn.setElevation(dp(6));
@@ -309,12 +309,12 @@ public class Assistente extends VoiceInteractionService {
 
             FrameLayout micBox = new FrameLayout(c);
             anelMic = new View(c);
-            GradientDrawable ga = new GradientDrawable(); ga.setShape(GradientDrawable.OVAL); ga.setColor(Color.argb(60, 54, 214, 255));
+            GradientDrawable ga = new GradientDrawable(); ga.setShape(GradientDrawable.OVAL); ga.setColor(Color.argb(60, 255, 157, 36));
             anelMic.setBackground(ga);
             micBox.addView(anelMic, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
             mic = tv("●", Color.WHITE, 21, Typeface.BOLD);
             mic.setGravity(Gravity.CENTER);
-            GradientDrawable gm = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(40, 190, 240), Color.rgb(20, 110, 170)});
+            GradientDrawable gm = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.rgb(255, 157, 36), Color.rgb(153, 68, 0)});
             gm.setShape(GradientDrawable.OVAL);
             mic.setBackground(gm);
             mic.setElevation(dp(6));
@@ -404,7 +404,7 @@ public class Assistente extends VoiceInteractionService {
         private void parcial(String t) { main.post(() -> { legenda.setText("“" + t + "…”"); legenda.setTextColor(Color.argb(170, 255, 225, 190)); }); }
 
         private void historico(CharSequence t, boolean meu) {
-            TextView b = tv("", meu ? Color.argb(190, 255, 225, 190) : Color.argb(200, 220, 238, 245), 13, Typeface.NORMAL);
+            TextView b = tv("", meu ? Color.argb(190, 255, 225, 190) : Color.argb(200, 255, 235, 215), 13, Typeface.NORMAL);
             b.setText((meu ? "VOCÊ  " : "FRIDAY  ") + t);
             android.text.SpannableString sp = new android.text.SpannableString(b.getText());
             int n = meu ? 6 : 8;
@@ -417,7 +417,7 @@ public class Assistente extends VoiceInteractionService {
             b.setLinkTextColor(CIANO);
             b.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
             b.setPadding(dp(12), dp(7), dp(12), dp(7));
-            b.setBackground(fundo(meu ? Color.argb(28, 255, 170, 70) : Color.argb(26, 54, 214, 255), 14, 0));
+            b.setBackground(fundo(meu ? Color.argb(28, 255, 170, 70) : Color.argb(26, 255, 157, 36), 14, 0));
             LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             l.topMargin = dp(5);
             msgs.addView(b, l);
