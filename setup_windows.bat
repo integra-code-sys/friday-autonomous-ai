@@ -77,7 +77,7 @@ if not exist "memory\peers.json" (
         echo     {"host": "192.168.15.7", "port": 8790, "alias": "Workstation Linux LAN"},
         echo     {"host": "192.168.15.11", "port": 8790, "alias": "Workstation Linux Wi-Fi"},
         echo     {"host": "100.110.230.55", "port": 8790, "alias": "Workstation Linux Tailscale"},
-        echo     {"host": "1577000126", "port": 8790, "alias": "Servidor AnyDesk"}
+        echo     {"host": "servidor-remoto", "port": 8790, "alias": "Servidor Remoto"}
         echo   ]
         echo }
     ) > memory\peers.json

@@ -21,6 +21,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Locale;
@@ -60,6 +61,8 @@ final class Ferramentas {
         "tailscale{ligar: true|false} — liga/desliga a VPN que liga o celular ao PC\n" +
         "dev{pedido} — MODO DEV: programação autônoma (Termux Claude, PC IDE ou geração local)\n" +
         "terminal{comando} — roda um comando Linux no Termux do celular e devolve a saída\n" +
+        "bateria{} — lê porcentagem e status de carregamento da bateria do aparelho\n" +
+        "hora{} — data e hora exatas do sistema\n" +
         "pc{pedido} — manda a tarefa para a Friday do PC (só quando o PC estiver ligado; coisas do computador)";
 
     private final Context c;
@@ -136,6 +139,8 @@ final class Ferramentas {
                 }
                 case "configuracao": return configuracao(a.optString("tipo"));
                 case "foto": return iniciar(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "câmera aberta");
+                case "bateria": return statusBateria();
+                case "hora": case "data": return statusDataHora();
                 case "lembrar": {
                     String ch = a.optString("chave");
                     String vl = a.optString("valor");
@@ -554,5 +559,28 @@ final class Ferramentas {
             sb.append("- ").append(e.getKey().substring(2)).append(": ").append(e.getValue()).append('\n');
         }
         return sb.toString();
+    }
+
+    String statusBateria() {
+        try {
+            android.content.IntentFilter ifilter = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
+            android.content.Intent b = c.registerReceiver(null, ifilter);
+            if (b == null) return "Não consegui ler o estado da bateria.";
+            int level = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+            int status = b.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+            boolean carregando = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL;
+            int pct = scale > 0 ? Math.round((level / (float) scale) * 100) : level;
+            return "A bateria está em " + pct + "%" + (carregando ? " e carregando." : ".");
+        } catch (Exception e) {
+            return "Bateria: " + e.getMessage();
+        }
+    }
+
+    String statusDataHora() {
+        Date agora = new Date();
+        String h = new SimpleDateFormat("HH:mm", new Locale("pt", "BR")).format(agora);
+        String d = new SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy", new Locale("pt", "BR")).format(agora);
+        return "Agora são " + h + " de " + d + ".";
     }
 }

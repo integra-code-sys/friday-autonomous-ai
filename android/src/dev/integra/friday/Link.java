@@ -102,4 +102,38 @@ final class Link {
             return "falhou ao falar com o PC: " + e.getMessage();
         }
     }
+
+    /** Executa inferência no modelo LLM do PC (via GPU /api/llm) quando o celular não tiver modelo local GGUF
+     *  ou para raciocínio complexo, permitindo inteligência máxima com execução 100% local no celular. */
+    static String chamarLlm(Context c, String prompt, int maxTokens, float temp) {
+        if (!pcOnline(c)) return null;
+        try {
+            HttpURLConnection h = (HttpURLConnection) new URL("http://" + host(c) + "/api/llm").openConnection();
+            h.setConnectTimeout(4000);
+            h.setReadTimeout(25000);
+            h.setRequestMethod("POST");
+            h.setDoOutput(true);
+            h.setRequestProperty("X-Token", token(c));
+            h.setRequestProperty("Content-Type", "application/json");
+            JSONObject b = new JSONObject();
+            b.put("prompt", prompt);
+            b.put("max", maxTokens);
+            b.put("temp", temp);
+            b.put("json", false);
+            byte[] corpo = b.toString().getBytes(StandardCharsets.UTF_8);
+            try (OutputStream o = h.getOutputStream()) { o.write(corpo); }
+            int cod = h.getResponseCode();
+            if (cod != 200) { h.disconnect(); return null; }
+            InputStream in = h.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096]; int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            h.disconnect();
+            JSONObject res = new JSONObject(bo.toString("UTF-8"));
+            if (res.optBoolean("ok")) {
+                return res.optString("texto", "");
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
 }

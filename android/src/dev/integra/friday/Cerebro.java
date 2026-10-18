@@ -118,10 +118,9 @@ final class Cerebro {
         return novo;
     }
 
-    /** formato de chat: Qwen3/SmolLM3 pensam (bloco vazio = sem pensar, mais rápido); Qwen2.5/Gemma não têm esse bloco */
+    /** formato de chat: permite raciocínio natural nos modelos que suportam */
     private String assist() {
-        String m = modelo().toLowerCase(Locale.ROOT);
-        return (m.startsWith("qwen2") || m.startsWith("gemma")) ? "<|im_start|>assistant\n" : "<|im_start|>assistant\n<think>\n\n</think>\n\n";
+        return "<|im_start|>assistant\n";
     }
 
     synchronized boolean preparar() {
@@ -137,7 +136,7 @@ final class Cerebro {
         return true;
     }
 
-    private static final String NOMES_LOCAL = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria";
+    private static final String NOMES_LOCAL = "responder|calcular|abrir_app|abrir_tela|flutuante|tailscale|dev|terminal|abrir_site|pesquisar|pesquisar_links|ler_tela|tocar|digitar|rolar|tecla|criar_documento|criar_arquivo|alarme|timer|evento|agenda|ligar|whatsapp|compartilhar|lanterna|volume|configuracao|foto|lembrar|memoria|bateria|hora|data";
     private static final String NOMES_PC = NOMES_LOCAL + "|pc";
     private String ultimaBusca = "";
 
@@ -161,25 +160,25 @@ final class Cerebro {
 
     private String sistema(boolean permitePc) {
         return "<|im_start|>system\n"
-            + (modelo().startsWith("smollm3") ? "/no_think\n" : "")
-            + "Você é a F.R.I.D.A.Y. (Sexta-Feira), assistente pessoal do Iann, rodando LOCALMENTE no celular Android dele. "
-            + "Fale português do Brasil, curto, natural e simpático. Você controla o celular com ferramentas.\n"
+            + "Você é a F.R.I.D.A.Y. (Sexta-Feira), assistente e orquestradora autônoma do Iann, rodando no celular Android dele. "
+            + "Fale português do Brasil, inteligente, natural, proativo e assertivo. Você controla o celular com ferramentas.\n"
             + "Responda SEMPRE só com JSON: {\"acao\": \"ferramenta\", \"args\": {...}}. Um passo por vez; depois do resultado decida o próximo. "
             + "Para encerrar use {\"acao\": \"responder\", \"args\": {\"texto\": \"...\"}} dizendo o que fez de verdade. NUNCA escreva placeholders como [links].\n"
             + (permitePc
                 ? "O dono pediu explicitamente para rodar no PC: use 'pc' para enviar o comando ao computador.\n"
-                : "REGRA CRÍTICA DE EXECUÇÃO: Você está em modelo 100% LOCAL no celular. Execute tudo no aparelho usando as ferramentas do celular. NUNCA delegue nada ao PC a menos que o dono fale expressamente para fazer no computador.\n")
+                : "REGRA CRÍTICA DE EXECUÇÃO: Você está em modelo LOCAL no celular. Execute tudo no aparelho usando as ferramentas do celular. NUNCA delegue ações ao PC a menos que o dono fale expressamente para fazer no computador.\n")
             + "REGRA DE MENSAGENS / WHATSAPP: NUNCA use números inventados ou fictícios como +123456789 ou 123456789. Coloque SEMPRE o NOME do contato (ex: 'Carlos', 'Mãe', 'Amor') no argumento 'contato'. A Friday local busca o contato no aparelho.\n"
             + "REGRA DE DOCUMENTOS: Para criar PDFs ou documentos, use 'criar_documento' com 'titulo', 'formato' (pdf|docx) e 'conteudo' bem estruturado com seções usando # e tópicos com •.\n"
-            + "Regras: conversa simples -> responder direto. Pesquisa no navegador/Google/eBay/Amazon -> pesquisar. Navegar num app: abrir_app, depois ler_tela, tocar/digitar, conferir com ler_tela. "
+            + "Regras: conversa simples -> responder direto. Horas/Bateria/Dispositivo -> use as ferramentas hora e bateria ou responda direto. Pesquisa no navegador/Google/eBay/Amazon -> pesquisar. Navegar num app: abrir_app, depois ler_tela, tocar/digitar, conferir com ler_tela. "
             + "Não invente resultado: se uma ferramenta falhar, diga. "
             + "Mensagem para alguém: whatsapp (o dono confirma).\n"
             + "Nunca mexa nas Configurações de acessibilidade nem em você mesma. A data e a hora estão entre [ ] no pedido.\n"
             + "Responda SEMPRE ao pedido ATUAL: nunca copie uma resposta anterior. Perguntas sobre fatos, pessoas, preços ou notícias -> pesquisar_links e responda "
-            + "com a informação encontrada (não só 'pesquisei'). Nunca diga que enviou/fez algo que a ferramenta não confirmou.\n"
+            + "com a informação encontrada de forma inteligente e articulada (não só 'pesquisei'). Nunca diga que enviou/fez algo que a ferramenta não confirmou.\n"
             + "FERRAMENTAS:\n" + Ferramentas.LISTA + "\n"
             + "EXEMPLOS:\n"
-            + "pedido: que dia é hoje? -> {\"acao\": \"responder\", \"args\": {\"texto\": \"Hoje é sexta, 16 de outubro.\"}}\n"
+            + "pedido: que horas são? -> {\"acao\": \"hora\", \"args\": {}}\n"
+            + "pedido: quanto tem de bateria? -> {\"acao\": \"bateria\", \"args\": {}}\n"
             + "pedido: manda um zap pro Carlos dizendo que chego às 18h -> {\"acao\": \"whatsapp\", \"args\": {\"contato\": \"Carlos\", \"texto\": \"Chego às 18h\"}}\n"
             + "pedido: envia mensagem para Mãe falando que já saí -> {\"acao\": \"whatsapp\", \"args\": {\"contato\": \"Mãe\", \"texto\": \"Já saí de casa.\"}}\n"
             + "pedido: abre o Instagram -> {\"acao\": \"abrir_app\", \"args\": {\"nome\": \"Instagram\"}}\n"
@@ -381,39 +380,205 @@ final class Cerebro {
     private static final java.util.regex.Pattern PERGUNTA = java.util.regex.Pattern.compile(
         "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:me\\s+(?:diz|fala|conta)\\s+)?(?:quem|qual|quais|quando|onde|quantos?|quantas?|quanto\\s+(?:custa|vale|est[áa]|t[áa]|é)|o\\s+que\\s+(?:é|são|significa|aconteceu)|como\\s+(?:funciona|faz|fazer|se\\s+faz)|por\\s*qu[eê])\\b.{4,}");
 
-    /** pesquisa na web e RESPONDE com base nos resultados (o modelo resume; não abre o navegador) */
+    static String sintetizarResultados(String pergunta, String ctx) {
+        if (ctx == null || ctx.trim().isEmpty()) return null;
+        String[] linhas = ctx.split("\n");
+        StringBuilder sb = new StringBuilder();
+        for (String l : linhas) {
+            String t = l.trim();
+            if (t.startsWith("Fontes") || t.startsWith("http") || t.startsWith("• http") || t.isEmpty()) continue;
+            if (t.startsWith("Wikipédia (") || t.startsWith("Síntese (") || t.startsWith("Trecho relevante:")) {
+                t = t.replaceFirst("^Wikipédia \\([^)]+\\):\\s*", "")
+                     .replaceFirst("^Síntese \\([^)]+\\):\\s*", "")
+                     .replaceFirst("^Trecho relevante:\\s*", "");
+            }
+            if (t.length() > 25) {
+                sb.append(t).append(" ");
+                if (sb.length() > 380) break;
+            }
+        }
+        String res = sb.toString().trim();
+        return res.isEmpty() ? null : res;
+    }
+
+    private void registrarEFim(String pergunta, String r) {
+        List<String[]> ps = new ArrayList<>();
+        ps.add(new String[]{"buscar_web", "{}"});
+        Aprende.registrar(c, pergunta, ps, true, r);
+        historico.add(new String[]{pergunta, r});
+        while (historico.size() > 6) historico.remove(0);
+        avisar("fim", r);
+    }
+
+    /** pesquisa na web e RESPONDE com base nos resultados com raciocínio ou síntese avançada */
     private String respostaWeb(String pergunta) {
         String res = ferr.extrairResumoWeb(pergunta);
         if (res == null || res.startsWith("falhou") || res.startsWith("Não encontrei")) return null;
         StringBuilder sn = new StringBuilder();
         for (String l : res.split("\n")) if (!l.trim().startsWith("http") && !l.startsWith("Encontrei")) sn.append(l.replaceFirst("^•\\s*", "- ")).append('\n');
-        String ctx = sn.length() > 1800 ? sn.substring(0, 1800) : sn.toString();
+        String ctx = sn.length() > 2200 ? sn.substring(0, 2200) : sn.toString();
         synchronized (this) {
             ocupada = true;
             try {
-                if (!preparar()) return null;
                 avisar("passo", "buscar_web {\"consulta\":\"" + pergunta.replace("\"", "'") + "\"}");
-                String p = "<|im_start|>system\n" + (modelo().startsWith("smollm3") ? "/no_think\n" : "")
-                    + "Você é a Sexta-Feira. Responda a pergunta do dono em português do Brasil, em 1 ou 2 frases curtas e diretas, usando SÓ as "
-                    + "informações dos resultados de busca. Se os resultados não trazem a resposta, diga que não encontrou. Não cite links nem diga 'segundo os resultados'.<|im_end|>\n"
-                    + "<|im_start|>user\nPergunta: " + pergunta + "\nResultados da busca:\n" + ctx + "<|im_end|>\n" + assist();
-                long tg = System.currentTimeMillis();
-                String r = Llm.gerar(p, 180, 0.2f, "", null).trim().replaceAll("(?s)<think>.*?</think>", "").trim();
-                android.util.Log.i("friday-cerebro", "respostaWeb: " + p.length() + " chars de prompt, " + (System.currentTimeMillis() - tg) + " ms: " + r);
-                if (r.isEmpty()) return null;
-                List<String[]> ps = new ArrayList<>();
-                ps.add(new String[]{"buscar_web", "{}"});
-                Aprende.registrar(c, pergunta, ps, true, r);
-                historico.add(new String[]{pergunta, r});
-                while (historico.size() > 6) historico.remove(0);
-                avisar("fim", r);
-                return r;
+                // 1. Se tem modelo local GGUF pronto, usa o modelo local
+                if (preparar()) {
+                    String p = "<|im_start|>system\n"
+                        + "Você é a F.R.I.D.A.Y. Responda à pergunta do dono em português do Brasil de forma clara, inteligente e direta, baseando-se nas informações da busca. Não cite links nem diga 'segundo os resultados'.<|im_end|>\n"
+                        + "<|im_start|>user\nPergunta: " + pergunta + "\nResultados da busca:\n" + ctx + "<|im_end|>\n" + assist();
+                    long tg = System.currentTimeMillis();
+                    String r = Llm.gerar(p, 300, 0.25f, "", null).trim().replaceAll("(?is)<think>.*?</think>", "").trim();
+                    android.util.Log.i("friday-cerebro", "respostaWeb local: " + r);
+                    if (!r.isEmpty()) {
+                        registrarEFim(pergunta, r);
+                        return r;
+                    }
+                }
+                // 2. Se o PC estiver online via Wi-Fi/Tailscale, usa o modelo GPU do PC para sintetizar com máxima inteligência
+                if (Link.pcOnline(c)) {
+                    String p = "<|im_start|>system\n"
+                        + "Você é a F.R.I.D.A.Y. Responda à pergunta do dono em português do Brasil de forma inteligente, completa e direta, baseando-se nos resultados da busca.<|im_end|>\n"
+                        + "<|im_start|>user\nPergunta: " + pergunta + "\nResultados:\n" + ctx + "<|im_end|>\n<|im_start|>assistant\n";
+                    String r = Link.chamarLlm(c, p, 350, 0.3f);
+                    if (r != null && !r.trim().isEmpty()) {
+                        String f = r.replaceAll("(?is)<think>.*?</think>", "").trim();
+                        if (!f.isEmpty()) {
+                            android.util.Log.i("friday-cerebro", "respostaWeb PC LLM: " + f);
+                            registrarEFim(pergunta, f);
+                            return f;
+                        }
+                    }
+                }
+                // 3. Se offline ou sem modelo, sintetiza os fatos estruturados da Wikipédia / DuckDuckGo diretamente
+                String sintese = sintetizarResultados(pergunta, ctx);
+                if (sintese != null && !sintese.isEmpty()) {
+                    android.util.Log.i("friday-cerebro", "respostaWeb síntese direta: " + sintese);
+                    registrarEFim(pergunta, sintese);
+                    return sintese;
+                }
+                return null;
             } catch (Exception e) {
                 return null;
             } finally {
                 ocupada = false;
             }
         }
+    }
+
+    private static final java.util.regex.Pattern SAUDACAO = java.util.regex.Pattern.compile(
+        "(?iu)^\\s*(?:ol[áa]|oi|bom dia|boa tarde|boa noite|e a[íi]|opa|olá friday|oi friday|olá sexta[- ]feira|sexta[- ]feira)\\s*[.!?]*$");
+
+    private static final java.util.regex.Pattern IDENTIDADE = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(quem [ée] voc[êe]|qual (?:[ée] )?o seu nome|o que voc[êe] (?:faz|pode fazer)|quem te criou)\\b.*");
+
+    private static final java.util.regex.Pattern HORAS = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(que horas s[ãa]o|que horas|hora certa|horas agora|me d[áa] a hora)\\b.*");
+
+    private static final java.util.regex.Pattern DATA = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(que dia [ée] hoje|qual a data de hoje|qual o dia de hoje|que dia hoje|qual [ée] a data)\\b.*");
+
+    private static final java.util.regex.Pattern BATERIA = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(quanto (?:tem|est[áa]|t[áa]) de bateria|n[íi]vel da bateria|como est[áa] a bateria|porcentagem da bateria|status da bateria|bateria)\\b.*");
+
+    private static final java.util.regex.Pattern LANTERNA_LIGAR = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(lig(?:ue|ar|a)?\\s+(?:a\\s+)?lanterna|acend(?:er|a|e)?\\s+(?:a\\s+)?lanterna)\\b.*");
+
+    private static final java.util.regex.Pattern LANTERNA_DESLIGAR = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(deslig(?:ue|ar|a)?\\s+(?:a\\s+)?lanterna|apag(?:ue|ar|a)?\\s+(?:a\\s+)?lanterna)\\b.*");
+
+    private static final java.util.regex.Pattern VOLUME_AUMENTAR = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(aument(?:e|ar|a)?\\s+(?:o\\s+)?volume|sobe\\s+(?:o\\s+)?volume)\\b.*");
+
+    private static final java.util.regex.Pattern VOLUME_ABAIXAR = java.util.regex.Pattern.compile(
+        "(?iu).*\\b(abaix(?:e|ar|a)?\\s+(?:o\\s+)?volume|diminu(?:a|ir)?\\s+(?:o\\s+)?volume|baixa\\s+(?:o\\s+)?volume)\\b.*");
+
+    private String atalhoDireto(String pedido) {
+        if (pedido == null || ehComposto(pedido)) return null;
+        String p = pedido.trim();
+        try {
+            if (SAUDACAO.matcher(p).matches()) {
+                String fala = "Olá, senhor. Todos os sistemas online e pronta para qualquer tarefa. Como posso ajudar?";
+                avisar("fim", fala);
+                return fala;
+            }
+            if (IDENTIDADE.matcher(p).matches()) {
+                String fala = "Sou a F.R.I.D.A.Y., sua inteligência artificial autônoma. Posso pesquisar a fundo, redigir documentos em PDF e DOCX, controlar o aparelho, enviar mensagens e executar qualquer comando.";
+                avisar("fim", fala);
+                return fala;
+            }
+            if (HORAS.matcher(p).matches()) {
+                String fala = ferr.executar("hora", new JSONObject());
+                avisar("fim", fala);
+                return fala;
+            }
+            if (DATA.matcher(p).matches()) {
+                String fala = ferr.executar("data", new JSONObject());
+                avisar("fim", fala);
+                return fala;
+            }
+            if (BATERIA.matcher(p).matches()) {
+                String fala = ferr.executar("bateria", new JSONObject());
+                avisar("fim", fala);
+                return fala;
+            }
+            if (LANTERNA_LIGAR.matcher(p).matches()) {
+                ferr.executar("lanterna", new JSONObject().put("ligar", true));
+                String fala = "Lanterna ligada.";
+                avisar("fim", fala);
+                return fala;
+            }
+            if (LANTERNA_DESLIGAR.matcher(p).matches()) {
+                ferr.executar("lanterna", new JSONObject().put("ligar", false));
+                String fala = "Lanterna desligada.";
+                avisar("fim", fala);
+                return fala;
+            }
+            if (VOLUME_AUMENTAR.matcher(p).matches()) {
+                ferr.executar("volume", new JSONObject().put("nivel", 80));
+                String fala = "Volume aumentado para 80%.";
+                avisar("fim", fala);
+                return fala;
+            }
+            if (VOLUME_ABAIXAR.matcher(p).matches()) {
+                ferr.executar("volume", new JSONObject().put("nivel", 30));
+                String fala = "Volume reduzido para 30%.";
+                avisar("fim", fala);
+                return fala;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String fallbackAutonomo(String pedido) {
+        if (pedido == null) return null;
+        String p = pedido.trim();
+        try {
+            // Abrir aplicativo direto: "abra o WhatsApp", "abre o YouTube"
+            java.util.regex.Matcher ma = java.util.regex.Pattern.compile(
+                "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:abr[ae]|inici[ae]|rod[ae]|execut[ae])\\s+(?:o\\s+|a\\s+|os\\s+|as\\s+)?(?:app|aplicativo\\s+)?([\\p{L}0-9_+\\- ]+?)\\s*[.!?]*$").matcher(p);
+            if (ma.matches()) {
+                String app = ma.group(1).trim();
+                if (!app.equalsIgnoreCase("agenda") && !app.equalsIgnoreCase("clima") && !app.equalsIgnoreCase("navegador")) {
+                    String r = ferr.executar("abrir_app", new JSONObject().put("nome", app));
+                    if (!r.toLowerCase(Locale.ROOT).startsWith("não encontrei") && !r.toLowerCase(Locale.ROOT).startsWith("falhou")) {
+                        return "Pronto, abri o aplicativo " + app + ".";
+                    }
+                }
+            }
+            // Cálculos diretos: "quanto é 15 x 30", "calcule 120 / 4"
+            java.util.regex.Matcher mc = java.util.regex.Pattern.compile(
+                "(?iu)^\\s*(?:quanto\\s+(?:[ée]|d[áa])|calcule|conta)\\s+([0-9+\\-*/().^%xX ]+)\\s*[.!?]*$").matcher(p);
+            if (mc.matches()) {
+                String expr = mc.group(1).trim().replace('x', '*').replace('X', '*');
+                String r = ferr.executar("calcular", new JSONObject().put("expressao", expr));
+                if (r.contains("=")) return "Dá " + r.substring(r.lastIndexOf('=') + 1).trim() + ".";
+                return r;
+            }
+            // Perguntas gerais -> pesquisa na web e síntese
+            String fw = respostaWeb(p);
+            if (fw != null) return fw;
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private String atalhoPesquisa(String pedido) {
@@ -493,6 +658,8 @@ final class Cerebro {
                 : pz.matches("^(nao|cancela|cancelar|deixa|esquece|para|pare|nao envia)\\b.*") ? Zap.cancelar() : null;
             if (fz != null) { avisar("fim", fz); return fz; }
         }
+        String fDir = atalhoDireto(pedido);
+        if (fDir != null) return fDir;
         java.util.regex.Matcher mzap = ENVIAR_ZAP.matcher(pedido.trim());
         if (mzap.matches() && !ehComposto(pedido)) {
             String contato = mzap.group(1).trim().replaceFirst("(?i)^(o|a|os|as)\\s+", "").replaceFirst("(?i)^(grupo|contato)\\s+(d[oae]s?\\s+)?", "");
@@ -537,12 +704,20 @@ final class Cerebro {
         synchronized (this) {
             ocupada = true;
             try {
-                if (!preparar()) {
-                    String m = Llm.ok ? "O modelo local não está no celular (" + arquivoModelo() + ")." : "O motor local não carregou neste aparelho.";
+                boolean temLocal = preparar();
+                boolean pc = Link.pcOnline(c);
+                if (!temLocal && !pc) {
+                    String fallback = fallbackAutonomo(pedido);
+                    if (fallback != null) {
+                        avisar("fim", fallback);
+                        return fallback;
+                    }
+                    String m = Llm.ok
+                        ? "O modelo local (" + arquivoModelo().getName() + ") ainda não foi baixado no aparelho. Conecte ao PC via Wi-Fi/Tailscale ou baixe o modelo na aba de modelos para raciocínio offline completo."
+                        : "O motor local não carregou neste aparelho.";
                     avisar("fim", m);
                     return m;
                 }
-                boolean pc = Link.pcOnline(c);
                 String agora = new SimpleDateFormat("EEEE, dd/MM/yyyy HH:mm", new Locale("pt", "BR")).format(new Date());
                 StringBuilder p = new StringBuilder(sistema(querPc));
                 for (String[] h : historico) {
@@ -551,7 +726,7 @@ final class Cerebro {
                 }
                 String aprendi = Aprende.contexto(c, pedido);          // o que já deu certo / errado em pedidos parecidos
                 p.append("<|im_start|>user\n[").append(agora)
-                 .append(querPc ? (pc ? " · PC LIGADO" : " · PC offline") : " · CÉREBRO LOCAL NO CELULAR")
+                 .append(querPc ? (pc ? " · PC LIGADO" : " · PC offline") : (temLocal ? " · CÉREBRO LOCAL NO CELULAR" : " · CÉREBRO REDE PC (EXECUÇÃO LOCAL NO CELULAR)"))
                  .append(origem.equals("pc") ? " · pedido vindo da Friday do PC" : "").append("]\n")
                  .append(aprendi.isEmpty() ? "" : "[aprendizado]\n" + aprendi).append(pedido.trim()).append("<|im_end|>\n");
                 String fala = null;
@@ -560,14 +735,27 @@ final class Cerebro {
                 boolean ultimoFalhou = false;
                 for (int passo = 0; passo < 8 && fala == null; passo++) {
                     p.append(assist());
-                    // sem gramática (ela custa muito por token no vocabulário de 150 mil); só se o JSON vier quebrado, repete com ela
-                    String out = Llm.gerar(p.toString(), 900, 0.3f, "", null).trim();
+                    String out = null;
+                    if (temLocal) {
+                        out = Llm.gerar(p.toString(), 900, 0.3f, "", null).trim();
+                        JSONObject jTest = json(out);
+                        if (jTest == null) {
+                            out = Llm.gerar(p.toString(), 900, 0.2f, gramatica(querPc), null).trim();
+                        }
+                    } else if (pc) {
+                        // Roda o raciocínio na GPU do PC, mas executa no aparelho
+                        out = Link.chamarLlm(c, p.toString(), 600, 0.3f);
+                    }
+                    if (out == null || out.trim().isEmpty()) {
+                        fala = "Não consegui processar a resposta agora.";
+                        break;
+                    }
                     JSONObject j = json(out);
                     if (j == null) {
-                        out = Llm.gerar(p.toString(), 900, 0.2f, gramatica(querPc), null).trim();
-                        j = json(out);
+                        String limpo = out.replaceAll("(?is)<think>.*?</think>", "").trim();
+                        fala = limpo.isEmpty() ? "Me perdi no raciocínio. Pode repetir?" : limpo;
+                        break;
                     }
-                    if (j == null) { fala = out.isEmpty() ? "Me perdi no raciocínio. Pode repetir?" : out; break; }
                     out = j.toString();
                     p.append(out).append("<|im_end|>\n");
                     String acao = j.optString("acao");
@@ -604,7 +792,7 @@ final class Cerebro {
                 avisar("fim", fala);
                 return fala;
             } catch (Exception e) {
-                String m = "Erro no cérebro local: " + e.getMessage();
+                String m = "Erro no cérebro: " + e.getMessage();
                 avisar("fim", m);
                 return m;
             } finally {
@@ -617,7 +805,7 @@ final class Cerebro {
 
     private static final java.util.Set<String> FINAIS = new java.util.HashSet<>(java.util.Arrays.asList(
         "abrir_tela", "abrir_app", "abrir_site", "pesquisar", "pesquisar_links", "alarme", "timer", "evento", "agenda", "ligar", "whatsapp", "compartilhar",
-        "lanterna", "volume", "configuracao", "foto", "calcular", "flutuante", "criar_documento", "criar_arquivo", "lembrar", "tailscale", "pc"));
+        "lanterna", "volume", "configuracao", "foto", "calcular", "flutuante", "criar_documento", "criar_arquivo", "lembrar", "tailscale", "bateria", "hora", "data", "pc"));
 
     /** fala final sem mais um passo do modelo quando o pedido era de UMA ação e ela deu certo */
     private static String falaDireta(String pedido, String acao, String r) {
@@ -628,6 +816,7 @@ final class Cerebro {
         if (acao.equals("pesquisar") || acao.equals("abrir_site")) return "Pronto, abri no navegador: " + r + ".";
         if (acao.equals("pesquisar_links")) return null;                // o modelo responde com base nos resultados
         if (acao.equals("whatsapp")) return r;                          // "Mensagem escrita para X... Posso enviar?" (nunca "enviei")
+        if (acao.equals("bateria") || acao.equals("hora") || acao.equals("data")) return r;
         String pl = pedido.toLowerCase(Locale.ROOT);
         if (pl.split("\\s+").length > 12) return null;
         if (acao.equals("calcular")) { int i = r.lastIndexOf('='); return i > 0 ? "Dá " + r.substring(i + 1).trim() + "." : r; }
@@ -635,20 +824,30 @@ final class Cerebro {
         return "Pronto: " + r + ".";
     }
 
-    /** 1º objeto JSON do texto (o modelo às vezes põe algo antes/depois) */
+    /** 1º objeto JSON do texto (remove raciocínio <think> e blocos markdown para extração infalível) */
     private static JSONObject json(String s) {
-        int a = s.indexOf('{');
+        if (s == null) return null;
+        String limpo = s.replaceAll("(?is)<think>.*?</think>", "").trim();
+        if (limpo.contains("```")) {
+            limpo = limpo.replaceAll("(?s)```(?:json)?", "").trim();
+        }
+        int a = limpo.indexOf('{');
         if (a < 0) return null;
         int prof = 0; boolean aspas = false, esc = false;
-        for (int i = a; i < s.length(); i++) {
-            char ch = s.charAt(i);
+        for (int i = a; i < limpo.length(); i++) {
+            char ch = limpo.charAt(i);
             if (esc) { esc = false; continue; }
             if (ch == '\\') { esc = true; continue; }
             if (ch == '"') aspas = !aspas;
             if (aspas) continue;
             if (ch == '{') prof++;
             else if (ch == '}' && --prof == 0) {
-                try { JSONObject j = new JSONObject(s.substring(a, i + 1)); return j.has("acao") ? j : null; } catch (Exception e) { return null; }
+                try {
+                    JSONObject j = new JSONObject(limpo.substring(a, i + 1));
+                    return j.has("acao") ? j : null;
+                } catch (Exception e) {
+                    return null;
+                }
             }
         }
         return null;
