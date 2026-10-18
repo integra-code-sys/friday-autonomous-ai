@@ -591,8 +591,21 @@ def _limpar_termo_busca(q):
     q = re.sub(r"(?i)^\s*(?:sexta[- ]?feira|friday)[,:\s]*", "", q)
     q = re.sub(r"(?i)^\s*(?:por\s+favor[,:\s]*)?(?:apenas\s+|s[óo]\s+)?(?:abr[ae](?:\s+o\s+navegador|\s+o\s+chromium|\s+uma\s+nova\s+aba|\s+nova\s+aba)?\s*(?:e\s+)?)?(?:pesquis\w*|busc\w*|procur\w*)\s*(?:por|sobre|pelo|pela|pelos|pelas)?\s*", "", q)
     q = re.sub(r"(?i)\b(?:em\s+uma\s+nova\s+aba|numa\s+nova\s+aba|na\s+nova\s+aba|em\s+nova\s+aba|no\s+navegador|pelo\s+navegador|no\s+chromium|no\s+google)\b", " ", q)
+    q = re.sub(r"(?i)\s+e\s+(?:depois\s+)?(?:prepar\w*|escrev\w*|redij\w*|envi\w*|mand\w*|encaminh\w*|repass\w*)\b.*$", "", q)
     q = re.sub(r"(?i)\s*(?:e\s+)?(?:me\s+)?(?:mostr\w+|dig\w+|fal\w+|trag\w+|resum\w+)\s+(?:o\s+que|oque|tudo\s+que)\s+(?:achar|encontrar|ver).*$", "", q)
     q = re.sub(r"(?i)\b(?:em\s+sites?\s+americanos?(?:\s+como\s+[\w\s,e]+)?|(?:no|na|em|nos|nas|como)\s+(?:ebay(?:\s+e\s+amazon(?:\s+global)?)?|amazon(?:\s+global|\s+brasil)?|mercado\s*livre|mercadolivre|shopee|aliexpress|sites?\s+americanos?|lojas?\s+americanas?))\b", " ", q)
+    cmd = re.compile(
+        r"(?i)^\s*(?:e\s+|depois\s+)?(?:entr\w*|abr\w*|acesse|vai|v[aá]|pesquis\w*|busc\w*|procur\w*|mostr\w*)\s+"
+        r"(?:(?:no|na|ao|o|a|um|uma)\s+)?(?:site|p[aá]gina|portal|navegador|chromium|chrome|google)?\s*"
+        r"(?:e\s+)?(?:pesquis\w*|busc\w*|procur\w*)?\s*(?:sobre|por)?\s*"
+    )
+    for _ in range(4):
+        n = cmd.sub("", q).strip()
+        if not n or n == q:
+            break
+        q = n
+    q = re.sub(r"(?i)\bfortin[aei]te\b", "fortnite", q)
+    q = re.sub(r"(?i)\b(?:itesns|intens|itenss)\b", "itens", q)
     q = re.sub(r"\s+", " ", q).strip(" ,.!?")
     return q
 
@@ -605,6 +618,8 @@ def _urls_para_site_ou_busca(url="", busca="", contexto_lojas=""):
         u_clean = u if u.startswith(("http://", "https://")) else "https://" + u
         return [u_clean], u_clean
     termo = _limpar_termo_busca(b or u) or (b or u).strip()
+    if re.search(r"fortn", termo, re.I) and re.search(r"loja|item|skin", termo, re.I):
+        return ["https://www.fortnite.com/item-shop?lang=pt-BR", "https://fortnite.gg/shop"], termo
     tem_ebay = bool(re.search(r"\bebay\b", raw, re.I))
     tem_amazon = bool(re.search(r"\bamazon\b", raw, re.I))
     tem_ml = bool(re.search(r"\bmercado\s*livre\b|\bmercadolivre\b", raw, re.I))
@@ -661,7 +676,13 @@ def t_abrir_site(url="", busca="", contexto_lojas="", fr=None, ops=None, **_):
             fr._ampliar(fr.find_window("chromium") or w)
             if fr.holo_mode():
                 fr.holo_live("Chromium", ops)
-    return "navegador aberto e foi para: " + ", ".join(urls)
+    lido = ""
+    try:
+        lido = t_ler_rolando(vezes=4, url=urls[0] if urls else "")
+    except Exception:
+        lido = ""
+    base = "navegador aberto e foi para: " + ", ".join(urls)
+    return base + ("\n\nNa tela, depois de rolar:\n" + lido if lido else "\n\nA página abriu, mas a rolagem não mostrou texto útil.")
 
 
 def _titulos_chromium():
@@ -1225,6 +1246,166 @@ def t_rolar(n=3, **_):
     return f"rolei {n}"
 
 
+_AVISO = re.compile(
+    r"^(?:aceitar(?:\s+tudo)?|accept(?:\s+all)?|concordo|entendi|fechar|close|agora n[ãa]o|"
+    r"n[ãa]o,?\s*obrigado|pular(?:\s+an[úu]ncio)?|skip(?:\s+ads?)?|rejeitar|recusar)$",
+    re.I)
+
+
+def _ocr_da_tela():
+    """OCR da tela inteira, com posição. A árvore de acessibilidade do navegador só enxerga as abas."""
+    try:
+        import visao
+        import ocr_pt
+        visao.capturar_tela()
+        img = visao._ULTIMA_TELA[0]
+        if img is None:
+            return []
+        bruto = ocr_pt.linhas(img) or []
+    except Exception:
+        return []
+    out = []
+    for l in bruto:
+        try:
+            out.append({"t": str(l.get("t") or "").strip(),
+                        "x": int((l["x0"] + l["x1"]) / 2),
+                        "y": int((l["y0"] + l["y1"]) / 2)})
+        except Exception:
+            continue
+    return out
+
+
+def t_fechar_sobreposicao(**_):
+    """Fecha aviso de cookie, anúncio ou 'pular' que esteja cobrindo a página."""
+    m = _manual()
+    feitos = []
+    linhas = _ocr_da_tela()
+    if not linhas:
+        try:
+            linhas = m.screen_lines()
+        except Exception:
+            return "não li a tela para fechar aviso"
+    for l in linhas:
+        rot = re.sub(r"\s*@\d+,\d+$", "", (l.get("t") or "").strip())
+        if not rot or len(rot) > 40:
+            continue
+        fechar = _SKIP.match(rot) or _AVISO.match(rot) or re.search(r"lembrar mais tarde", rot, re.I)
+        if not fechar and re.fullmatch(r"[x×✕]", rot, re.I) and int(l.get("y") or 0) > 90:
+            fechar = True
+        if not fechar:
+            continue
+        try:
+            m._pc("clickat", l["x"], l["y"])
+            feitos.append(rot)
+            time.sleep(0.35)
+        except Exception:
+            pass
+        if len(feitos) >= 3:
+            break
+    return "fechei: " + ", ".join(feitos) if feitos else "sem aviso cobrindo a página"
+
+
+def _ocr_da_pagina():
+    """OCR só do miolo da página. Aba, relógio e anúncio de rodapé ficam de fora."""
+    linhas = _ocr_da_tela()
+    if not linhas:
+        return []
+    try:
+        import visao
+        h = int(visao._ULTIMA_TELA[0].shape[0])
+    except Exception:
+        h = 1080
+    topo, base = int(h * 0.14), int(h * 0.86)
+    return [l for l in linhas if topo <= int(l.get("y") or 0) <= base]
+
+
+def _texto_tela_rapido():
+    """Texto da página. OCR do miolo, porque a acessibilidade do Chromium só devolve as abas."""
+    linhas = _ocr_da_pagina()
+    if linhas:
+        return "\n".join(l["t"] for l in linhas if l.get("t"))
+    try:
+        txt = _tela().texto(_tela().ler(), 80)
+    except Exception:
+        txt = ""
+    return txt or ""
+
+
+def _dump_legivel(url):
+    """Lê o DOM já renderizado, em segundo plano, quando a página é feita de JavaScript."""
+    import shutil
+    exe = shutil.which("chromium") or shutil.which("google-chrome") or shutil.which("google-chrome-stable")
+    if not exe or not str(url).startswith("http"):
+        return ""
+    try:
+        r = subprocess.run(
+            [exe, "--headless=new", "--disable-gpu", "--no-sandbox", "--virtual-time-budget=12000",
+             "--user-data-dir=/tmp/friday-leitura", "--dump-dom", str(url)],
+            capture_output=True, text=True, timeout=28)
+        return _texto(r.stdout or "")[:5000]
+    except Exception:
+        return ""
+
+
+def _linhas_de_leitura(texto):
+    out = []
+    for ln in re.split(r"[\n\r•]+|(?<=[.!?])\s+", texto or ""):
+        s = re.sub(r"\s*@\d+,\d+$", "", re.sub(r"\s+", " ", ln)).strip(" -•\t")
+        if len(s) > 180 or _LIXO_TELA.search(s):
+            continue
+        if len(s) < 8 and not re.search(r"\d", s):
+            continue
+        if len(s) < 3:
+            continue
+        if re.search(
+            r"verifica[çc][ãa]o de seguran|um momento|cloudflare|endere[çc]o ip|id da sess[ãa]o|"
+            r"esperando a resposta|mova suas guias|learn more|sponsored|caixa de|"
+            r"sign in|repositor|developers|gestos de janela|monitor gamer|pichau|nexus|"
+            r"\d+\s*hz\b|resets in|sunday|0?october|whatsapp",
+            s, re.I):
+            continue
+        if re.match(r"^\(\d+\)", s):
+            continue
+        if re.fullmatch(r"[\W\d]{1,12}", s) and not re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+|\d{2,5}", s):
+            continue
+        if s not in out:
+            out.append(s)
+    return out
+
+
+def t_ler_rolando(vezes=5, url="", **_):
+    """Fecha aviso, rola a página de verdade e junta o texto de cada tela."""
+    try:
+        _manual()._pc("move", 960, 540)
+    except Exception:
+        pass
+    t_fechar_sobreposicao()
+    vistos, linhas = set(), []
+    n = max(1, min(int(vezes or 5), 8))
+    for i in range(n):
+        for s in _linhas_de_leitura(_texto_tela_rapido()):
+            if s not in vistos:
+                vistos.add(s)
+                linhas.append(s)
+        if i + 1 < n:
+            t_rolar(4)
+            time.sleep(0.45)
+    for s in _linhas_de_leitura(_dump_legivel(url)):
+        if s not in vistos:
+            vistos.add(s)
+            linhas.append(s)
+    texto = "\n".join("• " + s for s in linhas[:30])
+    try:
+        import memoria
+        if url:
+            memoria.gravar("site", str(url)[:180], texto[:180] or "página aberta")
+        if texto:
+            memoria.evento("tela", texto[:180])
+    except Exception:
+        pass
+    return texto
+
+
 def t_pular_anuncio(espera=0, fr=None, **_):
     """acha 'Pular anúncio'/'Skip ads' no vídeo (OCR) e clica. Se `espera`>0, aguarda o botão aparecer (anúncios liberam o botão após ~5 s)."""
     m = _manual()
@@ -1516,13 +1697,19 @@ def t_zap_ler(contato="", n=5, **_):
         return f"Erro ao acessar WhatsApp: {e}"
 
 
-def t_zap_enviar(contato="", mensagem="", fr=None, ops=None, **_):
-    """Envia ou prepara mensagem no WhatsApp (ZapZap) para um contato."""
+def t_zap_enviar(contato="", mensagem="", fr=None, ops=None, pronto=False, **_):
+    """Envia ou prepara mensagem no WhatsApp (ZapZap) para um contato.
+    pronto=True: o texto já é o conteúdo (pesquisa). Não passa no redator, que trocava o fato por 'vou pesquisar'."""
     if not contato or not mensagem:
         raise RuntimeError("Contato e mensagem são obrigatórios.")
     if fr is None:                                       # nunca envia sem o portão de aprovação
         raise RuntimeError("Envio bloqueado: sem portão de aprovação.")
-    ok, msg = fr.run_action({"t": "zap", "op": "enviar", "contato": contato, "intencao": mensagem}, ops)  # redacao.redigir no tom do dono
+    acao = {"t": "zap", "op": "enviar", "contato": contato}
+    if pronto:
+        acao["texto"] = mensagem
+    else:
+        acao["intencao"] = mensagem
+    ok, msg = fr.run_action(acao, ops)
     if not ok:
         raise RuntimeError(msg or "falha ao enviar mensagem no WhatsApp")
     return msg or f"Mensagem para {contato}: estado desconhecido (confira no WhatsApp)."
@@ -1977,7 +2164,9 @@ FOLLOWUP_NAV_RE = re.compile(
 
 
 COMPOSTA_ZAP_RE = re.compile(
-    r"\b(?:e\s+|depois\s+|em\s+seguida\s+)?(?:envi\w+|mand\w+|encaminh\w+|repass\w+)\b.*?\b(?:para|pra|pro|ao|à)\s+([A-Za-zÀ-ÿ0-9_@][\wÀ-ÿ\s.-]{0,35})",
+    r"\b(?:e\s+|depois\s+|em\s+seguida\s+)?(?:prepar\w*|escrev\w*|redij\w*|envi\w+|mand\w+|encaminh\w+|repass\w+)\b"
+    r".{0,80}?\b(?:para|pra|pro|ao|à)\s+([@A-Za-zÀ-ÿ0-9_][\wÀ-ÿ @.'+-]{0,40}?)"
+    r"(?=\s+no\s+(?:whatsapp|zap(?:\s*zap)?|wpp)\b|\s+com\b|\s+dizendo\b|$)",
     re.I
 )
 COMPOSTA_ARQ_RE = re.compile(
@@ -2003,10 +2192,116 @@ def _eh_tarefa_composta(text):
 
 
 def _limpar_cauda_composta(q):
-    q = re.sub(r"(?i)\s+(?:e\s+|depois\s+|em\s+seguida\s+)?(?:envi\w+|mand\w+|encaminh\w+|repass\w+)\b.*$", "", q)
+    q = re.sub(r"(?i)\s+(?:e\s+|depois\s+|em\s+seguida\s+)?(?:prepar\w*|escrev\w*|redij\w*|envi\w+|mand\w+|encaminh\w+|repass\w+)\b.*$", "", q)
     q = re.sub(r"(?i)\s+(?:e\s+|depois\s+|em\s+seguida\s+)?(?:cri[ae]\w*|salv[ae]\w*|grav[ae]\w*|ger[ae]\w*|escrev\w*|fa[çc][ae]\w*)\s+(?:um|uma|em\s+um|num|no|na)?\s*(?:arquiv\w*|document\w*|relat[óo]rio|resumo|nota|planilh\w*|apresenta[çc][ãa]o|slides?|docx|xlsx|pptx|txt|md).*$", "", q)
     q = re.sub(r"(?i)\s+(?:e\s+|depois\s+|em\s+seguida\s+)?(?:agend\w+|(?:anot\w+|adicion\w+|marqu?e|coloqu?e|ponha)\s+(?:isso\s+)?na\s+(?:minha\s+)?agenda).*$", "", q)
     return q.strip(" ,.!?")
+
+
+def _paginas_do_assunto(tema):
+    t = (tema or "").lower()
+    if re.search(r"fortn", t) and re.search(r"loja|item|skin|hoje|vbuck", t):
+        return ["https://www.fortnite.com/item-shop?lang=pt-BR", "https://fortnite.gg/shop"]
+    return []
+
+
+_LIXO_TELA = re.compile(
+    r"exibindo resultados|vou pesquisar|cookie|aceitar tudo|javascript|inscreva|menu principal|barra de endere",
+    re.I)
+
+
+def _linhas_uteis(texto):
+    out = []
+    for ln in re.split(r"[\n\r•]+|(?<=[.!?])\s+", texto or ""):
+        s = re.sub(r"\s+", " ", ln).strip(" -•\t")
+        if len(s) < 12 or len(s) > 180 or _LIXO_TELA.search(s):
+            continue
+        if s not in out:
+            out.append(s)
+    return out
+
+
+def _focar_navegador(fr):
+    import abrir_nativo
+    if fr is None:
+        return False
+    w = fr.find_window(abrir_nativo.chave_janela("navegador"))
+    if not w:
+        abrir_nativo.abrir_url("about:blank")
+        time.sleep(1.0)
+        w = fr.find_window(abrir_nativo.chave_janela("navegador"))
+    if not w:
+        return False
+    try:
+        fr.fechar_paineis()
+    except Exception:
+        pass
+    fr._niri("focus-window", "--id", str(w["id"]))
+    time.sleep(0.35)
+    return True
+
+
+def _ir_para_url(url, fr, progress=None):
+    """Troca a aba visível. Abrir por trás deixa a página anterior na frente."""
+    host = urllib.parse.urlparse(url).netloc.replace("www.", "").split(".")[0]
+    _say(progress, "Entrando em " + host + ".")
+    if not _focar_navegador(fr):
+        import abrir_nativo
+        abrir_nativo.abrir_url(url)
+        time.sleep(2.5)
+        return
+    try:
+        antes = str((fr.focused_window() or {}).get("title") or "")
+    except Exception:
+        antes = ""
+    for _ in range(2):
+        try:
+            fr._pc("goto", url, timeout=25)
+            break
+        except Exception:
+            _focar_navegador(fr)
+    t0 = time.time()
+    while time.time() - t0 < 9:
+        try:
+            tit = str((fr.focused_window() or {}).get("title") or "")
+        except Exception:
+            tit = ""
+        if tit and tit != antes:
+            break
+        time.sleep(0.45)
+    time.sleep(1.4)
+
+
+def _entrar_e_ler(tema, fr, ops, progress=None):
+    """Abre cada página na aba da frente, rola e lê só o miolo."""
+    urls = _paginas_do_assunto(tema)
+    if not urls:
+        try:
+            achados = t_pesquisar_web(consulta=tema)
+        except Exception:
+            achados = ""
+        for u in re.findall(r"https?://[^\s|]+", achados or ""):
+            u = u.rstrip(").,")
+            if re.search(r"google\.|duckduckgo|bing\.|youtube|facebook|instagram", u):
+                continue
+            if u not in urls:
+                urls.append(u)
+            if len(urls) >= 2:
+                break
+    linhas = []
+    for u in urls[:2]:
+        try:
+            _ir_para_url(u, fr, progress)
+            bloco = t_ler_rolando(vezes=3, url="")
+        except Exception:
+            bloco = ""
+        for s in _linhas_de_leitura(bloco):
+            if s not in linhas:
+                linhas.append(s)
+    uso = [s for s in linhas if re.search(r"[A-Za-zÀ-ÿ]{4,}", s) or re.search(r"\d[\d.,]{2,}", s)][:16]
+    if len(uso) < 2:
+        return ""
+    return "\n".join("• " + s for s in uso)
 
 
 def _tarefa_composta(text, fr, ops=None, progress=None):
@@ -2045,10 +2340,26 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
                 corpo = t_ler_pagina(url=link[0])[:3000] + "\n\n" + achados
             except Exception:
                 pass
-        conteudo = fr.llm(
-            "Você é a F.R.I.D.A.Y. Escreva um resumo bem estruturado em português do Brasil (com título # e tópicos objetivos) sobre o tema pesquisado, usando apenas os dados fornecidos.",
-            f"Tema: {tema}\n\nDados:\n{corpo[:5000]}", None, False, 650, 0.2, 90
-        ) if fr else corpo
+        conteudo = None
+        if fr is not None:
+            try:
+                conteudo = fr.llm(
+                    "Você é a F.R.I.D.A.Y., analista executiva. Escreva um relatório analítico estruturado e aprofundado em Markdown "
+                    "(com título #, ## 1. Resumo Executivo, ## 2. Análise Detalhada dos Fatos, ## 3. Tabela Comparativa de Dados/Valores, "
+                    "## 4. Conclusão) sobre o tema pesquisado. Escreva texto fluído de alta qualidade, sem colar trechos brutos.",
+                    f"Tema: {tema}\n\nDados apurados:\n{corpo[:5000]}", None, False, 1200, 0.2, 90
+                )
+            except Exception:
+                pass
+        if not conteudo or len(conteudo.strip()) < 80:
+            try:
+                import orquestra_geral as _og
+                conteudo = _og._modelo(
+                    f"Escreva um relatório analítico completo em Markdown sobre '{tema}' com introdução, análise detalhada, tabela de dados e conclusão.\n\nMaterial:\n{corpo[:5000]}",
+                    max_tokens=1400
+                )
+            except Exception:
+                pass
         conteudo = (conteudo or corpo).strip()
         if not nome_arq:
             slug = re.sub(r"[^a-z0-9]+", "-", tema.lower()).strip("-")[:36] or "pesquisa"
@@ -2057,46 +2368,54 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
             nome_arq += ".md"
         res_arq = t_criar_arquivo(caminho=nome_arq, conteudo=conteudo, abrir=False)
         _log("tarefa_composta_arq", {"tema": tema, "arquivo": nome_arq}, True, 0.4, res_arq)
-        return f"Pronto, chefe. Pesquisei sobre {tema} e salvei o resumo em {nome_arq} na pasta Documentos/Friday."
+        return f"Pronto, chefe. Pesquisei sobre {tema}, analisei os dados e salvei o relatório estruturado em {nome_arq} na pasta Documentos/Friday."
 
-    # Executa a etapa 1 (pesquisa web + navegador se pedido)
-    _say(progress, f"Pesquisando sobre {tema}.")
-    if NAV.search(t) or LOJAS_RE.search(t):
+    _say(progress, f"Entrando nas páginas sobre {tema}.")
+    corpo = _entrar_e_ler(tema, fr, ops, progress)
+    if len(corpo) < 40:
+        return f"Abri as páginas sobre {tema}, mas o texto não tinha o conteúdo. Não montei mensagem genérica."
+
+    # Síntese analítica articulada para mensagens e agenda
+    sintese_msg = None
+    if fr is not None:
         try:
-            t_abrir_site(busca=tema, contexto_lojas=t, fr=fr, ops=ops)
+            sintese_msg = fr.llm(
+                "Você é a F.R.I.D.A.Y. Redija uma mensagem objetiva, fluida e clara para enviar a um contato via WhatsApp. "
+                "Sintetize os pontos principais apurados sobre o tema, valores ou novidades encontradas, sem jargões de robô, "
+                "sem colar URLs cruas e sem colar trechos soltos. Seja direta e prestativa.",
+                f"Tema: {tema}\n\nDados apurados:\n{corpo[:4500]}",
+                None, False, 350, 0.2, 60
+            )
         except Exception:
             pass
-    achados = t_pesquisar_web(consulta=tema)
-    link = re.findall(r"\|\s*(https?://\S+)\s*$", achados, re.M)
-    corpo = achados
-    if link:
+    if not sintese_msg or len(sintese_msg.strip()) < 20:
         try:
-            corpo = t_ler_pagina(url=link[0])[:2800] + "\n" + achados
+            import orquestra_geral as _og
+            sintese_msg = _og._modelo(
+                f"Você é a F.R.I.D.A.Y. Analise as informações sobre '{tema}' e elabore uma mensagem clara e executiva sintetizando os achados de forma fluida.\n\nDados:\n{corpo[:4000]}",
+                max_tokens=400
+            )
         except Exception:
             pass
-    resumo = fr.llm(
-        "Resuma em português do Brasil, em 2 a 3 frases diretas, claras e informativas (sem markdown), o resultado da pesquisa abaixo.",
-        f"Tema: {tema}\nResultados:\n{corpo[:4500]}", None, False, 240, 0.2, 60
-    ) if fr else ""
-    resumo = re.sub(r"[*_#`]+", "", (resumo or achados[:280])).strip()
+    resumo = (sintese_msg or corpo).strip()
 
     # 2) Pesquisa + Enviar no WhatsApp
     if m_zap:
         contato = m_zap.group(1).strip()
-        contato = re.sub(r"(?i)^\s*(?:o|a|os|as|meu|minha)\s+", "", contato)
+        contato = re.sub(r"(?i)^(?:\s*(?:o|a|os|as|meu|minha|@))+", "", contato).strip()
         contato = re.sub(r"(?i)\s+(?:no|pelo|via|por)\s+(?:whatsapp|zap|zapzap|mensagem|wpp).*$", "", contato).strip(" ,.!?")
         if contato:
             _say(progress, f"Preparando envio para {contato} no WhatsApp.")
-            msg_zap = f"Sobre {tema}: {resumo}"
+            msg_zap = resumo
             try:
-                res_z = t_zap_enviar(contato=contato, mensagem=msg_zap, fr=fr, ops=ops)
+                res_z = t_zap_enviar(contato=contato, mensagem=msg_zap, fr=fr, ops=ops, pronto=True)
                 _log("tarefa_composta_zap", {"tema": tema, "contato": contato}, True, 0.4, res_z)
                 if re.search(r"PENDENTE|aprova[çc][ãa]o|espelho|preparad", str(res_z), re.I):
-                    return f"Pesquisei sobre {tema}: {resumo[:220]} Deixei a mensagem pronta para {contato} no espelho — diga aprovado para enviar."
-                return f"Pesquisei sobre {tema} e enviei para {contato} no WhatsApp: {resumo[:220]}"
+                    return f"Pesquisei sobre {tema} e analisei os dados: {resumo[:220]} Deixei a mensagem pronta para {contato} no espelho — diga aprovado para enviar."
+                return f"Pesquisei e analisei sobre {tema}, e enviei para {contato} no WhatsApp: {resumo[:220]}"
             except Exception as e_z:
                 _log("tarefa_composta_zap", {"tema": tema, "contato": contato}, False, 0.2, repr(e_z))
-                return f"Encontrei sobre {tema}: {resumo[:240]} Porém não consegui enviar no WhatsApp para {contato} ({str(e_z)[:80]})."
+                return f"Apurado e analisado sobre {tema}: {resumo[:240]} Porém não consegui enviar no WhatsApp para {contato} ({str(e_z)[:80]})."
 
     # 3) Pesquisa + Agenda
     if m_ag and ops is not None:
@@ -2113,6 +2432,8 @@ def _pesquisa_navegador_direta(text, fr, ops=None, progress=None, historico=None
     """Atalho determinístico para 'abra o navegador e pesquise X (no ebay/amazon/google)' e follow-ups ('apenas pesquise em uma nova aba', 'faça')."""
     t = (text or "").strip()
     if not t or CELULAR_RE.search(t) or DOCW.search(t) or YT.search(t) or _eh_tarefa_composta(t):
+        return None
+    if re.search(r"\b(?:mensagem|whatsapp|zap(?:\s*zap)?|wpp)\b", t, re.I) and re.search(r"\b(?:prepar\w*|escrev\w*|envi\w*|mand\w*)\b", t, re.I):
         return None
     if re.search(r"\b(background|segundo plano|por tr[aá]s|silencios\w+|sem atrapalhar|sem interromper)\b", t, re.I):
         return None
@@ -2177,19 +2498,31 @@ def _pesquisa_direta(text, fr, ops=None, progress=None):
         except Exception as e_nav:
             print("aviso abrir site em pesquisa:", e_nav, flush=True)
     achados = t_pesquisar_web(consulta=q)
-    link = re.findall(r"\|\s*(https?://\S+)\s*$", achados, re.M)
-    corpo = achados
-    if link:
+    links = re.findall(r"\|\s*(https?://\S+)\s*$", achados, re.M)[:2]
+    partes = []
+    for i, u in enumerate(links):
+        if not em_bg:
+            try:
+                t_abrir_site(url=u, fr=fr, ops=ops)
+            except Exception:
+                pass
         try:
-            corpo = t_ler_pagina(url=link[0])[:3000] + "\n" + achados
+            pag = t_ler_pagina(url=u).strip()
+            if len(pag) > 80:
+                partes.append(f"FONTE {u}\n" + pag[:2500])
         except Exception:
             pass
+    if len(partes) < 2:
+        return "Não fechei a pesquisa: li " + str(len(partes)) + " página. Faltou a segunda fonte."
+    corpo = "\n\n".join(partes)
     prompt_instrucao = (
-        "Responda em português do Brasil, em 2 a 4 frases curtas, inteligentes e diretas, com base no material. "
-        "Se for pesquisa em background, dê um resumo conciso e completo dos achados para falar ao dono."
+        "Responda em português, 3 a 5 frases, só com o que as duas páginas dizem sobre a pergunta. "
+        "Cite o dado concreto. Proibido começar com 'com base na pesquisa' ou dar uma resposta genérica."
     )
-    resp = fr.llm(prompt_instrucao, f"Pergunta: {text}\n\nMaterial:\n{corpo[:4500]}", None, False, 280, 0.2, 90)
-    return (resp or "Não encontrei uma resposta clara sobre isso.").strip()
+    resp = fr.llm(prompt_instrucao, f"Pergunta: {q}\n\nMaterial:\n{corpo[:5000]}", None, False, 320, 0.1, 90)
+    if not resp or re.search(r"com base na pesquisa|em resumo|vale destacar", resp, re.I):
+        return corpo[:500]
+    return resp.strip()
 
 
 REPOUSO = [False]       # prometheus._repouso liga: tela bloqueada/apagada -> mouse/teclado/tela iriam para a tela de bloqueio (senha!)

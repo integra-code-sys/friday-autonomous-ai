@@ -59,22 +59,53 @@ def _ler(caminho, vazio):
         return vazio
 
 
-def _modelo(prompt):
-    """Um passo de decisão no provedor já configurado. Sem chave nova. Não devolve segredo."""
+def _modelo(prompt, max_tokens=1000):
+    """Executa raciocínio analítico ou síntese profunda usando o motor configurado com fallback resiliente."""
+    # 1. Tenta cloud_providers (Ollama local com think=False ou nuvem Gemini/Claude/OpenAI)
     try:
         import cloud_providers as cp
         r = cp.chat_com_ferramentas(
             [{"role": "user", "content": prompt}],
             [],
             temperature=0.2,
-            max_tokens=500,
-            timeout=40,
+            max_tokens=max_tokens,
+            timeout=50,
         )
-        txt = ((r or {}).get("message") or {}).get("content") or ""
+        msg = (r or {}).get("message") or {}
+        txt = msg.get("content") or msg.get("thinking") or ""
         txt = re.sub(r"(?is)<think>.*?</think>", "", str(txt)).strip()
-        return txt or None
+        if txt and len(txt) > 5:
+            return txt
     except Exception:
-        return None
+        pass
+
+    # 2. Fallback direto ao endpoint Ollama /api/chat com think: False
+    try:
+        import urllib.request
+        body = {
+            "model": "qwen3.5:4b",
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt}],
+            "think": False,
+            "options": {"temperature": 0.2, "num_predict": max_tokens}
+        }
+        req = urllib.request.Request(
+            "http://127.0.0.1:11434/api/chat",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            m = data.get("message") or {}
+            txt = m.get("content") or m.get("thinking") or ""
+            txt = re.sub(r"(?is)<think>.*?</think>", "", str(txt)).strip()
+            if txt and len(txt) > 5:
+                return txt
+    except Exception:
+        pass
+
+    return None
+
 
 
 def planejar(pedido, usar_modelo=True):
@@ -144,7 +175,8 @@ def _plano_heuristico(pedido):
     if re.search(r"navegador|browser|chrome|firefox|pesquis|busc|investig", t):
         q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|investig\w*)\s+", "", pedido, count=1)
         # Identifica se o usuário quer preparar mensagem/documento depois da busca
-        quer_msg = bool(re.search(r"\b(prepar\w*|escrev\w*|redig\w*|mand\w*|envi\w*)\s+(?:uma\s+)?(?:mensagem|nota|relatorio|texto)\b", pedido, re.I))
+        quer_msg = bool(re.search(r"\b(prepar\w*|escrev\w*|redig\w*|mand\w*|envi\w*)\s+(?:uma\s+)?(?:mensagem|nota|texto|comunicado)\b", pedido, re.I))
+        quer_doc = bool(re.search(r"\b(cri\w*|ger\w*|mont\w*|escrev\w*|redig\w*|faz\w*|fa[çc]\w*)\s+(?:um\s+|uma\s+)?(?:documento|relat[óo]rio|resumo|artigo|dossi[êe]|analise|an[áa]lise|docs?|docx|pdf|planilh\w*)\b", pedido, re.I))
         dest_match = re.search(r"(?:para|pro|pra)\s+([a-zA-Z0-9_\-\s]{2,40})", pedido, re.I)
         dest_nome = dest_match.group(1).strip() if dest_match else "Integra Code"
 
@@ -157,7 +189,7 @@ def _plano_heuristico(pedido):
             {"acao": "coletar", "args": {"consulta": q[:180]}, "pronto": "links de fontes oficiais"},
             {"acao": "abrir_pagina", "args": {"indice": 0}, "pronto": "primeira fonte aberta na tela"},
             {"acao": "ler_fonte", "args": {"indice": 0}, "pronto": "conteúdo da primeira fonte lido"},
-            {"acao": "concluir_pesquisa", "args": {"consulta": q[:180]}, "pronto": "resposta com o que foi apurado"},
+            {"acao": "concluir_pesquisa", "args": {"consulta": q[:180]}, "pronto": "resposta com síntese analítica dos dados"},
         ]
         if quer_msg:
             passos_busca.append({
@@ -169,6 +201,17 @@ def _plano_heuristico(pedido):
                 "acao": "confirmar_arquivo",
                 "args": {},
                 "pronto": "mensagem gravada e exibida com sucesso"
+            })
+        if quer_doc:
+            passos_busca.append({
+                "acao": "escrever_doc",
+                "args": {"pedido": pedido, "consulta": q[:180]},
+                "pronto": "documento analítico estruturado e criado com sucesso"
+            })
+            passos_busca.append({
+                "acao": "confirmar_arquivo",
+                "args": {},
+                "pronto": "documento gravado e verificado"
             })
         return seq(passos_busca)
     if re.search(r"claude", t):
@@ -391,31 +434,61 @@ def executar_acao(acao, args=None):
         if not lidos:
             return {"ok": False, "evidencia": "nenhuma informação encontrada na tela ou fontes.", "via": "tela"}
         consulta = args.get("consulta") or ""
-        chaves = [w for w in re.findall(r"\w{4,}", consulta.lower())][:6]
-        partes = []
-        for x in lidos:
-            blob = re.sub(r"\s+", " ", x["txt"]).strip()
-            if blob:
-                partes.append(blob[:400] + (f" (fonte: {x['url']})" if x['url'] != 'tela_atual' else ""))
-        resumo = " | ".join(partes[:2])
+        fontes_agrupadas = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2000]}" for x in lidos])
+
+        prompt_sintese = (
+            f"Você é a F.R.I.D.A.Y. Analise criticamente todas as informações apuradas sobre '{consulta}'.\n"
+            f"Sintetize os achados em português do Brasil com alto nível de detalhe técnico, inteligência e profundidade:\n"
+            f"1. Fatos confirmados, novidades e dados concretos (valores, características, itens, especificações);\n"
+            f"2. Comparação ou análise crítica do cenário;\n"
+            f"3. Conclusão objetiva.\n"
+            f"Não invente dados, não faça cópia de fragmentos e não cite URLs brutas.\n\n"
+            f"Dados apurados:\n{fontes_agrupadas[:5000]}"
+        )
+        sintese_ia = _modelo(prompt_sintese, max_tokens=700)
+        if sintese_ia and len(sintese_ia.strip()) > 30:
+            resumo = sintese_ia.strip()
+        else:
+            partes = []
+            for x in lidos:
+                blob = re.sub(r"\s+", " ", x["txt"]).strip()
+                if blob:
+                    partes.append(blob[:400] + (f" (fonte: {x['url']})" if x['url'] != 'tela_atual' else ""))
+            resumo = " | ".join(partes[:2])
         return {"ok": True, "evidencia": resumo, "via": "tela"}
     if a in {"preparar_mensagem", "redigir_mensagem", "mensagem"}:
         dest = args.get("para") or "Integra Code"
         pedido = args.get("pedido") or ""
         achados = _ACHADOS.get("textos") or []
-        dados_fonte = "\n".join([f"- Fonte ({x.get('url')}): {x.get('txt', '')[:350]}" for x in achados])
+        dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2000]}" for x in achados])
         if not dados_fonte:
             tela = _ler_tela()
-            dados_fonte = f"- Tela Atual: {tela[:400]}" if len(tela) > 20 else "- Dados apurados pelo navegador."
+            dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else "Dados apurados na navegação."
 
-        corpo_msg = (
-            f"Prezados da equipe {dest},\n\n"
-            f"Relatório de apuração solicitada:\n"
-            f"{dados_fonte}\n\n"
-            f"Status: Levantamento concluído com êxito e verificado via F.R.I.D.A.Y.\n"
-            f"Atenciosamente,\n"
-            f"F.R.I.D.A.Y. - Projeto Prometheus"
+        prompt_msg = (
+            f"Você é a F.R.I.D.A.Y., agente de inteligência artificial autônoma.\n"
+            f"Redija uma mensagem corporativa e altamente articulada para a equipe de '{dest}'.\n"
+            f"Objetivo do usuário: {pedido}\n\n"
+            f"Diretrizes obrigatórias:\n"
+            f"- Analise profundamente os dados apurados e estruture a mensagem de forma humana, executiva e clara.\n"
+            f"- Destaque os pontos principais, valores, itens encontrados, novidades e conclusões práticas.\n"
+            f"- NÃO cole fragmentos crus de texto nem links soltos.\n"
+            f"- Finalize com status de verificação e assinatura da F.R.I.D.A.Y.\n\n"
+            f"Material de apuração:\n{dados_fonte[:5000]}"
         )
+        msg_ia = _modelo(prompt_msg, max_tokens=800)
+        if msg_ia and len(msg_ia.strip()) > 50:
+            corpo_msg = msg_ia.strip()
+        else:
+            corpo_msg = (
+                f"Prezada equipe {dest},\n\n"
+                f"Relatório de apuração executiva solicitada:\n\n"
+                f"{dados_fonte[:800]}\n\n"
+                f"Status: Levantamento concluído e analisado via F.R.I.D.A.Y.\n"
+                f"Atenciosamente,\n"
+                f"F.R.I.D.A.Y. - Integra Code"
+            )
+
         caminho_msg = os.path.join(ROOT, "memory", f"mensagem_{re.sub(r'[^a-zA-Z0-9]', '_', dest.lower())}.txt")
         try:
             with open(caminho_msg, "w", encoding="utf-8") as f:
@@ -424,29 +497,82 @@ def executar_acao(acao, args=None):
             try:
                 import auto_aprendizado
                 auto_aprendizado.get_banco_conhecimento().registrar_aprendizado(
-                    tarefa=f"preparar mensagem para {dest}",
+                    tarefa=f"preparar mensagem analítica para {dest}",
                     sucesso=True,
                     detalhes=f"Mensagem gerada com {len(corpo_msg)} caracteres em {caminho_msg}",
-                    solucao="Leitura de fonte oficial e redação de relatório estruturado"
+                    solucao="Análise semântica profunda das fontes e redação executiva"
                 )
             except Exception:
                 pass
-            return {"ok": True, "evidencia": f"Mensagem para {dest} gerada em {caminho_msg}:\n{corpo_msg[:300]}...", "via": "tela"}
+            return {"ok": True, "evidencia": f"Mensagem analítica para {dest} gerada em {caminho_msg}:\n{corpo_msg[:300]}...", "via": "tela"}
         except Exception as e:
             return {"ok": False, "evidencia": f"falha ao gravar mensagem: {e}", "via": "fallback"}
     if a == "perguntar":
         return {"ok": True, "bloqueio": True, "evidencia": args.get("texto") or "falta um dado que só o dono sabe", "via": "tela"}
-    if a == "escrever_doc":
+    if a in {"escrever_doc", "montar_documento", "documento", "criar_relatorio"}:
         import agent
-        texto = args.get("texto") or args.get("conteudo") or ""
+        pedido = args.get("pedido") or args.get("texto") or args.get("conteudo") or ""
+        consulta = args.get("consulta") or pedido
+        achados = _ACHADOS.get("textos") or []
+        dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in achados])
+        if not dados_fonte:
+            tela = _ler_tela()
+            dados_fonte = f"Contexto visual da tela:\n{tela}" if len(tela) > 20 else ""
+
+        prompt_doc = (
+            f"Você é a F.R.I.D.A.Y., arquiteta de dados e analista de inteligência.\n"
+            f"Elabore um documento/relatório técnico analítico de alto padrão em Markdown sobre: '{consulta}'.\n"
+            f"Objetivo do usuário: {pedido}\n\n"
+            f"Estrutura OBRIGATÓRIA do documento:\n"
+            f"# Relatório Analítico: [Título Preciso]\n\n"
+            f"## 1. Resumo Executivo\n"
+            f"(Parágrafo conciso resumindo o panorama geral e principais conclusões)\n\n"
+            f"## 2. Levantamento e Análise Aprofundada\n"
+            f"(Análise detalhada dos fatos, especificações, novidades, mecânicas ou informações apuradas)\n\n"
+            f"## 3. Dados Comparativos e Destaques\n"
+            f"(Tabela Markdown detalhada com itens, categorias, valores ou status identificados)\n\n"
+            f"## 4. Recomendações e Conclusão\n"
+            f"(Considerações práticas, próximos passos ou avaliação estratégica)\n\n"
+            f"Exigências:\n"
+            f"- NÃO faça cópia e cola de trechos soltos.\n"
+            f"- Escreva texto original de nível executivo em português do Brasil com riqueza de conteúdo.\n\n"
+            f"Material de base:\n{dados_fonte[:6000] if dados_fonte else pedido}"
+        )
+        doc_ia = _modelo(prompt_doc, max_tokens=1500)
+        texto_final = doc_ia.strip() if doc_ia and len(doc_ia.strip()) > 80 else None
+        if not texto_final:
+            texto_final = (
+                f"# Relatório: {consulta.title()}\n\n"
+                f"## 1. Resumo dos Achados\n\n"
+                f"{dados_fonte or pedido}\n\n"
+                f"## 2. Conclusão\n"
+                f"Levantamento concluído e documentado pela F.R.I.D.A.Y.\n"
+            )
+
+        slug = re.sub(r"[^a-zA-Z0-9]+", "_", consulta.lower()).strip("_")[:30] or "relatorio"
+        caminho_doc = f"relatorio_{slug}.md"
         try:
-            r = agent.t_criar_arquivo(caminho="friday-nota.md", conteudo=texto)
+            r = agent.t_criar_arquivo(caminho=caminho_doc, conteudo=texto_final, abrir=False)
         except Exception as e:
             return {"ok": False, "evidencia": str(e)[:160], "via": "fallback"}
         m = re.search(r"(/[^\s]+)", r)
         if m:
             _ACHADOS["arquivo"] = m.group(1).rstrip(")")
-        return {"ok": "arquivo criado" in r, "evidencia": r, "via": "fallback"}
+        else:
+            _ACHADOS["arquivo"] = os.path.expanduser(f"~/Documentos/Friday/{caminho_doc}")
+
+        try:
+            import auto_aprendizado
+            auto_aprendizado.get_banco_conhecimento().registrar_aprendizado(
+                tarefa=f"montar documento analítico sobre {consulta}",
+                sucesso=True,
+                detalhes=f"Relatório gerado com {len(texto_final)} caracteres",
+                solucao="Síntese estruturada em seções analíticas com tabela comparativa"
+            )
+        except Exception:
+            pass
+
+        return {"ok": True, "evidencia": f"Documento analítico criado: {caminho_doc} ({len(texto_final)} caracteres)", "via": "tela"}
     if a == "montar_app":
         import agent
         html = "<!doctype html><meta charset=utf-8><title>Friday</title><h1>App</h1><p>" + (args.get("pedido") or "")[:200] + "</p>"

@@ -265,15 +265,25 @@ def chat_com_ferramentas(msgs, tools, temperature=0.2, max_tokens=600, timeout=1
 
 def _chat_ollama(msgs, tools, cfg, temperature, max_tokens, timeout):
     url = cfg.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") + "/api/chat"
-    modelo = cfg.get("ollama_modelo_cerebro", "qwen3-vl:4b-instruct")
+    limpas = []
+    for m in msgs:
+        mm = {k: v for k, v in m.items() if k != "images"}
+        limpas.append(mm)
+    modelo = cfg.get("ollama_modelo_cerebro", "qwen3.5:4b")
     body = {
         "model": modelo,
         "stream": False,
-        "messages": msgs,
+        "messages": limpas,
         "tools": tools,
-        "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192, "num_gpu": 99}
+        "think": False,
+        "options": {"temperature": temperature, "num_predict": max(max_tokens, 1500), "num_ctx": 8192, "num_gpu": 99}
     }
-    return _http_post_json(url, {}, body, timeout=timeout)
+    resp = _http_post_json(url, {}, body, timeout=timeout)
+    msg = resp.get("message") or {}
+    if not msg.get("content") and msg.get("thinking"):
+        msg["content"] = msg["thinking"]
+    return resp
+
 
 
 def _chat_openai(msgs, tools, cfg, temperature, max_tokens, timeout):
