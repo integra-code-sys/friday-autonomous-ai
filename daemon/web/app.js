@@ -2,6 +2,7 @@
 // ================= F.R.I.D.A.Y. — centro de comando remoto (celular) =================
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => Array.from(document.querySelectorAll(q));
+const ls = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 const defaultHost = (typeof window !== "undefined" && window.location && window.location.host && !window.location.protocol.startsWith("file"))
   ? window.location.host
   : "100.110.230.55:8790";

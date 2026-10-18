@@ -117,6 +117,7 @@ final class Ferramentas {
                     String cto = a.optString("contato", a.optString("para", ""));
                     String num = a.optString("numero", "");
                     if (ehNumeroFalso(num.replaceAll("[^0-9]", ""))) num = "";
+                    if (ehNumeroFalso(cto.replaceAll("[^0-9]", "")) && cto.matches("^[0-9+() -]+$")) cto = "";
                     String alvo = !cto.trim().isEmpty() ? cto : (!num.trim().isEmpty() ? num : "");
                     String txt = a.optString("texto", a.optString("mensagem", ""));
                     return Zap.preparar(c, this, alvo, txt);                 // abre a conversa e escreve; envia só com o "sim" do dono

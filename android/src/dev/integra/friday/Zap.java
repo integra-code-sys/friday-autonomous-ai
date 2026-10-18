@@ -96,13 +96,12 @@ final class Zap {
 
     private static String preparar(Context c, Ferramentas ferr, String contato, String msg, String pkg) {
         if (contato == null || contato.trim().isEmpty()) return "Para quem eu mando a mensagem?";
-        contato = contato.trim();
+        contato = contato.trim().replaceAll("(?iu)\\bintegrea\\b", "integra");
         String digContato = contato.replaceAll("[^0-9]", "");
         if (Ferramentas.ehNumeroFalso(digContato) && contato.matches("^[0-9+() -]+$")) {
             return "Para quem você quer enviar a mensagem? Me diga o nome do contato.";
         }
         if (msg == null || msg.trim().isEmpty()) return "O que eu escrevo para " + contato + "?";
-        if (Acesso.inst == null) return "falhou: preciso do Serviço de Acessibilidade da Friday ligado para mexer no WhatsApp";
         if (pkg == null) return "falhou: o WhatsApp não está instalado";
         msg = msg.trim();
         pendente = null;
@@ -112,42 +111,71 @@ final class Zap {
             if (num.length() >= 8) {                                  // número conhecido: abre a conversa já com o texto
                 c.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=" + num + "&text=" + URLEncoder.encode(msg, "UTF-8")))
                     .setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
-            } else {
-                Intent i = c.getPackageManager().getLaunchIntentForPackage(pkg);
-                if (i == null) return "falhou: não consegui abrir o WhatsApp";
-                c.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
-                // tela inicial (pode estar dentro de uma conversa: volta até a lista)
-                for (int k = 0; k < 4 && esperar(pkg, "menuitem_search", 1500) == null; k++) Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
-                AccessibilityNodeInfo busca = porId(pkg, "menuitem_search");
-                if (busca == null) return "falhou: não achei a busca do WhatsApp na tela";
-                clicar(busca);
-                AccessibilityNodeInfo campo = esperar(pkg, "search_input", 2500);
-                if (campo == null) campo = esperar(pkg, "search_src_text", 800);
-                if (campo == null) return "falhou: o campo de busca do WhatsApp não abriu";
-                escrever(campo, contato);
-                dormir(1300);
-                AccessibilityNodeInfo r = raiz(pkg);
-                List<AccessibilityNodeInfo> nomes = new ArrayList<>();
-                coletarTextos(r, pkg + ":id/conversations_row_contact_name", nomes);
-                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/contact_name", nomes);
-                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/conversations_row_title", nomes);
-                if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/title", nomes);
-                String alvo = Agenda.norm(contato);
-                Map<String, AccessibilityNodeInfo> achados = new LinkedHashMap<>();
-                AccessibilityNodeInfo exato = null;
-                for (AccessibilityNodeInfo n : nomes) {
-                    String t = texto(n), tn = Agenda.norm(t);
-                    if (tn.equals(alvo)) exato = n;
-                    if (tn.contains(alvo) || alvo.contains(tn)) achados.putIfAbsent(t, n);
-                }
-                if (exato == null && achados.size() > 1) {
-                    Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
-                    return "Tenho mais de uma conversa parecida: " + String.join(" ou ", new ArrayList<>(achados.keySet()).subList(0, Math.min(3, achados.size()))) + ". Para qual?";
-                }
-                AccessibilityNodeInfo escolha = exato != null ? exato : achados.isEmpty() ? null : achados.values().iterator().next();
-                if (escolha == null) return "falhou: não achei a conversa \"" + contato + "\" no WhatsApp";
-                clicar(escolha);
+                pendente = new String[]{pkg, contato, msg};
+                pendenteT = System.currentTimeMillis();
+                return "Abri o WhatsApp para " + contato + " com a mensagem pronta. Posso enviar?";
             }
+            if (Acesso.inst == null) {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                c.startActivity(share);
+                return "Abri o WhatsApp com a mensagem preparada. Escolha o contato para confirmar o envio.";
+            }
+            Intent i = c.getPackageManager().getLaunchIntentForPackage(pkg);
+            if (i == null) return "falhou: não consegui abrir o WhatsApp";
+            c.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP));
+            // tela inicial (pode estar dentro de uma conversa: volta até a lista)
+            for (int k = 0; k < 4 && esperar(pkg, "menuitem_search", 1500) == null; k++) Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+            AccessibilityNodeInfo busca = porId(pkg, "menuitem_search");
+            if (busca == null) {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                c.startActivity(share);
+                return "Abri o WhatsApp com a mensagem preparada. Escolha o contato na tela.";
+            }
+            clicar(busca);
+            AccessibilityNodeInfo campo = esperar(pkg, "search_input", 2500);
+            if (campo == null) campo = esperar(pkg, "search_src_text", 800);
+            if (campo == null) {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                c.startActivity(share);
+                return "Abri o WhatsApp com a mensagem preparada.";
+            }
+            escrever(campo, contato);
+            dormir(1300);
+            AccessibilityNodeInfo r = raiz(pkg);
+            List<AccessibilityNodeInfo> nomes = new ArrayList<>();
+            coletarTextos(r, pkg + ":id/conversations_row_contact_name", nomes);
+            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/contact_name", nomes);
+            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/conversations_row_title", nomes);
+            if (nomes.isEmpty()) coletarTextos(r, pkg + ":id/title", nomes);
+            String alvo = Agenda.norm(contato);
+            boolean ehDono = alvo.contains("integra") || alvo.contains("dono") || alvo.equals("eu") || alvo.equals("mim") || alvo.equals("voce");
+            Map<String, AccessibilityNodeInfo> achados = new LinkedHashMap<>();
+            AccessibilityNodeInfo exato = null;
+            for (AccessibilityNodeInfo n : nomes) {
+                String t = texto(n), tn = Agenda.norm(t);
+                if (tn.equals(alvo)) exato = n;
+                else if (ehDono && (tn.contains("voce") || tn.contains("integra") || tn.contains("mensagens salvas"))) exato = n;
+                else if (tn.contains(alvo) || alvo.contains(tn)) achados.putIfAbsent(t, n);
+            }
+            if (exato == null && achados.size() > 1) {
+                Acesso.inst.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+                return "Tenho mais de uma conversa parecida: " + String.join(" ou ", new ArrayList<>(achados.keySet()).subList(0, Math.min(3, achados.size()))) + ". Para qual?";
+            }
+            AccessibilityNodeInfo escolha = exato != null ? exato : achados.isEmpty() ? null : achados.values().iterator().next();
+            if (escolha == null) {
+                Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, msg).setPackage(pkg)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                c.startActivity(share);
+                return "Abri o WhatsApp com a mensagem preparada. Escolha o contato para confirmar o envio.";
+            }
+            clicar(escolha);
             AccessibilityNodeInfo entrada = esperar(pkg, "entry", 6000);
             if (entrada == null) return "falhou: a conversa não abriu no WhatsApp";
             if (num.length() < 8 || texto(entrada).trim().isEmpty()) escrever(entrada, msg);

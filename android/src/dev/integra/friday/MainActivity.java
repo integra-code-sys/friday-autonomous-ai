@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
+        WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
         web.setBackgroundColor(Color.BLACK);
         WebSettings s = web.getSettings();
@@ -77,6 +78,12 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage cm) {
+                android.util.Log.i("friday-web", cm.message() + " -- Line " + cm.lineNumber() + " of " + cm.sourceId());
+                return true;
+            }
+
             @Override
             public void onPermissionRequest(PermissionRequest req) {
                 runOnUiThread(() -> {
@@ -182,9 +189,9 @@ public class MainActivity extends Activity {
             trabalho.submit(() -> js("estado", Cerebro.get(MainActivity.this).preparar() ? "pronta: " + m : "falhou ao carregar " + m));
             return m;
         }
-        @JavascriptInterface public boolean tsAtivo() { return Link.vpnAtiva(MainActivity.this); }
-        @JavascriptInterface public boolean tsManter() { return Link.tsManter(MainActivity.this); }
-        @JavascriptInterface public void tsLigar(boolean on) { Link.tailscale(MainActivity.this, on); }
+        @JavascriptInterface public boolean tsAtivo() { try { return Link.vpnAtiva(MainActivity.this); } catch (Throwable t) { return false; } }
+        @JavascriptInterface public boolean tsManter() { try { return Link.tsManter(MainActivity.this); } catch (Throwable t) { return true; } }
+        @JavascriptInterface public void tsLigar(boolean on) { try { Link.tailscale(MainActivity.this, on); } catch (Throwable t) {} }
         @JavascriptInterface public boolean modoDev() { return Cerebro.get(MainActivity.this).modoDev(); }
         @JavascriptInterface public void setModoDev(boolean on) {
             getSharedPreferences("friday_local", MODE_PRIVATE).edit().putBoolean("modo_dev", on).apply();

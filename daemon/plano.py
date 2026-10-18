@@ -36,6 +36,11 @@ REGRAS:
 - Se o pedido for no CELULAR do dono, use etapas "pc" e escreva "no celular" em cada objetivo.
 - Arquivos, pastas, disco, processos ou programas do PC: etapa "pc" com objetivo "usar o terminal para ..." (ex.: "usar o terminal para listar ~/Downloads").
   NUNCA abra o navegador para ver arquivos locais.
+EXEMPLO 1:
+{{"titulo":"Pesquisar Fortnite e enviar WhatsApp","etapas":[{{"tipo":"pesquisar","objetivo":"site oficial da loja do fortnite itens e precos de hoje"}},{{"tipo":"zap","contato":"integra code","objetivo":"Enviar mensagem no WhatsApp para integra code com os itens e preços da loja"}}]}}
+EXEMPLO 2:
+{{"titulo":"Pesquisar IA e criar relatório","etapas":[{{"tipo":"pesquisar","objetivo":"pesquisar sobre novidades de inteligência artificial"}},{{"tipo":"documento","formato":"docx","objetivo":"criar documento docx sobre IA com as informações apuradas"}}]}}
+
 Responda SÓ JSON: {{"titulo":"nome curto da tarefa","etapas":[{{"tipo":"pesquisar|zap|email|documento|programar|pc|ver|ia|resumir","objetivo":"...","formato":"docx|xlsx|pptx|"}}]}}
 Contexto: {ctx}"""
 
@@ -103,6 +108,67 @@ def _limpa_contato(c):
 
 
 def planejar(pedido, fr, ctx=""):
+    ped_limpo = (pedido or "").strip()
+    ped_lower = ped_limpo.lower()
+
+    # Atalho Determinístico Composto: Pesquisar (+ entrar no site) + Zap/Mensagem
+    m_zap = re.search(
+        r"(?is)^\s*(?:sexta[- ]?feira[,:\s]*)?(?:por\s+favor[,:\s]*)?(?:pesquis\w*|busc\w*|procur\w*)\s+"
+        r"(?:(?:e\s+)?(?:entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+)?(?:site|p[áa]gina|loja|portal)?\s*)?"
+        r"(?:sobre\s+|por\s+|o\s+que\s+[ée]\s+)?(.+?)\s+e\s+(?:depois\s+)?"
+        r"(?:prepar\w*|escrev\w*|redij\w*|envi\w*|mand\w*)\s+"
+        r"(?:uma\s+)?(?:mensagem\s+|msg\s+|isso\s+|o\s+resumo\s+|o\s+resultado\s+)?"
+        r"(?:no\s+whats(?:app)?\s+|no\s+zap\s+|pelo\s+whats(?:app)?\s+|pelo\s+zap\s+)?"
+        r"(?:para\s+|pro\s+|pra\s+|ao\s+|à\s+)([\w_+\- ]+?)"
+        r"(?:\s+no\s+(?:whats(?:app)?|zap)|\s+dizendo\s+(.+))?\s*[.!?]*$", ped_limpo)
+    if m_zap:
+        tema = m_zap.group(1).strip()
+        contato = _limpa_contato(m_zap.group(2).strip()) or "integra code"
+        extra = (m_zap.group(3) or "").strip()
+        tema_norm = re.sub(r"\bfortinate\b", "fortnite", tema, flags=re.I)
+        deve_abrir = bool(re.search(r"\b(entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+)?(?:site|p[áa]gina|loja|portal)\b", ped_lower))
+        if "fortnite" in tema_norm.lower():
+            obj_pesq = "site oficial da loja do fortnite e itens à venda hoje"
+        else:
+            obj_pesq = f"acessar o site oficial e pesquisar sobre {tema_norm}" if deve_abrir else f"pesquisar {tema_norm}"
+        et = [
+            {"tipo": "pesquisar", "objetivo": obj_pesq},
+            {"tipo": "zap", "contato": contato, "objetivo": f"Enviar mensagem no WhatsApp para {contato} com as informações apuradas" + (f": {extra}" if extra else "")}
+        ]
+        return {
+            "id": time.strftime("%Y%m%d-%H%M%S"),
+            "pedido": pedido,
+            "titulo": f"Pesquisar {tema_norm} e preparar mensagem para {contato}"[:60],
+            "etapas": [{**e, "estado": "pendente", "resultado": ""} for e in et],
+            "estado": "executando",
+            "inicio": time.time()
+        }
+
+    # Atalho Determinístico Composto: Pesquisar + Criar Documento/Relatório
+    m_doc = re.search(
+        r"(?is)^\s*(?:sexta[- ]?feira[,:\s]*)?(?:por\s+favor[,:\s]*)?(?:pesquis\w*|busc\w*|procur\w*)\s+"
+        r"(?:sobre\s+|por\s+)?(.+?)\s+e\s+(?:depois\s+)?"
+        r"(?:cri\w*|ger\w*|salv\w*|escrev\w*|mont\w*|fa[çc]\w*|faz\w*)\s+"
+        r"(?:um\s+|uma\s+|num\s+|numa\s+)?(?:arquivo|documento|docs?|relat[óo]rio|resumo|nota|artigo|pdf|docx|txt|md)"
+        r"(?:\s+(?:em\s+)?(pdf|docx|xlsx|pptx|txt|md))?"
+        r"(?:\s+(?:chamado|com\s+nome)\s+([\w\-. ]+))?.*$", ped_limpo)
+    if m_doc:
+        tema = m_doc.group(1).strip()
+        fmt = (m_doc.group(2) or ("pdf" if "pdf" in ped_lower else "docx")).lower().strip(".")
+        tit = (m_doc.group(3) or f"Relatório {tema}").strip()
+        et = [
+            {"tipo": "pesquisar", "objetivo": f"pesquisar sobre {tema}"},
+            {"tipo": "documento", "formato": fmt, "objetivo": f"criar {fmt} sobre {tema} chamado {tit} com as informações apuradas"}
+        ]
+        return {
+            "id": time.strftime("%Y%m%d-%H%M%S"),
+            "pedido": pedido,
+            "titulo": f"Pesquisar {tema} e criar documento"[:60],
+            "etapas": [{**e, "estado": "pendente", "resultado": ""} for e in et],
+            "estado": "executando",
+            "inicio": time.time()
+        }
+
     d = fr.llm(SYS_PLANO.format(max=MAX_ETAPAS, ctx=ctx or "—"), pedido, None, True, 500, 0.2, 90)
     et = [e for e in (d or {}).get("etapas", []) if isinstance(e, dict) and e.get("tipo") in ("ver", "ia", "pesquisar", "zap", "email", "documento", "programar", "pc", "resumir")
           and str(e.get("objetivo", "")).strip()][:MAX_ETAPAS]
@@ -384,11 +450,11 @@ def _etapa(e, p, fr, ag, ops, ctx, programar, progress, visivel=True, ver=None):
             if is_dinamico:
                 # Remove sites de enciclopédia/história geral que não refletem a loja diária
                 urls = [u for u in urls if not re.search(r"wikipedia\.org|fandom\.com|wikia\.com", u, re.I)]
-                if re.search(r"fortnite", obj, re.I):
+                if re.search(r"fort[i]?n[ai]?te", obj, re.I):
                     if re.search(r"oficial", obj, re.I):
-                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.com|epicgames\.com", u, re.I) else 1)
+                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.com|epicgames\.com", u, re.I) else (1 if re.search(r"fortnite\.gg", u, re.I) else 2))
                     else:
-                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.gg|fortnite\.com|epicgames\.com", u, re.I) else 1)
+                        urls.sort(key=lambda u: 0 if re.search(r"fortnite\.gg", u, re.I) else (1 if re.search(r"fortnite\.com|epicgames\.com", u, re.I) else 2))
             if urls and visivel:
                 _ver_no_navegador(q, urls[:3], ag, fr, ops=ops, progress=progress)       # o dono VÊ: busca no Chromium, cursor clica em cada fonte
             textos = []

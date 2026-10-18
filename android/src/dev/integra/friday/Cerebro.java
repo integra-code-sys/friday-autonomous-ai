@@ -1,6 +1,7 @@
 package dev.integra.friday;
 
 import android.content.Context;
+import android.net.Uri;
 
 import org.json.JSONObject;
 
@@ -223,7 +224,7 @@ final class Cerebro {
         "(?iu)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:apenas\\s+|s[óo]\\s+)?(?:abr[ae]\\s+(?:o\\s+navegador|o\\s+chrome|uma\\s+nova\\s+aba)\\s+e\\s+)?(?:pesquis\\w+|busc\\w+|procur\\w+)\\b.*");
 
     private static final java.util.regex.Pattern COMP_PESQ_ZAP = java.util.regex.Pattern.compile(
-        "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:sobre\\s+|por\\s+|o\\s+que\\s+[ée]\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:envi\\w*|mand\\w*)\\s+(?:uma\\s+mensagem\\s+|isso\\s+|o\\s+resumo\\s+|o\\s+resultado\\s+)?(?:no\\s+whats(?:app)?\\s+|no\\s+zap\\s+|pelo\\s+whats(?:app)?\\s+|pelo\\s+zap\\s+)?(?:para\\s+|pro\\s+|pra\\s+|ao\\s+|à\\s+)([\\p{L}0-9_+\\- ]+?)(?:\\s+no\\s+(?:whats(?:app)?|zap)|\\s+dizendo\\s+(.+))?\\s*[.!?]*$");
+        "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:(?:e\\s+)?(?:entr\\w*|acess\\w*|abr\\w*)\\s+(?:no\\s+|na\\s+|ao\\s+)?(?:site|p[áa]gina|loja|portal)?\\s*)?(?:sobre\\s+|por\\s+|o\\s+que\\s+[ée]\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:prepar\\w*|escrev\\w*|redij\\w*|envi\\w*|mand\\w*)\\s+(?:uma\\s+)?(?:mensagem\\s+|msg\\s+|isso\\s+|o\\s+resumo\\s+|o\\s+resultado\\s+)?(?:no\\s+whats(?:app)?\\s+|no\\s+zap\\s+|pelo\\s+whats(?:app)?\\s+|pelo\\s+zap\\s+)?(?:para\\s+|pro\\s+|pra\\s+|ao\\s+|à\\s+)([\\p{L}0-9_+\\- ]+?)(?:\\s+no\\s+(?:whats(?:app)?|zap)|\\s+dizendo\\s+(.+))?\\s*[.!?]*$");
 
     private static final java.util.regex.Pattern COMP_PESQ_DOC = java.util.regex.Pattern.compile(
         "(?is)^\\s*(?:sexta[- ]?feira[,:\\s]*)?(?:por\\s+favor[,:\\s]*)?(?:pesquis\\w*|busc\\w*|procur\\w*)\\s+(?:sobre\\s+|por\\s+)?(.+?)\\s+e\\s+(?:depois\\s+)?(?:cri\\w*|ger\\w*|salv\\w*|escrev\\w*|mont\\w*|fa[çc]\\w*|faz\\w*)\\s+(?:um\\s+|uma\\s+|num\\s+|numa\\s+)?(?:arquivo|documento|docs?|relat[óo]rio|resumo|nota|artigo|pdf|docx|txt|md)(?:\\s+(?:em\\s+)?(pdf|docx|txt|md|html))?(?:\\s+(?:chamado|com\\s+nome)\\s+([\\w\\-. ]+))?.*$");
@@ -242,7 +243,7 @@ final class Cerebro {
         String pl = pedido.toLowerCase(Locale.ROOT);
         return COMP_PESQ_ZAP.matcher(pedido).matches() || COMP_PESQ_DOC.matcher(pedido).matches() || DIRETO_DOC.matcher(pedido).matches() || COMP_PESQ_AG.matcher(pedido).matches()
             || pl.matches("(?s).*\\b(e depois|em seguida|e ent[ãa]o)\\b.*")
-            || pl.matches("(?s).*\\be\\s+(envi|mand|cri|salv|ger|agend|marqu|abr|escrev)\\w*\\b.*");
+            || pl.matches("(?s).*\\be\\s+(envi|mand|cri|salv|ger|agend|marqu|abr|escrev|prepar|redij)\\w*\\b.*");
     }
 
     private String atalhoAgenda(String pedido) {
@@ -266,19 +267,27 @@ final class Cerebro {
         try {
             java.util.regex.Matcher mz = COMP_PESQ_ZAP.matcher(pedido.trim());
             if (mz.matches()) {
-                String tema = Ferramentas.limparTermoBusca(mz.group(1));
-                String contato = mz.group(2).trim();
+                String tema = Ferramentas.limparTermoBusca(mz.group(1)).replaceAll("(?iu)\\bfortinate\\b", "fortnite");
+                String contato = mz.group(2).trim().replaceAll("(?i)\\bintegrea\\b", "integra");
                 String extra = mz.group(3) == null ? "" : mz.group(3).trim();
+                boolean deveAbrirSite = pedido.toLowerCase(Locale.ROOT).matches("(?s).*\\b(entr\\w*|acess\\w*|abr\\w*)\\s+(?:no|na|ao|o|a)?\\s*(?:site|loja|p[áa]gina|portal)\\b.*");
+                if (deveAbrirSite) {
+                    String urlAlvo = tema.toLowerCase(Locale.ROOT).matches("(?s).*fort[i]?n[ai]?te.*") ? "https://www.fortnite.com/item-shop?lang=pt-BR" : ("https://duckduckgo.com/?q=" + Uri.encode(tema));
+                    JSONObject siteArgs = new JSONObject().put("url", urlAlvo);
+                    avisar("passo", "abrir_site " + siteArgs.toString());
+                    ferr.executar("abrir_site", siteArgs);
+                }
                 avisar("passo", "pesquisar_links {\"consulta\":\"" + tema + "\"}");
                 String resumo = ferr.extrairResumoWeb(tema);
                 avisar("resultado", resumo);
                 String msg = (extra.isEmpty() ? "Resumo sobre " + tema + ":\n" : extra + "\n\n") + resumo;
-                JSONObject zapArgs = new JSONObject().put("contato", contato).put("numero", contato).put("texto", msg);
+                JSONObject zapArgs = new JSONObject().put("contato", contato).put("texto", msg);
                 avisar("passo", "whatsapp " + zapArgs.toString());
                 String rz = ferr.executar("whatsapp", zapArgs);
                 avisar("resultado", rz);
-                String fala = "Pesquisei sobre " + tema + ". " + rz;
+                String fala = (deveAbrirSite ? "Acessei o site e pesquisei sobre " : "Pesquisei sobre ") + tema + ". " + rz;
                 List<String[]> ps = new ArrayList<>();
+                if (deveAbrirSite) ps.add(new String[]{"abrir_site", "{\"url\":\"site\"}"});
                 ps.add(new String[]{"pesquisar_links", "{\"consulta\":\"" + tema + "\"}"});
                 ps.add(new String[]{"whatsapp", "{\"contato\":\"" + contato + "\"}"});
                 Aprende.registrar(c, pedido.trim(), ps, true, fala);

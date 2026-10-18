@@ -55,11 +55,15 @@ final class Link {
 
     // ------------------------------------------------------------------ Tailscale (o app tem CONNECT_VPN/DISCONNECT_VPN públicos)
     static boolean vpnAtiva(Context c) {
-        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
-        for (android.net.Network n : cm.getAllNetworks()) {
-            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
-            if (nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) return true;
-        }
+        try {
+            if (c == null) return false;
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            for (android.net.Network n : cm.getAllNetworks()) {
+                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) return true;
+            }
+        } catch (Throwable ignored) {}
         return false;
     }
 

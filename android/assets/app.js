@@ -2,6 +2,7 @@
 // ================= F.R.I.D.A.Y. — centro de comando remoto (celular) =================
 const $ = (q) => document.querySelector(q);
 const $$ = (q) => Array.from(document.querySelectorAll(q));
+const ls = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 const defaultHost = (typeof window !== "undefined" && window.location && window.location.host && !window.location.protocol.startsWith("file"))
   ? window.location.host
   : "100.110.230.55:8790";
@@ -288,9 +289,13 @@ window.modoAssistente = () => {
 
 function tsRender() {
   const e = $("#tsSel"); if (!e || !window.Nativo || !Nativo.tsAtivo) { if (e) e.hidden = true; return; }
-  const quer = Nativo.tsManter(), ativo = Nativo.tsAtivo();
-  $("#tsNome").textContent = !quer ? "DESLIGADO" : ativo ? "LIGADO" : "RELIGANDO";
-  e.className = quer && ativo ? "on" : "off";
+  try {
+    const quer = Nativo.tsManter(), ativo = Nativo.tsAtivo();
+    $("#tsNome").textContent = !quer ? "DESLIGADO" : ativo ? "LIGADO" : "RELIGANDO";
+    e.className = quer && ativo ? "on" : "off";
+  } catch (err) {
+    if (e) e.className = "off";
+  }
 }
 $("#tsSel").onclick = () => { const on = !Nativo.tsManter(); Nativo.tsLigar(on); vibrar(); toast(on ? "Tailscale ligado (vigia ativo)" : "Tailscale desligado"); setTimeout(tsRender, 1500); tsRender(); };
 setInterval(tsRender, 5000); setTimeout(tsRender, 800);
