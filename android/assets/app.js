@@ -561,6 +561,32 @@ const NIVEL_CORES = {
   critico: { b: "var(--err)", bg: "rgba(255,90,110,.2)", t: "CRÍTICO" }
 };
 
+// A tela usa {dias:[{data, dia_semana, nivel, livre_min, itens:[{id, titulo, hora, prioridade, feito}]}]}.
+// A ponte nativa manda os itens soltos (ini em ms) e o PC manda inicio em segundos: os dois passam por aqui (18/10/2026).
+const SEMANA = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+function agendaNormalizar(j, nDias) {
+  if (!j || typeof j !== "object") return null;
+  if (Array.isArray(j.dias) && j.dias.length && Array.isArray(j.dias[0].itens)) return j;   // já no formato da tela
+  const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const hoje = typeof j.hoje === "number" ? j.hoje : d0.getTime();
+  const itens = (j.itens || []).map((it) => {
+    const ini = typeof it.ini === "number" ? it.ini : (it.inicio || 0) * 1000;
+    const hd = new Date(ini);
+    return { id: it.id, titulo: it.titulo || it.texto || "", ini, feito: !!it.feito, notas: it.notas || "", categoria: it.tipo || it.categoria || "",
+      prioridade: it.prio || it.prioridade || 2, removido: !!it.removido,
+      hora: it.diaTodo || it.dia_todo ? "dia todo" : it.horaIni || (String(hd.getHours()).padStart(2, "0") + ":" + String(hd.getMinutes()).padStart(2, "0")) };
+  }).filter((x) => !x.removido).sort((a, b) => a.ini - b.ini);
+  const dias = [];
+  for (let k = 0; k < (nDias || 7); k++) {
+    const ini = hoje + k * 86400000, dt = new Date(ini), nat = (j.dias || [])[k] || {};
+    const data = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
+    const nivPc = j.niveis && (j.niveis[data] || {}).nivel;
+    dias.push({ data, dia_semana: SEMANA[dt.getDay()], nivel: String(nat.nivel || nivPc || "livre").normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
+      livre_min: nat.livreMin || 0, itens: itens.filter((x) => x.ini >= ini && x.ini < ini + 86400000) });
+  }
+  return { status: j.status || "", dias };
+}
+
 function carregarAgenda() {
   let raw = "";
   try {
@@ -570,7 +596,7 @@ function carregarAgenda() {
   if (!raw && st.online) {
     apiNova("/api/agenda?dias=7").then(async (r) => {
       if (r.ok) {
-        agCache = await r.json();
+        agCache = agendaNormalizar(await r.json(), 7);
         renderAgenda();
       }
     }).catch(() => {});
@@ -578,7 +604,7 @@ function carregarAgenda() {
   }
 
   if (raw) {
-    try { agCache = JSON.parse(raw); } catch { agCache = null; }
+    try { agCache = agendaNormalizar(JSON.parse(raw), 7); } catch { agCache = null; }
   }
   renderAgenda();
 }
@@ -670,14 +696,13 @@ function renderAgenda() {
         const op = b.dataset.agop;
         if (op === "feito") {
           const it = itens.find((x) => x.id === id);
-          const novoEst = it && it.feito ? "pendente" : "feito";
-          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, novoEst, -1);
+          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, "feito", String(!(it && it.feito)));
         } else if (op === "prio") {
           const it = itens.find((x) => x.id === id);
-          const novaPrio = ((it ? it.prioridade : 1) % 3) + 1;
-          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, "", novaPrio);
+          const novaPrio = ((it ? it.prioridade : 2) % 3) + 1;
+          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, "prioridade", String(novaPrio));
         } else if (op === "cancelar") {
-          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, "cancelado", -1);
+          if (window.Nativo && Nativo.agendaMudar) Nativo.agendaMudar(id, "removido", "true");
         }
         setTimeout(carregarAgenda, 200);
       };
@@ -702,12 +727,14 @@ $("#bAgSalvar").onclick = () => {
   const hora = $("#agHoraIn").value || "09:00";
   const dur = parseInt($("#agDurIn").value || "60");
   const cat = $("#agCatIn").value || "geral";
-  const prio = parseInt($("#agPrioIn").value || "1");
+  const prio = parseInt($("#agPrioIn").value || "2");
   const notas = $("#agNotasIn").value.trim();
   vibrar(25);
   if (window.Nativo && Nativo.agendaNovo) {
-    Nativo.agendaNovo(tit, data, hora, dur, cat, prio, notas);
-    toast("Compromisso salvo na Sexta-Feira");
+    if (!data) return toast("Escolha a data");
+    const quando = data.split("-").reverse().join("/") + " " + hora;
+    const r = Nativo.agendaNovo(notas ? tit + " — " + notas : tit, quando, prio, dur);
+    toast(r || "Compromisso salvo na Sexta-Feira");
   } else {
     toast("Salvo na agenda local");
   }
