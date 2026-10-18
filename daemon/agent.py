@@ -1225,6 +1225,19 @@ def t_orquestra_status(**_):
         linhas.append("motor: " + ("PAUSADO" if m.get("pausado") else ("rodando" if m.get("rodando") else "parado")))
     except Exception:
         pass
+    try:                                    # trava ocupada por outro processo = serviço friday-orquestra executando
+        import fcntl
+        with open(os.path.join(og.MEM, "orquestra.lock"), "a+") as f_:
+            try:
+                fcntl.flock(f_.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f_.fileno(), fcntl.LOCK_UN)
+                if not getattr(og, "_TRAVA", None):
+                    linhas.append("executor: nenhum (serviço friday-orquestra parado)")
+            except OSError:
+                if not getattr(og, "_TRAVA", None):
+                    linhas.append("executor: serviço friday-orquestra (sempre ligado)")
+    except Exception:
+        pass
     ses = st.get("sessao") or {}
     if ses:
         passos = (ses.get("plano") or {}).get("passos") or []

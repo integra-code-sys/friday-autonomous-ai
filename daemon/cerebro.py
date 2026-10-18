@@ -165,6 +165,7 @@ AUTONOMIA: você decide e age sozinha usando as ferramentas — não peça permi
 - Para objetivos abertos, complexos ou tarefas não pré-programadas no sistema, use 'tarefa_adaptativa' para decompor, executar e validar autonomamente.
 - Para orquestrar tarefas gerais contínuas, de longa duração (horas a dias) ou eternas com checkpoints persistidos em disco, use 'orquestrar_tarefa_continua'.
 - Para consultar o progresso de tarefas ativas em segundo plano, use 'consultar_objetivos_ativos'; para pausar ou cancelar, use 'parar_objetivo'.
+- Status da fila/sessão do orquestrador (tarefas agendadas, 'daqui 2h', 'amanhã 9h'): use 'orquestra_status'; agendar: 'orquestra_fila'; pausar/retomar tudo: 'orquestra_pausar'/'orquestra_retomar'.
 - Para operar outras IAs (Claude CLI, Gemini, ChatGPT, Ollama local, DeepSeek) como ferramentas auxiliares especializadas, use 'operar_outra_ia'.
 - Para criar ou alterar telas internas do sistema (QML para o Linux ou HTML5 HUD para Web/Android) de forma super-rápida, use 'criar_ou_modificar_tela'.
 - Para planejar estrategicamente antes de agir e antecipar dificuldades, use 'pensar_estrategia'.
@@ -346,6 +347,9 @@ _AFIRMA_ACAO = re.compile(r"\b(?:ativad[oa]s?|desativad[oa]s?|ativei|desativei|l
                           r"procurando|cliquei|digitei|pesquisei|busquei|falhou|"
                           r"vou\s+(?:abrir|pesquisar|buscar|procurar|clicar|verificar|fazer|executar|olhar|colocar|tocar|criar|fechar|ligar|desligar|mandar|enviar)|"
                           r"abrirei|pesquisarei|buscarei|procurarei|farei)\b", re.I)
+# "Consultei/verifiquei..." com passos=0 = consulta inventada ("dois objetivos rodando" sem ferramenta, 18/10/2026)
+_AFIRMA_CONSULTA = re.compile(r"\b(?:consultei|verifiquei|chequei|conferi|olhei|analisei|examinei|averiguei|acessei|monitorei)\b|"
+                              r"\bli\s+(?:a|o|as|os|sua|seu|suas|seus)\b", re.I)
 
 
 def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
@@ -424,7 +428,8 @@ def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
                 continue
             # afirmou que FEZ algo sem ter chamado nenhuma ferramenta de efeito = ação inventada ("Modo de repouso ativado"
             # com passos=0, 16/10/2026). Rejeita UMA vez: chame a ferramenta de verdade ou pergunte.
-            if not usou_efeito and not cobrou_acao and (_AFIRMA_ACAO.search(final) or "FALHOU" in final):
+            if not usou_efeito and not cobrou_acao and (_AFIRMA_ACAO.search(final) or "FALHOU" in final
+                                                         or (not passos and _AFIRMA_CONSULTA.search(final))):
                 cobrou_acao = True
                 _log("  ", "AÇÃO INVENTADA (sem ferramenta):", final[:160])
                 msgs.append({"role": "user", "content": "[sistema] Você NÃO chamou nenhuma ferramenta, então nada foi feito. "

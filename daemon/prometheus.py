@@ -3312,6 +3312,13 @@ async def handle_modes(txt):
         await dizer("Mandei para o Claude no terminal do modo dev.")
         asyncio.create_task(run_programming(txt))
         return True
+    # --- status do orquestrador/fila: direto na ferramenta (o cérebro local respondia "consultei" sem consultar, 18/10) ---
+    if re.search(r"\b(?:status|estado|situa[çc][ãa]o|como\s+(?:est[áa]|t[áa])|o\s+que\s+(?:tem|h[áa]|est[áa]|t[áa]))\b.{0,30}\b(?:orquestrador|fila\s+de\s+tarefas|fila\s+do\s+orquestrador)\b", t):
+        import agent as _ag
+        st_ = await asyncio.to_thread(_ag.t_orquestra_status)
+        await broadcast({"type": "text", "role": "assistant", "text": st_}); log_turn("prometheus", st_)
+        await speak(". ".join(l.lstrip("- ") for l in st_.splitlines()[:4])[:300])
+        return True
     # --- cadastro do rosto do dono PELA câmera do quarto (PTZ): 15 s olhando para ela ---
     if re.search(r"\b(aprend\w*|decor\w*|cadastr\w*|grav\w*)\b.{0,25}\b(meu|o meu)\s+rosto\b.{0,40}\b(c[âa]mera|ptz|quarto)\b", t):
         _ptz_rosto["pedido_ate"] = time.time() + 15
