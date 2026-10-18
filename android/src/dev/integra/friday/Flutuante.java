@@ -737,11 +737,31 @@ final class Flutuante {
             }
             if (!agoraPosto) lista.addView(linhaAgora(c, fh.format(new Date(agora))));
         }
+        // ---- próximos fora do dia escolhido: evento marcado p/ outro dia não some ("marcou mas não apareceu", 18/10/2026)
+        java.util.List<Agenda.Item> prox = new java.util.ArrayList<>();
+        for (Agenda.Item i : todos) if (i.ini >= diaSel + 86400000L && !i.feito) prox.add(i);
+        java.util.Collections.sort(prox, (a, b) -> Long.compare(a.ini, b.ini));
+        if (!prox.isEmpty()) {
+            TextView rp = tv(c, "PRÓXIMOS", CIANO, 9, Typeface.BOLD);
+            rp.setLetterSpacing(0.25f); rp.setPadding(0, dp(c, 12), 0, dp(c, 4));
+            lista.addView(rp);
+            SimpleDateFormat fd = new SimpleDateFormat("EEE dd/MM", br);
+            for (int k = 0; k < Math.min(5, prox.size()); k++) {
+                final Agenda.Item p = prox.get(k);
+                TextView tp = tv(c, fd.format(new Date(p.ini)).replace(".", "").toUpperCase(br) + (p.diaTodo ? "" : " · " + fh.format(new Date(p.ini)))
+                    + "   " + (p.prio == 1 ? "[ALTA] " : "") + p.titulo, Color.argb(220, 220, 235, 240), 13, Typeface.NORMAL);
+                tp.setSingleLine(true); tp.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                tp.setPadding(0, dp(c, 5), 0, dp(c, 5));
+                final int alvo = (int) Math.max(0, Math.min(6, (Agenda.inicioDoDia(p.ini) - hoje) / 86400000L));
+                tp.setOnClickListener(v -> { agDia = alvo; agendaRender(c, todos, status); });
+                lista.addView(tp);
+            }
+        }
         ScrollView rol = new ScrollView(c);
         rol.setVerticalFadingEdgeEnabled(true); rol.setFadingEdgeLength(dp(c, 20));
         rol.addView(lista);
         LinearLayout.LayoutParams lrol = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-            doDia.size() < 4 ? LinearLayout.LayoutParams.WRAP_CONTENT : (int) (H * 0.34f));
+            doDia.size() + Math.min(5, prox.size()) < 5 ? LinearLayout.LayoutParams.WRAP_CONTENT : (int) (H * 0.34f));
         lrol.topMargin = dp(c, 8);
         agCorpo.addView(rol, lrol);
     }

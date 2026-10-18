@@ -623,15 +623,25 @@ function renderAgenda() {
   $("#agProgBar").style.width = pct + "%";
   $("#agLivreTxt").textContent = dAtual.livre_min ? `${Math.round(dAtual.livre_min / 60)}h livres` : "";
 
+  // Próximos fora do dia escolhido: evento marcado p/ outro dia não some ("marcou mas não apareceu", 18/10/2026)
+  const prox = [];
+  dias.forEach((d, idx) => { if (idx > st.agendaDia) (d.itens || []).forEach((x) => { if (!x.feito) prox.push({ x, idx, d }); }); });
+  const proxHtml = prox.length ? `<div class="agProx"><div class="agProxTit">PRÓXIMOS</div>` + prox.slice(0, 5).map((p) =>
+    `<div class="agProxItem" data-agidx="${p.idx}"><b>${esc((p.d.dia_semana || "").slice(0, 3).toUpperCase())} ${esc(p.d.data ? p.d.data.slice(8, 10) + "/" + p.d.data.slice(5, 7) : "")}${p.x.hora ? " · " + esc(p.x.hora) : ""}</b> ${p.x.prioridade === 1 ? "[ALTA] " : ""}${esc(p.x.titulo || p.x.texto || "")}</div>`).join("") + `</div>` : "";
+  const ligarProx = () => $$("#agLista .agProxItem").forEach((el) => {
+    el.onclick = () => { vibrar(); st.agendaDia = parseInt(el.dataset.agidx || "0"); renderAgenda(); };
+  });
+
   // Linha do tempo dos itens
   if (!itens.length) {
-    $("#agLista").innerHTML = `<div class="vazio">DIA LIVRE · SEM COMPROMISSOS REGISTRADOS</div>`;
+    $("#agLista").innerHTML = `<div class="vazio">DIA LIVRE · SEM COMPROMISSOS REGISTRADOS</div>` + proxHtml;
+    ligarProx();
     return;
   }
 
-  const PRIO_ROT = { 1: "NORMAL", 2: "ALTA", 3: "CRÍTICA" };
+  const PRIO_ROT = { 1: "ALTA", 2: "NORMAL", 3: "BAIXA" };   // igual ao PC (prom_ops._prio) e ao Agenda.java: 1 = alta
   const itemsHtml = itens.map((it) => {
-    const clsPrio = it.prioridade === 3 ? "critica" : it.prioridade === 2 ? "alta" : "";
+    const clsPrio = it.prioridade === 1 ? "alta" : "";
     const clsFeito = it.feito ? "feito" : "";
     const cat = it.categoria || "geral";
     return `<div class="agItem ${clsPrio} ${clsFeito}" data-id="${esc(it.id)}">
@@ -650,7 +660,8 @@ function renderAgenda() {
     </div>`;
   }).join("");
 
-  $("#agLista").innerHTML = itemsHtml;
+  $("#agLista").innerHTML = itemsHtml + proxHtml;
+  ligarProx();
   $$("#agLista .agItem").forEach((card) => {
     const id = card.dataset.id;
     card.querySelectorAll("[data-agop]").forEach((b) => {
