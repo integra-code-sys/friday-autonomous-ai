@@ -71,7 +71,7 @@ def _ok(req):
 async def _auth(req, handler):
     if req.method == "OPTIONS":
         r = web.Response()
-    elif req.path in ("/", "/index.html", "/stark", "/stark_hud.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config") or req.path.startswith(("/api/config/", "/telas/", "/mark85/")):
+    elif req.path in ("/", "/index.html", "/stark", "/stark_hud.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config", "/friday.apk", "/apk", "/friday-commercial.apk") or req.path.startswith(("/api/config/", "/telas/", "/mark85/")):
         r = await handler(req)
     elif req.path == "/api/local_token" and req.remote in ("127.0.0.1", "::1"):
         r = await handler(req)
@@ -724,6 +724,22 @@ async def local_token(req):
     return web.json_response({"ok": True, "token": config()["token"]})
 
 
+async def web_apk(req):
+    """Serve o APK compilado da F.R.I.D.A.Y. para download direto no celular ou navegador."""
+    candidatos = [
+        os.path.join(ROOT, "friday-commercial-github", "android", "friday-commercial.apk"),
+        os.path.join(ROOT, "app-remoto", "dist", "friday-remoto.apk"),
+        os.path.join(ROOT, "app-remoto", "dist", "friday-commercial.apk"),
+    ]
+    for p in candidatos:
+        if os.path.isfile(p):
+            return web.FileResponse(p, headers={
+                "Content-Type": "application/vnd.android.package-archive",
+                "Content-Disposition": 'attachment; filename="friday-commercial.apk"'
+            })
+    return web.Response(text="APK não encontrado", status=404)
+
+
 def criar_app(ctx):
     _ctx.update(ctx)
     config()
@@ -733,6 +749,7 @@ def criar_app(ctx):
     app.add_routes([web.get("/", web_index), web.get("/index.html", web_index),
                     web.get("/stark", web_stark), web.get("/stark_hud.html", web_stark),
                     web.get("/mark85/{arquivo:.*}", web_mark85),
+                    web.get("/friday.apk", web_apk), web.get("/apk", web_apk), web.get("/friday-commercial.apk", web_apk),
                     web.get("/api/local_token", local_token),
                     web.get("/{arquivo:(?:app\\.js|novnc\\.js|voz_dono\\.json|favicon\\.ico)}", web_static),
                     web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
