@@ -71,7 +71,8 @@ def _ok(req):
 async def _auth(req, handler):
     if req.method == "OPTIONS":
         r = web.Response()
-    elif req.path in ("/", "/index.html", "/stark", "/stark_hud.html", "/app.js", "/novnc.js", "/voz_dono.json", "/api/ping", "/config", "/friday.apk", "/apk", "/friday-commercial.apk") or req.path.startswith(("/api/config/", "/telas/", "/mark85/")):
+    # públicos: só páginas/estáticos. /api/config/* (salvar, reset_memoria) e o perfil de voz exigem token (18/10/2026)
+    elif req.path in ("/", "/index.html", "/stark", "/stark_hud.html", "/app.js", "/novnc.js", "/api/ping", "/config", "/friday.apk", "/apk", "/friday-commercial.apk") or req.path.startswith(("/telas/", "/mark85/")):
         r = await handler(req)
     elif req.path == "/api/local_token" and req.remote in ("127.0.0.1", "::1"):
         r = await handler(req)
@@ -732,7 +733,7 @@ async def web_tela_dinamica(req):
 
 
 async def web_static(req):
-    """Serve arquivos estáticos da interface web (app.js, novnc.js, voz_dono.json)."""
+    """Serve arquivos estáticos da interface web (app.js, novnc.js). O perfil de voz nunca sai por aqui."""
     arquivo = os.path.basename(req.match_info.get("arquivo", ""))
     p = os.path.join(WEB_DIR, arquivo)
     if os.path.isfile(p):
@@ -775,7 +776,7 @@ def criar_app(ctx):
                     web.get("/friday.apk", web_apk), web.get("/apk", web_apk), web.get("/friday-commercial.apk", web_apk),
                     web.get("/api/local_token", local_token),
                     web.get("/telas/{arquivo}", web_tela_dinamica),
-                    web.get("/{arquivo:(?:app\\.js|novnc\\.js|voz_dono\\.json|favicon\\.ico)}", web_static),
+                    web.get("/{arquivo:(?:app\\.js|novnc\\.js|favicon\\.ico)}", web_static),
                     web.get("/api/ping", ping), web.get("/api/estado", estado), web.get("/ws", ws_handler),
                     web.get("/config", config_center.handle_config_page),
                     web.get("/api/config/status", config_center.handle_config_status),

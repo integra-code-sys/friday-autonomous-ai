@@ -288,6 +288,20 @@ public class Acesso extends AccessibilityService {
             case "/tocar_texto": return tocarTexto(q.get("txt") == null ? "" : q.get("txt"));
             case "/rolar": return rolar("cima".equals(q.get("dir")));
             case "/estado": return estado();
+            case "/modelo": {                                  // cérebro local: lista instalados ou troca (?nome=arquivo.gguf) e carrega
+                Cerebro cb = Cerebro.get(this);
+                String nome = q.get("nome");
+                JSONObject r = new JSONObject();
+                if (nome != null && !nome.isEmpty()) {
+                    if (!new java.io.File(cb.pasta(), nome).exists()) return r.put("ok", false).put("erro", "não instalado: " + nome);
+                    cb.trocarModelo(nome);
+                    new Thread(cb::preparar).start();          // carregar 1-2 GB leva segundos: não segura a ponte
+                    r.put("carregando", nome);
+                }
+                org.json.JSONArray l = new org.json.JSONArray();
+                for (String m : cb.modelos()) l.put(m);
+                return r.put("ok", true).put("atual", cb.modelo()).put("instalados", l);
+            }
             case "/acordar": return acordar();
             case "/desbloquear": return desbloquear(q.get("pin"));
             case "/global": return global(q.get("a"));

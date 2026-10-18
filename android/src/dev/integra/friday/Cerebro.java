@@ -18,10 +18,10 @@ import java.util.Locale;
 final class Cerebro {
     interface Ouvinte { void evento(String tipo, String texto); }
 
-    static final String MODELO = "qwen2.5-3b-q4_0.gguf";             // padrão preferencial (3B instruct sem bloco <think>, mais preciso em JSON)
+    static final String MODELO = "qwen3-1.7b-q4_0.gguf";             // padrão do dono (18/10/2026): leve, rápido e com raciocínio
     private static final String[] ORDEM_PREFERENCIA = {
-        "qwen3-4b-q4_k_m.gguf", "gemma-3-4b-it-q4_k_m.gguf",
-        "smollm3-3b-q4_0.gguf", "qwen3-1.7b-q4_0.gguf", "qwen2.5-3b-q4_0.gguf"
+        "qwen3-1.7b-q4_0.gguf", "qwen3-4b-q4_k_m.gguf", "gemma-3-4b-it-q4_k_m.gguf",
+        "smollm3-3b-q4_0.gguf", "qwen2.5-3b-q4_0.gguf"
     };
     private String carregado = null;
     private static Cerebro inst;
@@ -55,7 +55,7 @@ final class Cerebro {
 
     String modelo() {
         String m = c.getSharedPreferences("friday_local", Context.MODE_PRIVATE).getString("modelo", "");
-        if (m != null && !m.isEmpty() && pensando(m) && new File(pasta(), m).exists()) return m;
+        if (m != null && !m.isEmpty() && new File(pasta(), m).exists()) return m;   // escolha do dono vale p/ qualquer modelo instalado
         for (String pref : ORDEM_PREFERENCIA) {
             if (new File(pasta(), pref).exists()) return pref;
         }
@@ -110,8 +110,10 @@ final class Cerebro {
         } catch (Exception e) { return "[]"; }
     }
 
-    /** passa para o próximo modelo instalado (ou o nome dado); recarrega no próximo pedido */
-    synchronized String trocarModelo(String nome) {
+    /** passa para o próximo modelo instalado (ou o nome dado); recarrega no próximo pedido.
+     *  SEM trava: o pedido/carregamento segura o Cerebro por muito tempo e a troca ficava presa (18/10/2026);
+     *  só grava a escolha, e preparar() (sincronizado) descarrega o antigo e carrega o novo com segurança. */
+    String trocarModelo(String nome) {
         String[] l = modelos();
         if (l.length == 0) return MODELO;
         String atual = modelo(), novo = nome;
@@ -119,8 +121,7 @@ final class Cerebro {
             int i = java.util.Arrays.asList(l).indexOf(atual);
             novo = l[(i + 1) % l.length];
         }
-        c.getSharedPreferences("friday_local", Context.MODE_PRIVATE).edit().putString("modelo", novo).apply();
-        if (!novo.equals(carregado)) { Llm.descarregar(); carregado = null; }
+        c.getSharedPreferences("friday_local", Context.MODE_PRIVATE).edit().putString("modelo", novo).commit();
         return novo;
     }
 
