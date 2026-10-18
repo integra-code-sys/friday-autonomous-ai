@@ -20,7 +20,7 @@ FRIDAY_DIR="${FRIDAY_DIR:-$HOME/dev/Friday}"
 MEM="$FRIDAY_DIR/memory"
 LOG="$MEM/orquestra.log"
 PIDF="$MEM/orquestra.pid"
-LOCK="$MEM/orquestra.lock"
+LOCK="$MEM/orquestra-sh.lock"            # a trava do Python (orquestra.lock) é do processo filho
 PY="${PYTHON:-python}"
 SCRIPT="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 

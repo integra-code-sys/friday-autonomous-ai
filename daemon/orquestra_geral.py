@@ -1275,8 +1275,10 @@ def loop(horas=8, intervalo=20, max_passos=500, sempre=False):
     """Roda até acabar o plano, o tempo ou max_passos. Erro não encerra.
     sempre=True (ou horas<=0): não para com fila vazia, espera novos pedidos indefinidamente."""
     sempre = sempre or float(horas) <= 0
-    if not trava_unica():
-        return {"passos": 0, "ultimo": "outro orquestrador já está rodando nesta máquina", "sessao": _ler(SESSAO, {})}
+    while not trava_unica():
+        if not sempre:
+            return {"passos": 0, "ultimo": "outro orquestrador já está rodando nesta máquina", "sessao": _ler(SESSAO, {})}
+        time.sleep(max(1.0, float(intervalo)))   # reserva: assume quando o outro executor (daemon) cair
     fim = float("inf") if sempre else time.time() + float(horas) * 3600
     n = 0
     ultimo = ""
