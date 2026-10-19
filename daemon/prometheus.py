@@ -1515,6 +1515,7 @@ def _camera_run(loop):
                                                       float(afr_[2]) * 320.0 / Wa, float(afr_[3]) * 240.0 / Ha],
                                               "boxn": [float(afr_[0]) / Wa, float(afr_[1]) / Ha,               # 0..1 no quadro dela (x0,y0,x1,y1)
                                                        float(afr_[0] + afr_[2]) / Wa, float(afr_[1] + afr_[3]) / Ha]})
+                        _nome_unico(out_a)
                         scene["amb_faces"] = out_a
                         scene["t_amb_faces"] = now
                     except Exception:
@@ -1548,6 +1549,7 @@ def _camera_run(loop):
                                                       float(pfr_[2]) * 320.0 / Wp, float(pfr_[3]) * 240.0 / Hp],
                                               "boxn": [float(pfr_[0]) / Wp, float(pfr_[1]) / Hp,
                                                        float(pfr_[0] + pfr_[2]) / Wp, float(pfr_[1] + pfr_[3]) / Hp]})
+                        _nome_unico(out_p)
                         scene["ptz_faces"] = out_p
                         scene["t_ptz_faces"] = now
                         _ptz_aprende_rosto(out_p, now)
@@ -3721,6 +3723,19 @@ async def handle_continuo(txt):
 
 _pend_fala = {"txt": "", "t": 0.0, "task": None}
 _INCOMPLETA = re.compile(r"(\.\.\.|…|,)\s*$|\b(a|o|as|os|e|de|do|da|dos|das|que|pra|para|no|na|nos|nas|um|uma|com|em|mas|ou|tipo|aquele|aquela|essa|esse|me|meu|minha)\s*[.?!]?\s*$", re.I)
+
+
+def _nome_unico(rostos):
+    """19/10: dois rostos no mesmo quadro saíam ambos 'Iann' e o aprendizado gravava o errado.
+    A mesma pessoa só aparece uma vez: fica com o rosto mais parecido; os outros viram desconhecidos."""
+    melhor = {}
+    for f in rostos:
+        if f.get("nome") and (f["nome"] not in melhor or f.get("sim", 0) > melhor[f["nome"]].get("sim", 0)):
+            melhor[f["nome"]] = f
+    for f in rostos:
+        if f.get("nome") and melhor.get(f["nome"]) is not f:
+            f["nome"], f["pid"] = None, None
+    return rostos
 
 
 async def route_speech(txt: str):
