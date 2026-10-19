@@ -5394,6 +5394,7 @@ async def friday_ask(text: str, files=None, proactive=False):
                     await speak("A tarefa travou: " + str(e_)[:60])
                 finally:
                     agente_ativo[0] = False
+                    asyncio.get_event_loop().call_later(8, lambda: asyncio.ensure_future(broadcast({"type": "painel", "op": "fechar", "data": {}})))   # 19/10: fim normal deixava o cartão aberto
                     _proxima_da_fila()
             asyncio.create_task(_bg())
             return {"fala": "", "acoes": [], "pose": "confirmar", "humor": "neutro"}
@@ -7378,6 +7379,7 @@ async def handle(r, w):
         await send(w, {"type": "modes", **modes})
         if time.time() - _INICIO_DAEMON < 30 and not hud_state.get("active"):   # holograma de tarefa morta (daemon reiniciado) ficava congelado no shell
             await send(w, {"type": "holo", "op": "clear", "spec": None})
+            await send(w, {"type": "painel", "op": "fechar", "data": {}})   # 19/10: cartão "TAREFA · ..." de plano morto ficava na tela
     except Exception:
         pass
     try:
