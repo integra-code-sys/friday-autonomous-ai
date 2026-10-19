@@ -3300,6 +3300,14 @@ async def set_mode_voz(nome, on):
     await speak(f"Modo criação {'ativado' if on else 'desativado'}.")
 
 
+def _sistemas_nomes():
+    """nomes reais das pastas de ~/Workspace/Projetos/Sistemas (ex.: 'Integra Site') para reconhecer pedido de código por voz."""
+    try:
+        return [d for d in os.listdir(os.path.expanduser("~/Workspace/Projetos/Sistemas")) if len(d) >= 4 and not d.startswith(".")] or ["integra"]
+    except Exception:
+        return ["integra"]
+
+
 async def handle_modes(txt):
     """comandos por voz de modos e de sistema. True = tratou."""
     t = (txt or "").lower()
@@ -3310,7 +3318,13 @@ async def handle_modes(txt):
         await broadcast({"type": "text", "role": "assistant", "text": msg}); log_turn("prometheus", msg)
         await speak(msg)
     # --- pedido ao Claude: vai DIRETO para a sessão do Claude CLI no terminal (o cérebro local inventava "arquivo salvo") ---
-    if re.search(r"\b(?:pede|pe[çc]a|manda|fala|diz|avisa)\s+(?:pro|pra|para\s+o|ao|o)\s+claude\b|\bclaude\s*,|\bno\s+modo\s+dev\s*,?\s+\w", t):
+    # 19/10: "ative o modo dev e nele crie ..." e "no diretório integra site coordene modificação ..." caíam no cérebro local (só consultava memória)
+    _dev_tarefa = len(t.split()) >= 8 and (
+        re.search(r"\bmodo\s+dev\b.{0,25}\b(?:e\s+(?:nele|l[áa]|ent[ãa]o|depois)?|para|pra)\s+\w+", t)
+        or (re.search(r"\b(?:diret[óo]rio|pasta|projeto|reposit[óo]rio|c[óo]digo|sistema|site|painel|admin|api|backend|frontend|banco de dados)\b", t)
+            and re.search(r"\b(?:cri[ae]r?|implement\w*|codific\w*|program\w*|desenvolv\w*|modific\w*|corrij\w*|corrig\w*|refator\w*|coorden\w*|adicion\w*|mont[ae]r?|constru\w*|alter\w*|ajust\w*)\b", t)
+            and re.search(r"\b(?:diret[óo]rio|pasta|projeto)\b|" + "|".join(re.escape(n_.lower()) for n_ in _sistemas_nomes()), t)))
+    if _dev_tarefa or re.search(r"\b(?:pede|pe[çc]a|manda|fala|diz|avisa)\s+(?:pro|pra|para\s+o|ao|o)\s+claude\b|\bclaude\s*,|\bno\s+modo\s+dev\s*,?\s+\w", t):
         await dizer("Mandei para o Claude no terminal do modo dev.")
         asyncio.create_task(run_programming(txt))
         return True
