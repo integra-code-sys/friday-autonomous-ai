@@ -64,7 +64,7 @@ def _json_de(txt):
 
 def _ollama(msgs, schema, modelo, max_tokens=350):
     corpo = {"model": modelo, "messages": msgs, "stream": False, "format": schema, "think": False, "keep_alive": -1,
-             "options": {"temperature": 0.15, "num_predict": max_tokens, "num_ctx": 8192}}
+             "options": {"temperature": 0.15, "num_predict": max_tokens, "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384"))}}
     req = urllib.request.Request(OLLAMA + "/api/chat", data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=180) as r:
         return _json_de(json.loads(r.read())["message"]["content"])

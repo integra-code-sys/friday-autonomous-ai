@@ -276,7 +276,7 @@ def _chat_ollama(msgs, tools, cfg, temperature, max_tokens, timeout):
         "messages": limpas,
         "tools": tools,
         "think": False,
-        "options": {"temperature": temperature, "num_predict": int(max_tokens or 600), "num_ctx": 4096, "num_gpu": 99}
+        "options": {"temperature": temperature, "num_predict": int(max_tokens or 600), "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384")), "num_gpu": 99}
     }
     resp = _http_post_json(url, {}, body, timeout=max(timeout, 90))
     msg = resp.get("message") or {}
