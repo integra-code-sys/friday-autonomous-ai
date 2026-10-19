@@ -64,10 +64,18 @@ def _json_de(txt):
 
 def _ollama(msgs, schema, modelo, max_tokens=350):
     corpo = {"model": modelo, "messages": msgs, "stream": False, "format": schema, "think": False, "keep_alive": -1,
-             "options": {"temperature": 0.15, "num_predict": max_tokens, "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384"))}}
+             "options": {"temperature": 0.15, "num_predict": max_tokens, "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384")), "num_gpu": 99}}
     req = urllib.request.Request(OLLAMA + "/api/chat", data=json.dumps(corpo).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=180) as r:
-        return _json_de(json.loads(r.read())["message"]["content"])
+        resp = json.loads(r.read())
+    if resp.get("done_reason") == "length" and max_tokens < 4000:    # JSON cortado no meio: tenta de novo com mais folga
+        return _ollama(msgs, schema, modelo, max_tokens * 2)
+    try:
+        return _json_de(resp["message"]["content"])
+    except ValueError:    # JSON truncado/inválido sem done_reason=length: tenta de novo com mais folga
+        if max_tokens >= 4000:
+            raise
+        return _ollama(msgs, schema, modelo, max_tokens * 2)
 
 
 def _claude_cli(msgs, schema, modelo="sonnet"):
@@ -81,7 +89,7 @@ def _nuvem_api(msgs, schema, prov):
     import cloud_providers
     m = list(msgs)
     m[-1] = dict(m[-1], content=m[-1]["content"] + "\n\nResponda SOMENTE com JSON no esquema: " + json.dumps(schema, ensure_ascii=False))
-    r = cloud_providers.chat_com_ferramentas(m, [], temperature=0.15, max_tokens=700, provider=prov)
+    r = cloud_providers.chat_com_ferramentas(m, [], temperature=0.15, max_tokens=1600, provider=prov)
     return _json_de((r.get("message") or {}).get("content") or "")
 
 
@@ -223,8 +231,19 @@ def _caminho(c):
     return p
 
 
+def _livre(p):
+    """Se um ancestral de p é arquivo comum (bloqueia mkdir), desvia para '<nome>_pasta' sem apagar nada."""
+    partes = p.split(os.sep)
+    for i in range(2, len(partes) + 1):
+        a = os.sep.join(partes[:i])
+        if os.path.exists(a) and not os.path.isdir(a):
+            partes[i - 1] += "_pasta"
+            return _livre(os.sep.join(partes))
+    return p
+
+
 def _arquivo_escrever(st, caminho="", conteudo="", **_):
-    p = _caminho(caminho)
+    p = _livre(_caminho(caminho))
     os.makedirs(os.path.dirname(p), exist_ok=True)
     open(p, "w", encoding="utf-8").write(str(conteudo))
     st.arquivos.append(p)
@@ -239,7 +258,7 @@ def _arquivo_ler(st, caminho="", **_):
 
 
 def _criar_pasta(st, caminho="", **_):
-    p = _caminho(caminho)
+    p = _livre(_caminho(caminho))
     os.makedirs(p, exist_ok=True)
     return "pasta pronta: " + p
 
@@ -376,6 +395,7 @@ REGRAS
 5. Faça SÓ o que o dono pediu: não crie arquivo, pasta ou mensagem que ele não pediu. Se ele pediu arquivo, escreva o conteúdo REAL e confira com arquivo_ler.
 6. Data/hora: passe as palavras do dono ("amanhã às 15h"); nunca calcule datas.
 7. Nada de enviar, comprar, apagar ou postar sem o dono: a ferramenta mensagem já pede aprovação.
+7b. Use EXATAMENTE o caminho/nome pedido: nunca troque por outro (pasta "_Nova", outro nome). Se a pasta existe, use-a (arquivo_ler/terminal para ver); se falta app (ex.: gedit), tente outro (xdg-open, kate, mousepad, nano em terminal) antes de desistir. Se algo pedido não foi feito de verdade, diga isso claramente no concluir.
 8. concluir{resposta}: 1 a 3 frases em português com o resultado real (o valor, o arquivo criado...). Nunca diga que fez algo que não aparece nas observações.
 FERRAMENTAS
 """ + "\n".join(f"- {n} {ex}: {d}" for n, (f, ex, d) in FERRAMENTAS.items())
@@ -463,7 +483,18 @@ def resolver(pedido, fr=None, ops=None, aviso=None, cfg=None, mostrar=False):
             passos.append({"n": n, "acao": acao, "args": args, "s_modelo": round(t_modelo, 1)})
             break
         if acao == "perguntar_dono":
-            fala = str(args.get("pergunta") or "Preciso de mais informação.")
+            _perg = str(args.get("pergunta") or "")
+            if barreira[0] < 3 and re.search(r"(?i)apag|exclu|delet|remov", _perg) and not re.search(r"(?i)apag|exclu|delet|remov", pedido):
+                barreira[0] += 1
+                msgs.append({"role": "assistant", "content": json.dumps(d, ensure_ascii=False)})
+                msgs.append({"role": "user", "content": "OBSERVAÇÃO: o dono NÃO pediu para apagar nada: não apague nem pergunte sobre apagar. Deixe os arquivos criados como estão, termine as partes que faltam do pedido e conclua com o resultado."})
+                continue
+            if barreira[0] < 3 and re.search(r"(?i)deseja|quer que eu|posso (?:executar|enviar|abrir|criar)|gostaria", _perg) and not re.search(r"(?i)senha|pagamento|comprar|apagar|excluir", _perg):
+                barreira[0] += 1
+                msgs.append({"role": "assistant", "content": json.dumps(d, ensure_ascii=False)})
+                msgs.append({"role": "user", "content": "OBSERVAÇÃO: o dono autorizou: não peça permissão para o que ele JÁ pediu; execute (pc_abrir, cel_*, web_*, terminal seguro). Só pergunte se faltar um dado que você não consegue descobrir, ou para senha, pagamento, compra e apagar."})
+                continue
+            fala = _perg or "Preciso de mais informação."
             passos.append({"n": n, "acao": acao, "args": args})
             break
         chave = acao + json.dumps(args, sort_keys=True, ensure_ascii=False)
@@ -473,6 +504,8 @@ def resolver(pedido, fr=None, ops=None, aviso=None, cfg=None, mostrar=False):
             obs = f"ação desconhecida: {acao}"
         elif re.search(r"(?i)\bno celular\b", pedido) and acao.startswith(("pc_", "web_")) and not re.search(r"(?i)pesquis", pedido):
             obs = "o pedido é NO CELULAR: use cel_abrir/cel_ver/cel_tocar/cel_digitar (não o PC nem o navegador)."
+        elif acao == "terminal" and re.search(r"(?i)\brm\b|rmdir|\bdel\b|unlink|shred", str(args.get("comando", ""))) and not re.search(r"(?i)apag|exclu|delet|remov", pedido):
+            obs = "o dono NÃO pediu para apagar nada: não use rm/rmdir. Se um comando falhou, corrija-o ou use arquivo_escrever/criar_pasta."
         elif repet[chave] > 2:
             obs = "você já fez exatamente isso 2 vezes e não resolveu: escolha OUTRO caminho (web_ler, outra busca, outro site)."
             if acao.startswith("web_"):
@@ -501,6 +534,12 @@ def resolver(pedido, fr=None, ops=None, aviso=None, cfg=None, mostrar=False):
         msgs.append({"role": "user", "content": "OBSERVAÇÃO: " + str(obs)[:4000]})
     else:
         fala = "Não terminei em " + str(cfg.get("max_passos")) + " passos. Último: " + (passos[-1]["obs"][:120] if passos else "")
+    if not ok or re.search(r"(?i)não terminei|não consegui|não foi possível|meu modelo falhou", fala):
+        try:
+            import autocura                      # fila de autocura: o Claude CLI corrige numa cópia e valida antes de aplicar
+            autocura.registrar(pedido, fala, passos)
+        except Exception:
+            pass
     res = {"ok": ok, "fala": fala, "passos": passos, "s": round(time.time() - t0, 1), "pedido": pedido, "modelo": cfg.get("modelo"), "provedor": cfg.get("provedor")}
     _log({"t": time.strftime("%Y-%m-%d %H:%M:%S"), **{k: v for k, v in res.items() if k != "passos"}, "n_passos": len(passos),
           "acoes": [p["acao"] for p in passos]})

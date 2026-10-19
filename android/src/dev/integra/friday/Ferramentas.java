@@ -47,10 +47,10 @@ final class Ferramentas {
         "rolar{direcao: cima|baixo}\n" +
         "tecla{acao: voltar|inicio|recentes|notificacoes}\n" +
         "criar_documento{titulo, formato: pdf|docx|txt|md|html|py|json|csv, conteudo} — salva em Documentos/Friday e abre\n" +
-        "alarme{hora, minuto, rotulo}\n" +
-        "timer{segundos, rotulo}\n" +
+        "alarme{hora: 0-23, minuto, quando: palavras do dono como 'amanhã 7h' ou 'daqui 10 minutos', rotulo}\n" +
+        "timer{segundos ou minutos, rotulo}\n" +
         "agenda{op: novo|hoje|amanha|nivel|concluir|prioridade, titulo, quando: texto como 'amanhã 15h', prioridade: alta|normal|baixa, duracao_min} — AGENDA DA SEXTA-FEIRA sincronizada com o PC\n" +
-        "evento{titulo, data: AAAA-MM-DD, hora: HH:MM, duracao_min} — adiciona evento na Agenda da Sexta-Feira\n" +
+        "evento{titulo, quando: palavras do dono como 'sábado 15h', 'amanhã 9h', '24/10 14h' (NÃO calcule a data), duracao_min} — adiciona evento na Agenda da Sexta-Feira\n" +
         "ligar{numero} — abre o discador com o número\n" +
         "whatsapp{contato, texto} — abre a conversa pelo NOME (ou número) e escreve a mensagem; o dono confirma o envio\n" +
         "compartilhar{texto}\n" +
@@ -105,15 +105,27 @@ final class Ferramentas {
                     return Docs.criar(c, a.optString("titulo", a.optString("nome", "Documento")),
                         a.optString("formato", "pdf"), a.optString("conteudo", a.optString("texto", "")));
                 case "alarme": {
-                    Intent i = new Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, a.optInt("hora"))
-                        .putExtra(AlarmClock.EXTRA_MINUTES, a.optInt("minuto")).putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("rotulo", "Friday"))
+                    // o modelo manda "07:30", "7h30", "3 da tarde", "amanhã 8h"... (optInt("hora") lia tudo isso como 0 -> alarme 00:00)
+                    long agora = System.currentTimeMillis(), t = alvoAlarme(a, agora);
+                    if (t <= agora) return "não entendi a hora do alarme: " + (a.optString("quando") + " " + a.optString("hora")).trim();
+                    Calendar k = Calendar.getInstance(); k.setTimeInMillis(t);
+                    int hh = k.get(Calendar.HOUR_OF_DAY), mm = k.get(Calendar.MINUTE);
+                    String rot = a.optString("rotulo", "Friday");
+                    // o despertador não tem data: toca na PRÓXIMA vez que der hh:mm. Outro dia ("amanhã 15h" às 11h) vira lembrete na agenda
+                    if (!proximaVez(hh, mm, agora, t))
+                        return "o despertador não marca dia, então virou lembrete na agenda: "
+                            + Agenda.novo(c, "Alarme: " + rot, new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ROOT).format(new Date(t)), 1, 5);
+                    Intent i = new Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, hh)
+                        .putExtra(AlarmClock.EXTRA_MINUTES, mm).putExtra(AlarmClock.EXTRA_MESSAGE, rot)
                         .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
-                    return iniciar(i, String.format(Locale.ROOT, "alarme criado para %02d:%02d", a.optInt("hora"), a.optInt("minuto")));
+                    return iniciar(i, String.format(Locale.ROOT, "alarme criado para %s às %02d:%02d",
+                        Agenda.inicioDoDia(t) == Agenda.inicioDoDia(agora) ? "hoje" : "amanhã", hh, mm));
                 }
                 case "timer": {
-                    Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, a.optInt("segundos", 60))
+                    int s = segundosTimer(a);                        // {"minutos":10} ou "10 minutos" viravam 60 s
+                    Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, s)
                         .putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("rotulo", "Friday")).putExtra(AlarmClock.EXTRA_SKIP_UI, true);
-                    return iniciar(i, "timer de " + a.optInt("segundos", 60) + " s iniciado");
+                    return iniciar(i, "timer de " + duracaoTxt(s) + " iniciado");
                 }
                 case "evento": return evento(a);
                 case "agenda": return agenda(a);
@@ -732,7 +744,7 @@ final class Ferramentas {
 
     private String evento(JSONObject a) {
         String titulo = a.optString("titulo", "Compromisso");
-        String quando = (a.optString("data", "") + " " + a.optString("hora", a.optString("quando", "hoje 09:00"))).trim();
+        String quando = quandoEvento(a);
         int prio = prioDe(a.optString("prioridade", "normal"));
         int dur = a.optInt("duracao_min", 60);
         String res = Agenda.novo(c, titulo, quando, prio, dur);
@@ -794,10 +806,83 @@ final class Ferramentas {
         }
     }
 
-    String statusDataHora() {
-        Date agora = new Date();
-        String h = new SimpleDateFormat("HH:mm", new Locale("pt", "BR")).format(agora);
-        String d = new SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy", new Locale("pt", "BR")).format(agora);
-        return "Agora são " + h + " de " + d + ".";
+    String statusDataHora() { return statusDataHora(System.currentTimeMillis()); }
+
+    /** "Agora são 11:04. Hoje é domingo, 18 de outubro de 2026." — 0h, 1h e 12h pedem "é" (o FalaPt lê meia-noite/uma/meio-dia) */
+    static String statusDataHora(long t) {
+        Date agora = new Date(t);
+        Locale br = new Locale("pt", "BR");
+        String h = new SimpleDateFormat("HH:mm", br).format(agora);
+        String d = new SimpleDateFormat("EEEE, d 'de' MMMM 'de' yyyy", br).format(agora);
+        int hh = Integer.parseInt(h.substring(0, 2));
+        return "Agora " + (hh == 0 || hh == 1 || hh == 12 ? "é " : "são ") + h + ". Hoje é " + d + ".";
+    }
+
+    // ------------------------------------------------------------------ horas vindas do modelo (Qwen 1.7B: não confiar em conta de data)
+    /** quando o alarme toca (ms; <= agora = não entendi). hora/minuto numéricos ou texto: "07:30", "7h30", "7 e meia",
+     *  "3 da tarde", "amanhã 8h", "daqui 10 minutos" — o dia/hora é calculado aqui, não pelo modelo */
+    static long alvoAlarme(JSONObject a, long agora) {
+        Object ho = a.opt("hora");
+        String h = ho instanceof Number ? String.valueOf(((Number) ho).intValue()) : a.optString("hora", "").trim();
+        String q = a.optString("quando", "").trim();
+        if (h.matches("\\d{1,2}")) h += String.format(Locale.ROOT, ":%02d", a.optInt("minuto", 0));
+        String txt = (q + " " + h).trim();
+        if (txt.isEmpty() && (a.has("minutos") || a.has("horas"))) return agora + segundosTimer(a) * 1000L;      // {"minutos": 10}
+        if (txt.matches("(?iu)(?:.*\\b(?:daqui|dentro de)\\b.*|em \\d.*)")) return agora + emSegundos(txt, 60) * 1000L;
+        return Agenda.Quando.parse(txt, agora);
+    }
+
+    /** o AlarmClock só agenda a PRÓXIMA ocorrência de hh:mm: true se ela cai mesmo em t */
+    static boolean proximaVez(int hh, int mm, long agora, long t) {
+        Calendar p = Calendar.getInstance(); p.setTimeInMillis(agora);
+        p.set(Calendar.HOUR_OF_DAY, hh); p.set(Calendar.MINUTE, mm); p.set(Calendar.SECOND, 0); p.set(Calendar.MILLISECOND, 0);
+        if (p.getTimeInMillis() <= agora) p.add(Calendar.DAY_OF_YEAR, 1);
+        return p.getTimeInMillis() == t - t % 60000L;
+    }
+
+    /** duração do timer em s (1..86400): segundos/minutos/horas como número ou texto ("10 minutos", "1h30", "meia hora") */
+    static int segundosTimer(JSONObject a) {
+        long s = emSegundos(a.optString("segundos", ""), 1) + emSegundos(a.optString("minutos", a.optString("minuto", "")), 60)
+            + emSegundos(a.optString("horas", ""), 3600) + emSegundos(a.optString("tempo", a.optString("duracao", "")), 60);
+        return (int) Math.max(1, Math.min(86400, s > 0 ? s : 60));
+    }
+
+    /** "10" (na unidade padrão), "10 minutos", "1h30", "2 min 30 s", "uma hora e meia", "meia hora" -> segundos */
+    static long emSegundos(String t, int unid) {
+        t = t.toLowerCase(Locale.ROOT).replace(',', '.').replace("meia hora", "30 min")
+             .replaceAll("\\b(uma|um)\\b", "1").replaceAll("\\b(duas|dois)\\b", "2");
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+            "(?<![\\d.])(\\d++(?:\\.\\d++)?)\\s*(horas|hora|h|minutos|minuto|min|m|segundos|segundo|seg|s)?(?![a-z])").matcher(t);
+        long s = 0; int ult = 0;
+        while (m.find()) {
+            String u = m.group(2);
+            int f = u != null ? (u.startsWith("h") ? 3600 : u.startsWith("m") ? 60 : 1) : ult == 3600 ? 60 : ult == 60 ? 1 : unid;   // "1h30": 30 min
+            s += Math.round(Double.parseDouble(m.group(1)) * f); ult = f;
+        }
+        if (ult == 3600 && t.matches(".*\\be meia\\b.*")) s += 1800;                 // "1 hora e meia"
+        return s;
+    }
+
+    /** 600 -> "10 minutos", 5400 -> "1 hora e 30 minutos" */
+    static String duracaoTxt(int s) {
+        int h = s / 3600, m = s % 3600 / 60, x = s % 60;
+        StringBuilder b = new StringBuilder();
+        if (h > 0) b.append(h).append(h == 1 ? " hora" : " horas");
+        if (m > 0) b.append(b.length() == 0 ? "" : x > 0 ? ", " : " e ").append(m).append(m == 1 ? " minuto" : " minutos");
+        if (x > 0) b.append(b.length() == 0 ? "" : " e ").append(x).append(x == 1 ? " segundo" : " segundos");
+        return b.toString();
+    }
+
+    /** data/hora do evento como TEXTO p/ Agenda.novo (PC e celular entendem). As palavras do dono ("quando": "sábado 15h") mandam;
+     *  data/hora só completam o que faltar. "AAAA-MM-DD" vira "DD/MM/AAAA": o parse do celular lia "2026-10-24" como 20:26 */
+    static String quandoEvento(JSONObject a) {
+        String q = a.optString("quando", "").trim(), d = a.optString("data", "").trim(), h = a.optString("hora", "").trim();
+        if (q.isEmpty()) q = (d + " " + h).trim();
+        else {
+            if (!d.isEmpty() && !q.matches("(?iu).*(hoje|amanh|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|semana|\\d/\\d|\\d-\\d|\\bdia \\d).*")) q = d + " " + q;
+            if (!h.isEmpty() && !q.matches("(?iu).*(\\d\\s*(h|:|horas?)|[àa]s? \\d|\\d da (manh|tarde|noite)|meio[- ]dia|meia[- ]noite).*")) q += " " + h;
+        }
+        if (q.isEmpty()) q = "hoje 09:00";
+        return q.replaceAll("\\b(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:T|\\b)", "$3/$2/$1 ").replaceAll("\\s+", " ").trim();
     }
 }

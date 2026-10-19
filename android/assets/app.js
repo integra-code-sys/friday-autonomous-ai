@@ -580,7 +580,7 @@ function agendaNormalizar(j, nDias) {
   for (let k = 0; k < (nDias || 7); k++) {
     const ini = hoje + k * 86400000, dt = new Date(ini), nat = (j.dias || [])[k] || {};
     const data = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0");
-    const nivPc = j.niveis && (j.niveis[data] || {}).nivel;
+    const nv = j.niveis && j.niveis[data], nivPc = typeof nv === "string" ? nv : (nv || {}).nivel;   // PC manda {"AAAA-MM-DD": "leve"}
     dias.push({ data, dia_semana: SEMANA[dt.getDay()], nivel: String(nat.nivel || nivPc || "livre").normalize("NFD").replace(/[\u0300-\u036f]/g, ""),
       livre_min: nat.livreMin || 0, itens: itens.filter((x) => x.ini >= ini && x.ini < ini + 86400000) });
   }
@@ -714,8 +714,8 @@ $("#bAgNovoToggle").onclick = () => {
   const c = $("#agFormCard");
   c.hidden = !c.hidden;
   if (!c.hidden) {
-    const hoje = new Date().toISOString().slice(0, 10);
-    $("#agDataIn").value = hoje;
+    const d = new Date();   // data LOCAL (toISOString é UTC: depois das 21h virava o dia seguinte)
+    $("#agDataIn").value = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     $("#agTitIn").focus();
   }
 };

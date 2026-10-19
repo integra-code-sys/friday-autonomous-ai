@@ -541,8 +541,8 @@ Item {
                 Text { text: (pn.dados.etapa || 0) + "/" + (pn.dados.total || 0); color: pn.cHot; font.pixelSize: 34; font.bold: true }
                 Text { anchors.verticalCenter: parent.verticalCenter; text: String(pn.dados.objetivo || ""); color: "#ffffff"; font.pixelSize: 15; width: 540; elide: Text.ElideRight } }
             Rectangle {
-                width: 660; height: 6; radius: 3; color: "#1a8fe9ff"; clip: true
-                Rectangle { id: barra; height: parent.height; radius: 3; color: pn.cHolo
+                width: 660; height: 6; radius: 3; color: "#33ff8a1f"; clip: true
+                Rectangle { id: barra; height: parent.height; radius: 3; color: pn.cHot
                     width: parent.width * Math.max(0, ((pn.dados.etapa || 1) - (pn.dados.fim ? 0 : 1))) / Math.max(1, pn.dados.total || 1)
                     Behavior on width { NumberAnimation { duration: 700; easing.type: Easing.OutCubic } } }
                 Rectangle { width: 60; height: parent.height; opacity: 0.7

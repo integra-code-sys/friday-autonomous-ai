@@ -901,7 +901,9 @@ final class Flutuante {
                 CalendarContract.Instances.BEGIN, CalendarContract.Instances.ALL_DAY}, null, null, CalendarContract.Instances.BEGIN + " ASC")) {
             int n = 0;
             while (cur != null && cur.moveToNext() && n++ < 25) {
-                Date d = new Date(cur.getLong(1));
+                long b = cur.getLong(1);
+                if (cur.getInt(2) == 1) b -= java.util.TimeZone.getDefault().getOffset(b);   // dia todo vem em UTC: sem isso caía no dia anterior
+                Date d = new Date(b);
                 String dd = dia.format(d);
                 if (!dd.equals(ultDia)) { sb.append(sb.length() > 0 ? "\n" : "").append(dd).append('\n'); ultDia = dd; }
                 sb.append(cur.getInt(2) == 1 ? "  dia todo  " : "  " + hora.format(d) + "  ").append(cur.getString(0)).append('\n');

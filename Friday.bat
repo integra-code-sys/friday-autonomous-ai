@@ -12,10 +12,15 @@ echo ===========================================================================
 rem Aguarda a porta 8790 estar ativa e abre o HUD Stark Mark 85 em tela cheia nativa (1:1 com o Linux)
 start /B "" powershell -NoProfile -Command "$p=8790; for ($i=0; $i -lt 35; $i++) { try { $t=New-Object System.Net.Sockets.TcpClient('127.0.0.1', $p); if ($t.Connected) { $t.Close(); break; } } catch {}; Start-Sleep -Seconds 1 }; if (Get-Command msedge -ErrorAction SilentlyContinue) { Start-Process msedge '--app=http://127.0.0.1:8790/stark --start-fullscreen' } elseif (Get-Command chrome -ErrorAction SilentlyContinue) { Start-Process chrome '--app=http://127.0.0.1:8790/stark --start-fullscreen' } else { Start-Process 'http://127.0.0.1:8790/stark' }"
 
+if not exist "%LOCALAPPDATA%\Friday" mkdir "%LOCALAPPDATA%\Friday"
+set "FRIDAY_LOG=%LOCALAPPDATA%\Friday\backend.log"
 if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" "daemon\auto_deps.py" >nul 2>&1
-    ".venv\Scripts\python.exe" "daemon\prometheus.py"
+    ".venv\Scripts\python.exe" "daemon\prometheus.py" >> "%FRIDAY_LOG%" 2>&1
 ) else (
-    python "daemon\auto_deps.py" >nul 2>&1
-    python "daemon\prometheus.py"
+    python "daemon\prometheus.py" >> "%FRIDAY_LOG%" 2>&1
+)
+if errorlevel 1 (
+    echo.
+    echo O backend nao subiu. Veja %FRIDAY_LOG%
+    pause
 )

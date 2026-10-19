@@ -18,7 +18,7 @@ if HERE not in sys.path:
 import win_compat
 ROOT = os.path.dirname(HERE)
 
-VLM_MODEL = os.environ.get("FRIDAY_VLM_MODEL", os.environ.get("FRIDAY_MODEL", "qwen3-vl:4b-instruct"))
+VLM_MODEL = os.environ.get("FRIDAY_VLM_MODEL", "qwen3-vl:4b-instruct")   # câmera e tela: o modelo que enxerga, separado do que raciocina
 OLLAMA_URL = os.environ.get("FRIDAY_OLLAMA", "http://127.0.0.1:11434")
 NUM_GPU = int(os.environ.get("FRIDAY_NUM_GPU", "99"))
 NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "16384"))   # igual ao friday.NUM_CTX
@@ -178,16 +178,24 @@ def capturar_camera(dev_path):
 
 
 def consultar_vlm(jpg_bytes, prompt, max_tokens=180, temp=0.1):
-    """Envia uma imagem ao modelo multimodal Vision configurado (Gemini, Claude, OpenAI GPT ou Ollama Local)."""
+    """Envia uma imagem ao modelo multimodal Vision (Qwen-VL) via Ollama. Devolve o texto, ou None em falha."""
     if not jpg_bytes:
         return None
     try:
-        import cloud_providers
-        return cloud_providers.consultar_vlm(jpg_bytes, prompt, max_tokens=max_tokens, temp=temp)
+        body = json.dumps({
+            "model": VLM_MODEL,
+            "stream": False,
+            "prompt": "Responda em português do Brasil, de forma clara, natural e objetiva. " + prompt,
+            "images": [base64.b64encode(jpg_bytes).decode()],
+            "options": dict(OPCOES_BASE, temperature=temp, num_predict=max_tokens)
+        }).encode()
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/generate", body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            res = json.loads(r.read())
+            return res.get("response", "").strip() or None
     except Exception as e:
         print("visão neural falhou:", str(e)[:120], flush=True)
         return None
-
 
 
 def olhar_tela(pergunta="Descreva o que está aberto e visível nesta tela do computador.") -> str:

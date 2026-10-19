@@ -461,6 +461,49 @@ def _remover_anuncios_e_lixo(texto):
     return "\n".join(linhas)
 
 
+def loja_fortnite(lim=50):
+    """loja de itens do Fortnite de hoje pela API pública (fortnite-api.com): itens, tipo e preço. "" se falhar."""
+    try:
+        import urllib.request
+        req = urllib.request.Request("https://fortnite-api.com/v2/shop", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode("utf-8"))
+        data_api = d.get("data", {}).get("date", "")[:10]
+        cats = {}                                            # categoria -> [(linha, preço)]
+        for e in d.get("data", {}).get("entries", []):
+            pr = e.get("finalPrice", 0)
+            if e.get("brItems"):
+                for it in e.get("brItems", []):
+                    tipo = it.get("type", {}).get("displayValue", "Item")
+                    cats.setdefault(tipo, []).append((f"• {it.get('name')}: {pr} V-Bucks - {it.get('description', '')}", pr))
+            elif e.get("tracks"):
+                for tr in e.get("tracks", []):
+                    cats.setdefault("Música/Pista", []).append((f"• '{tr.get('title')}' por {tr.get('artist', '')}: {pr} V-Bucks", pr))
+            elif e.get("bundle"):
+                b = e.get("bundle")
+                cats.setdefault("Pacote/Bundle", []).append((f"• '{b.get('name')}': {pr} V-Bucks - {b.get('info', '')}", pr))
+        if not cats:
+            return ""
+        ordem = sorted(cats, key=lambda c: -len(cats[c]))
+        total = sum(len(v) for v in cats.values())
+        resumo = [f"- {c}: {len(cats[c])} itens ({min(p for _, p in cats[c])} a {max(p for _, p in cats[c])} V-Bucks)" for c in ordem]
+        linhas, n = [], 0
+        for c in ordem:
+            if n >= lim:
+                break
+            linhas.append(f"\n{c} ({len(cats[c])}):")
+            for l, _ in cats[c]:
+                if n >= lim:
+                    break
+                linhas.append(l)
+                n += 1
+        return (f"Catálogo Oficial e Atualizado da Loja de Itens do Fortnite ({data_api or time.strftime('%d/%m/%Y')}): {total} itens.\n"
+                "CONTAGEM POR CATEGORIA (calculada, use estes números):\n" + "\n".join(resumo) + "\n" + "\n".join(linhas))
+    except Exception:
+        pass
+    return ""
+
+
 def _nav():
     """navegador próprio da Friday (CDP lê, cursor/teclado reais agem). FRIDAY_NAV=0 desliga e volta à visão."""
     if os.environ.get("FRIDAY_NAV", "1") == "0" or not (shutil.which("chromium") or shutil.which("google-chrome")):
@@ -602,29 +645,7 @@ def _executar_acao(a, args):
         txt = ""
         # 1. Se for Fortnite, obtém dados oficiais completos da API de catálogo
         if re.search(r"fortn", url_alvo, re.I):
-            try:
-                import urllib.request
-                req = urllib.request.Request("https://fortnite-api.com/v2/shop", headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    d = json.loads(r.read().decode("utf-8"))
-                linhas_itens = []
-                data_api = d.get("data", {}).get("date", "")[:10]
-                for e in d.get("data", {}).get("entries", []):
-                    pr = e.get("finalPrice", 0)
-                    if e.get("brItems"):
-                        for it in e.get("brItems", []):
-                            tipo = it.get("type", {}).get("displayValue", "Item")
-                            linhas_itens.append(f"• {it.get('name')} [{tipo}]: {pr} V-Bucks - {it.get('description', '')}")
-                    elif e.get("tracks"):
-                        for tr in e.get("tracks", []):
-                            linhas_itens.append(f"• Música/Pista '{tr.get('title')}' por {tr.get('artist', '')}: {pr} V-Bucks")
-                    elif e.get("bundle"):
-                        b = e.get("bundle")
-                        linhas_itens.append(f"• Pacote/Bundle '{b.get('name')}': {pr} V-Bucks - {b.get('info', '')}")
-                if linhas_itens:
-                    txt = f"Catálogo Oficial e Atualizado da Loja de Itens do Fortnite ({data_api or time.strftime('%d/%m/%Y')}):\n" + "\n".join(linhas_itens[:50])
-            except Exception:
-                pass
+            txt = loja_fortnite()
 
         # 2. Página já renderizada no navegador da Friday (JS executado, anúncios fechados): texto do DOM, sem OCR
         nav = _nav()
@@ -652,31 +673,26 @@ def _executar_acao(a, args):
 
     if a == "concluir_pesquisa":
         lidos = [x for x in _ACHADOS.get("textos") or [] if len(x.get("txt") or "") >= 20]
-        if not lidos:
-            tela = _ler_tela()
-            if _tela_ok(tela) and len(tela) > 30:
-                lidos = [{"url": "tela_atual", "txt": tela}]
-        if not lidos:
-            return {"ok": False, "evidencia": "nenhuma informação encontrada na tela ou fontes.", "via": "tela"}
+        if not lidos:                       # a tela atual pode ser outra coisa (ex.: YouTube aberto antes): não serve de fonte
+            return {"ok": False, "evidencia": "nenhuma fonte da pesquisa foi lida; pesquise de novo e leia as fontes (ler_fonte).", "via": "tela"}
         consulta = args.get("consulta") or ""
         fontes_agrupadas = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in lidos])
         data_atual = time.strftime("%d/%m/%Y")
 
+        # pergunta direta ("me diga o valor") pede resposta curta; relatório só quando o dono pede (18/10/2026)
+        longo = bool(re.search(r"relat[óo]rio|detalh|an[áa]lise|aprofund|complet|resum[oa] (?:completo|detalhado)|compar", consulta, re.I))
         prompt_sintese = (
-            f"Você é a F.R.I.D.A.Y. Analise criticamente todas as informações apuradas sobre '{consulta}'.\n"
-            f"Data atual de referência: {data_atual}.\n"
-            f"DIRETRIZES ESTRITAS:\n"
-            f"1. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão.\n"
-            f"2. A data atual de referência é {data_atual}. Nunca cite datas passadas como 2024.\n"
-            f"3. Ignore totalmente anúncios publicitários, popups, cookies, banners ou termos de serviço.\n"
-            f"4. Sintetize os achados em português do Brasil com alto nível de detalhe técnico, inteligência e profundidade:\n"
-            f"   - Fatos confirmados, novidades e dados concretos (valores, características, itens, especificações);\n"
-            f"   - Comparação ou análise crítica do cenário cruzando as fontes lidas;\n"
-            f"   - Conclusão objetiva com badges técnicos [OK], [VERIFICADO].\n"
-            f"5. Não invente dados, não faça cópia de fragmentos e não cite URLs brutas.\n\n"
+            f"Você é a F.R.I.D.A.Y. Responda ao pedido do dono: '{consulta}', usando SÓ os dados apurados abaixo.\n"
+            f"Hoje é {data_atual}.\n"
+            f"REGRAS:\n"
+            f"1. Comece pela resposta direta (o valor, o nome, a data, o fato pedido). Sem introdução.\n"
+            + ("2. O dono pediu detalhes: depois da resposta, explique em até 2 parágrafos curtos, cruzando as fontes.\n" if longo else
+               "2. Seja curta: 1 a 3 frases no total, como uma pessoa responderia em voz alta.\n")
+            + f"3. Se a fonte disser de quando é o dado (ex.: 'atualizado 16/10 17h'), diga isso. Se as fontes divergirem, cite as duas.\n"
+            f"4. Não invente nada, não cite URLs, não use emoji nem marcadores como [OK].\n\n"
             f"Dados apurados:\n{fontes_agrupadas[:5000]}"
         )
-        sintese_ia = _modelo(prompt_sintese, max_tokens=800)
+        sintese_ia = _modelo(prompt_sintese, max_tokens=500 if longo else 220)
         if sintese_ia and len(sintese_ia.strip()) > 30:
             resumo = sintese_ia.strip()
         else:
@@ -694,31 +710,17 @@ def _executar_acao(a, args):
         pedido = args.get("pedido") or ""
         achados = _ACHADOS.get("textos") or []
         dados_fonte = "\n\n".join([f"Fonte ({x.get('url')}):\n{x.get('txt', '')[:2500]}" for x in achados])
-        if not dados_fonte:
-            tela = _ler_tela()
-            dados_fonte = f"Contexto visual da tela:\n{tela}" if _tela_ok(tela) and len(tela) > 20 else "Dados apurados na navegação."
+        if not dados_fonte:                 # tela atual pode ser outra janela: não vira fonte
+            return {"ok": False, "evidencia": "nenhuma fonte lida para montar a mensagem; pesquise e leia as fontes antes.", "via": "tela"}
 
         data_atual = time.strftime("%d/%m/%Y")
         prompt_msg = (
-            f"Você é a F.R.I.D.A.Y., agente de inteligência executiva e orquestração.\n"
-            f"Redija uma mensagem corporativa analítica de alto nível para a equipe de '{dest}'.\n"
-            f"Solicitação do usuário: {pedido}\n"
-            f"Data atual de referência: {data_atual}\n\n"
-            f"DIRETRIZES ESTRITAS DE FORMATAÇÃO E CONTEÚDO:\n"
-            f"1. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação padrão formal.\n"
-            f"2. A data atual é obrigatoriamente {data_atual}. Nunca mencione datas passadas (como 2024) ou fictícias.\n"
-            f"3. Ignore totalmente anúncios publicitários, popups, cookies, banners ou termos de serviço contidos nos dados.\n"
-            f"4. Analise profundamente os dados apurados e estruture a mensagem de forma humana, executiva, clara e articulada.\n"
-            f"5. Destaque os pontos principais, valores, itens encontrados, novidades e conclusões práticas com valores em V-Bucks ou moeda quando identificados.\n"
-            f"6. NÃO cole fragmentos crus de texto nem links soltos.\n"
-            f"7. Estruture a mensagem no formato corporativo:\n"
-            f"   - Destinatário: {dest}\n"
-            f"   - Data da Apuração: {data_atual}\n"
-            f"   - Resumo Executivo: Visão analítica sintetizada\n"
-            f"   - Itens e Destaques Apurados: Lista técnica com itens, categorias e valores apurados\n"
-            f"   - Considerações e Próximos Passos: Parecer operacional\n"
-            f"   - Status: [STATUS: CONCLUIDO] [VERIFICADO: SIM] [DATA: {data_atual}]\n"
-            f"   - Assinatura: F.R.I.D.A.Y. - Integra Code\n\n"
+            f"Você é a F.R.I.D.A.Y. Escreva a mensagem que será enviada para '{dest}'.\n"
+            f"Pedido do dono: {pedido}\n"
+            f"Data de hoje: {data_atual}\n\n"
+            f"Tom: siga o pedido. Se o dono não pediu formalidade, escreva como uma mensagem normal de WhatsApp, amigável e direta, sem cabeçalho de relatório, sem 'Prezada equipe', sem assinatura nem status. Formal/corporativo SÓ se o pedido disser (relatório, formal, corporativo, e-mail profissional).\n"
+            f"Use SÓ o que estiver no material e for sobre o pedido; ignore anúncios, cookies e menus; não invente; sem emoji; sem links soltos. "
+            f"Organize itens por categoria com valores quando houver.\n\n"
             f"Material de apuração:\n{dados_fonte[:6000]}"
         )
         msg_ia = _modelo(prompt_msg, max_tokens=1000)

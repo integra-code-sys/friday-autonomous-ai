@@ -89,6 +89,22 @@ def sync_corner():
     _save_pos()
 
 
+def sync_bordas():
+    """posição exata SEM tocar cantos (hot corners/launcher): borda esquerda no meio da altura -> x=0; borda de cima no meio
+    da largura (barra, só passa por cima) -> y=0; volta ao centro. Corrige o desvio do rastreio relativo."""
+    w, h = size()
+    yd("mousemove", "-x", -9000, "-y", 0)          # vai à borda esquerda na altura em que está
+    time.sleep(0.05)
+    yd("mousemove", "-x", w // 2, "-y", 0)          # x conhecido (0) -> meio da largura
+    time.sleep(0.05)
+    yd("mousemove", "-x", 0, "-y", -9000)           # borda de cima no meio: y=0
+    time.sleep(0.05)
+    yd("mousemove", "-x", 0, "-y", h // 2)
+    time.sleep(0.05)
+    _last.update(x=w // 2, y=h // 2, sync=time.time())
+    _save_pos()
+
+
 def launcher_open():
     """o launcher do Noctalia é o painel 'noctalia-panel' na camada Top (visto em `niri msg layers`)."""
     try:
@@ -258,6 +274,8 @@ if cmd == "shot":
     print(f"{p} ({w}x{h}) — abra a imagem com Read para ver a tela e o cursor")
 elif cmd == "size":
     print("%dx%d" % size())
+elif cmd == "sync":
+    sync_bordas(); print("cursor sincronizado no centro")
 elif cmd == "move":
     x, y = glide(int(args[0]), int(args[1])); print(f"cursor -> {x},{y}")
 elif cmd == "hot":

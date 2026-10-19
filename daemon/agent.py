@@ -2456,8 +2456,23 @@ def _ir_para_url(url, fr, progress=None):
     time.sleep(1.4)
 
 
-def _entrar_e_ler(tema, fr, ops, progress=None):
+def _nivel_detalhe(texto):
+    """quanto conteúdo o pedido quer: 'tudo/completo/todas' = máximo; 'resumo/principais' = pouco; senão médio.
+    limites cabem no num_ctx 8192 (entrada ~3,5 mil tokens + saída)."""
+    t = (texto or "").lower()
+    if re.search(r"\b(tud[oa]|complet[oa]s?|tod[oa]s|lista inteira|detalhad[oa]|cada (?:item|um)|sem deixar nada|o conte[uú]do|que (?:achar|encontrar)|os itens|a lista)\b", t):
+        return {"nome": "completo", "itens": 2000, "linhas": 120, "chars": 6000, "tokens": 500, "timeout": 90,
+                "instr": "Escreva só uma abertura curta e um panorama por categoria (quantos itens e faixa de preço); a lista COMPLETA de itens será anexada depois automaticamente."}
+    if re.search(r"\b(resum[oa]|principais|destaques|r[aá]pid[oa]|curt[oa]|breve)\b", t):
+        return {"nome": "resumo", "itens": 40, "linhas": 25, "chars": 3000, "tokens": 400, "timeout": 60,
+                "instr": "Nível de detalhe RESUMIDO: só os destaques mais relevantes."}
+    return {"nome": "medio", "itens": 120, "linhas": 60, "chars": 8000, "tokens": 1500, "timeout": 150,
+            "instr": "Cubra todas as categorias com os itens mais relevantes de cada uma; não corte categorias inteiras."}
+
+
+def _entrar_e_ler(tema, fr, ops, progress=None, det=None):
     """Abre cada página na aba da frente, rola e lê só o miolo."""
+    det = det or _nivel_detalhe(tema)
     urls = _paginas_do_assunto(tema)
     if not urls:
         try:
@@ -2473,16 +2488,71 @@ def _entrar_e_ler(tema, fr, ops, progress=None):
             if len(urls) >= 2:
                 break
     linhas = []
+    import orquestra_geral as _og
+    if re.search(r"(?i)fortn", tema):                       # dado oficial da loja, sem depender da tela
+        api = _og.loja_fortnite(det["itens"])
+        if api:
+            try:                                             # o dono quer VER a pesquisa: abre a loja no navegador da Friday
+                _say(progress, "Abrindo a loja do Fortnite de hoje no navegador.")
+                nv = _og._nav()
+                if nv:
+                    nv.abrir("https://www.fortnite.com/item-shop?lang=pt-BR")
+                    from prom_ops import _daemon_send
+                    _daemon_send({"type": "nano", "op": "agente", "on": True})    # esconde o chat da Friday enquanto usa o cursor
+                    try:
+                        time.sleep(1.5)                      # o Chromium restaura a rolagem da mesma página depois de carregar
+                        with nv.Pagina() as pg:
+                            no_fim = pg.js("scrollY") > 50
+                        if no_fim:                           # reaberta já no fim: recarrega como gente (F5) e volta ao topo (Home)
+                            _say(progress, "A página abriu no fim; recarregando e voltando ao topo.")
+                            nv._focar_janela()
+                            nv._pc("key", "F5")
+                            time.sleep(1.0)
+                            with nv.Pagina() as pg:          # conexão nova: a antiga morre no recarregamento
+                                nv._esperar_carregar(pg)
+                            time.sleep(1.5)
+                            nv._pc("key", "Home")
+                            time.sleep(0.8)
+                        with nv.Pagina() as pg:              # rola com o cursor e a rodinha REAIS até o fim da loja
+                            if pg.js("scrollY") > 50:
+                                pg.js("window.scrollTo(0, 0)")
+                                time.sleep(0.5)
+                            real = nv._mover_ate(pg, pg.js("innerWidth") // 2, pg.js("innerHeight") // 2)
+                            parado = 0
+                            for _ in range(80):
+                                y = pg.js("scrollY")
+                                if real and parado < 2:
+                                    nv._pc("scroll", 8)
+                                else:                        # roda não desceu (cursor fora da página): rola pelo navegador
+                                    pg.js("window.scrollBy({top: innerHeight * 0.8, behavior: 'smooth'})")
+                                time.sleep(0.5)
+                                parado = parado + 1 if pg.js("scrollY") <= y else 0
+                                if parado >= 3:              # 3 giros sem descer = chegou ao fim (já espera o carregamento preguiçoso)
+                                    break
+                    finally:
+                        _daemon_send({"type": "nano", "op": "agente", "on": False})
+            except Exception as _e_rola:
+                print("[loja] rolagem falhou:", repr(_e_rola)[:200], flush=True)
+            return api
     for u in urls[:2]:
-        try:
-            _ir_para_url(u, fr, progress)
-            bloco = t_ler_rolando(vezes=8, url=u)
+        bloco = ""
+        try:                                                 # DOM do navegador da Friday: não lê outras janelas da tela
+            nv = _og._nav()
+            if nv:
+                nv.abrir(u)
+                bloco = (nv.ler() or {}).get("texto") or ""
         except Exception:
             bloco = ""
+        if len(bloco) < 80:
+            try:
+                _ir_para_url(u, fr, progress)
+                bloco = t_ler_rolando(vezes=8, url=u)
+            except Exception:
+                bloco = ""
         for s in _linhas_de_leitura(bloco):
             if s not in linhas:
                 linhas.append(s)
-    uso = [s for s in linhas if re.search(r"[A-Za-zÀ-ÿ]{4,}", s) or re.search(r"\d[\d.,]{2,}", s)][:35]
+    uso = [s for s in linhas if re.search(r"[A-Za-zÀ-ÿ]{4,}", s) or re.search(r"\d[\d.,]{2,}", s)][:det["linhas"]]
     if len(uso) < 2:
         return ""
     return "\n".join("• " + s for s in uso)
@@ -2558,7 +2628,8 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
         return f"Pronto, chefe. Pesquisei sobre {tema}, analisei os dados e salvei o relatório estruturado em {nome_arq} na pasta Documentos/Friday."
 
     _say(progress, f"Entrando nas páginas sobre {tema}.")
-    corpo = _entrar_e_ler(tema, fr, ops, progress)
+    det = _nivel_detalhe(t)
+    corpo = _entrar_e_ler(tema, fr, ops, progress, det)
     if len(corpo) < 40:
         return f"Abri as páginas sobre {tema}, mas o texto não tinha o conteúdo. Não montei mensagem genérica."
 
@@ -2574,12 +2645,12 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
     if fr is not None:
         try:
             sintese_msg = fr.llm(
-                f"Você é a F.R.I.D.A.Y. Redija uma mensagem corporativa analítica, fluida e clara para o contato '{contato_dest}' sobre o tema: '{tema}'. "
+                f"Você é a F.R.I.D.A.Y. Redija uma mensagem de WhatsApp natural e clara para o contato '{contato_dest}' sobre o tema: '{tema}'. Use SÓ os Dados apurados que forem sobre esse tema (ignore o resto) e organize por categorias quando houver. Tom: siga o pedido. Se o dono não pediu formalidade, escreva como uma mensagem normal de WhatsApp, amigável e direta, sem cabeçalho de relatório, sem 'Prezada equipe', sem assinatura nem status. Formal/corporativo SÓ se o pedido disser (relatório, formal, corporativo, e-mail profissional). "
                 f"Data atual de referência: {data_atual}. PROIBIDO O USO DE QUALQUER EMOJI OU CARACTERE PICTOGRÁFICO. Utilize exclusivamente texto alfanumérico e pontuação formal padrão. "
                 "Sintetize os pontos principais apurados sobre o tema, valores ou novidades encontradas, sem jargões de robô, "
-                "sem colar URLs cruas, sem anúncios ou avisos de cookies e sem colar trechos soltos. Estruture a mensagem com Resumo Executivo, Destaques Apurados com valores, e Assinatura formal da F.R.I.D.A.Y. - Integra Code.",
-                f"Tema: {tema}\n\nDados apurados:\n{corpo[:4500]}",
-                None, False, 500, 0.2, 60
+                "sem colar URLs cruas, sem anúncios ou avisos de cookies e sem colar trechos soltos. Não invente nada que não esteja nos dados.",
+                f"Tema: {tema}\n{det['instr']}\n\nDados apurados:\n{corpo[:det['chars']]}",
+                None, False, det["tokens"], 0.2, det["timeout"]
             )
         except Exception:
             pass
@@ -2587,10 +2658,10 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
         try:
             import orquestra_geral as _og
             sintese_msg = _og._modelo(
-                f"Você é a F.R.I.D.A.Y. Analise as informações sobre '{tema}' e elabore uma mensagem corporativa executiva para '{contato_dest}'.\n"
+                f"Você é a F.R.I.D.A.Y. Escreva a mensagem de WhatsApp para '{contato_dest}' sobre '{tema}' só com os dados abaixo. Tom: siga o pedido. Se o dono não pediu formalidade, escreva como uma mensagem normal de WhatsApp, amigável e direta, sem cabeçalho de relatório, sem 'Prezada equipe', sem assinatura nem status. Formal/corporativo SÓ se o pedido disser (relatório, formal, corporativo, e-mail profissional).\n"
                 f"Data atual de referência: {data_atual}.\n"
-                f"PROIBIDO O USO DE QUALQUER EMOJI.\n\nDados apurados:\n{corpo[:4000]}",
-                max_tokens=500
+                f"PROIBIDO O USO DE QUALQUER EMOJI.\n{det['instr']}\n\nDados apurados:\n{corpo[:det['chars']]}",
+                max_tokens=det["tokens"]
             )
         except Exception:
             pass
@@ -2598,6 +2669,10 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
         sintese_msg = re.sub(r'[\U00010000-\U0010ffff]|[\u2600-\u27bf]|[\u2300-\u23ff]', '', sintese_msg)
         sintese_msg = re.sub(r'<think>.*?</think>', '', sintese_msg, flags=re.DOTALL).strip()
     resumo = (sintese_msg or corpo).strip()
+    itens_dados = len(re.findall(r"(?m)^\s*•", corpo))
+    itens_msg = len(re.findall(r"(?m)^\s*(?:[-•*]|\d+[.)])\s", sintese_msg or ""))
+    if sintese_msg and det["nome"] != "resumo" and itens_dados > 10 and (det["nome"] == "completo" or itens_msg < itens_dados / 2):
+        resumo += "\n\nLista completa:\n" + corpo           # o modelo resumiu demais (ou não comporta tudo): a lista inteira vai direto
 
     # 2) Pesquisa + Enviar no WhatsApp
     if m_zap:
@@ -2611,7 +2686,9 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
                 res_z = t_zap_enviar(contato=contato, mensagem=msg_zap, fr=fr, ops=ops, pronto=True)
                 _log("tarefa_composta_zap", {"tema": tema, "contato": contato}, True, 0.4, res_z)
                 if re.search(r"PENDENTE|aprova[çc][ãa]o|espelho|preparad", str(res_z), re.I):
-                    return f"Pesquisei sobre {tema} e analisei os dados: {resumo[:220]} Deixei a mensagem pronta para {contato} no espelho — diga aprovado para enviar."
+                    _n_itens = len(re.findall(r"(?m)^\s*(?:[-•*]|\d+[.)])\s", resumo))
+                    _tam = f" A mensagem completa tem {_n_itens} itens ({len(resumo) // 1000} mil caracteres); aqui é só o começo." if _n_itens > 15 else ""
+                    return f"Pesquisei sobre {tema} e analisei os dados: {resumo[:220]}{_tam} Deixei a mensagem pronta para {contato} no espelho — diga aprovado para enviar."
                 return f"Pesquisei e analisei sobre {tema}, e enviei para {contato} no WhatsApp: {resumo[:220]}"
             except Exception as e_z:
                 _log("tarefa_composta_zap", {"tema": tema, "contato": contato}, False, 0.2, repr(e_z))

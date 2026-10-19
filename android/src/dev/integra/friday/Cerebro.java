@@ -127,7 +127,8 @@ final class Cerebro {
 
     /** formato de chat: permite raciocínio natural nos modelos que suportam */
     private String assist() {
-        return "<|im_start|>assistant\n";
+        // Qwen3 sem o bloco vazio entra em <think> e gasta minutos antes do JSON no celular
+        return modelo().toLowerCase(Locale.ROOT).contains("qwen3") ? "<|im_start|>assistant\n<think>\n\n</think>\n\n" : "<|im_start|>assistant\n";
     }
 
     synchronized boolean preparar() {
@@ -180,11 +181,14 @@ final class Cerebro {
             + "Não invente resultado. Se uma ferramenta falhar, tente outro caminho na tela antes de desistir. "
             + "Mensagem para alguém: whatsapp (o dono confirma).\n"
             + "Nunca mexa nas Configurações de acessibilidade nem em você mesma. A data e a hora estão entre [ ] no pedido.\n"
+            + "DATAS (agenda/evento): em 'quando' copie as PALAVRAS do dono sobre dia e hora (ex.: 'sábado às 15h', 'amanhã 3 da tarde', 'daqui 2 horas'). "
+            + "NUNCA calcule dia, mês, ano nem dia da semana: o sistema calcula. Na resposta use a data que a ferramenta devolveu.\n"
             + "Responda SEMPRE ao pedido ATUAL: nunca copie uma resposta anterior. Perguntas sobre fatos, pessoas, preços ou notícias -> pesquisar_links e responda "
             + "com a informação encontrada de forma inteligente e articulada (não só 'pesquisei'). Nunca diga que enviou/fez algo que a ferramenta não confirmou.\n"
             + "FERRAMENTAS:\n" + Ferramentas.LISTA + "\n"
             + "EXEMPLOS:\n"
             + "pedido: que horas são? -> {\"acao\": \"hora\", \"args\": {}}\n"
+            + "pedido: marca reunião com o Carlos sábado às 15h -> {\"acao\": \"agenda\", \"args\": {\"op\": \"novo\", \"titulo\": \"Reunião com o Carlos\", \"quando\": \"sábado às 15h\"}}\n"
             + "pedido: quanto tem de bateria? -> {\"acao\": \"bateria\", \"args\": {}}\n"
             + "pedido: manda um zap pro Carlos dizendo que chego às 18h -> {\"acao\": \"whatsapp\", \"args\": {\"contato\": \"Carlos\", \"texto\": \"Chego às 18h\"}}\n"
             + "pedido: envia mensagem para Mãe falando que já saí -> {\"acao\": \"whatsapp\", \"args\": {\"contato\": \"Mãe\", \"texto\": \"Já saí de casa.\"}}\n"
@@ -249,7 +253,8 @@ final class Cerebro {
         String pl = pedido.toLowerCase(Locale.ROOT);
         return COMP_PESQ_ZAP.matcher(pedido).matches() || COMP_PESQ_DOC.matcher(pedido).matches() || DIRETO_DOC.matcher(pedido).matches() || COMP_PESQ_AG.matcher(pedido).matches()
             || pl.matches("(?s).*\\b(e depois|em seguida|e ent[ãa]o)\\b.*")
-            || pl.matches("(?s).*\\be\\s+(envi|mand|cri|salv|ger|agend|marqu|abr|escrev|prepar|redij)\\w*\\b.*");
+            || pl.matches("(?s).*\\be\\s+(envi|mand|cri|salv|ger|agend|marqu|abr|escrev|prepar|redij)\\w*\\b.*")
+            || pl.matches("(?s).*[,;]\\s*(?:e\\s+)?(envi|mand|cri|salv|ger|agend|marqu|abr|escrev|prepar|redij|procur|tir|calcul|list|confirm|olh|inclu)\\w*\\b.*");   // passos separados por vírgula
     }
 
     private String atalhoAgenda(String pedido) {
@@ -576,8 +581,10 @@ final class Cerebro {
     private static final java.util.regex.Pattern IDENTIDADE = java.util.regex.Pattern.compile(
         "(?iu).*\\b(quem [ée] voc[êe]|qual (?:[ée] )?o seu nome|o que voc[êe] (?:faz|pode fazer)|quem te criou)\\b.*");
 
+    // só a PERGUNTA da hora atual: "que horas é a reunião?" / "a que horas abre..." caíam aqui e ganhavam a hora de agora
     private static final java.util.regex.Pattern HORAS = java.util.regex.Pattern.compile(
-        "(?iu).*\\b(que horas s[ãa]o|que horas|hora certa|horas agora|me d[áa] a hora)\\b.*");
+        "(?iu)(?!(?:.*[^\\p{L}])?a\\s+que\\s+hora).*\\b(?:que horas?(?:\\s+(?:s[ãa]o|[ée]))?(?:\\s+agora)?|hora certa|horas agora|me (?:d[áa]|diz|diga|fala|fale) (?:a|as) horas?)"
+        + "\\s*(?:,?\\s*(?:por favor|friday|sexta[- ]feira))?\\s*[?.!]*\\s*$");
 
     private static final java.util.regex.Pattern DATA = java.util.regex.Pattern.compile(
         "(?iu).*\\b(que dia [ée] hoje|qual a data de hoje|qual o dia de hoje|que dia hoje|qual [ée] a data)\\b.*");
@@ -881,6 +888,10 @@ final class Cerebro {
                     if (acao.equals("abrir_tela") && "clima".equals(args.optString("tela"))
                             && !pedido.toLowerCase(Locale.ROOT).matches("(?s).*\\b(clima|tempo|previs[aã]o|temperatura|chuva)\\b.*")) {
                         p.append("<|im_start|>user\n<tool_response>\nEsse pedido não é sobre o clima. Pesquise o assunto pedido ou monte a mensagem.\n</tool_response><|im_end|>\n");
+                        continue;
+                    }
+                    if (acao.equals("responder") && passos.isEmpty() && passo < 3 && ehComposto(pedido)) {   // ecoava o pedido sem executar nada
+                        p.append("<|im_start|>user\n<tool_response>\nVocê ainda não executou nenhuma etapa. Use as ferramentas para fazer o pedido, uma etapa por vez.\n</tool_response><|im_end|>\n");
                         continue;
                     }
                     if (acao.equals("responder")) {

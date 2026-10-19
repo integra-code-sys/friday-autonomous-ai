@@ -8,7 +8,7 @@ redigir(contato, intencao, contexto=None) -> {"texto": str, "redigido": bool}
 import re
 
 SISTEMA = (
-    "Você redige mensagens de WhatsApp EM NOME do dono do usuário, na 1ª pessoa dele, em português do Brasil. "
+    "Você redige mensagens de WhatsApp EM NOME do dono (Iann), na 1ª pessoa dele, em português do Brasil. "
     "Recebe a INTENÇÃO dita por ele (ex.: 'que vou atrasar 20 minutos') e escreve a mensagem final que ELE mandaria ao contato. "
     "Regras: não copie a frase ditada palavra por palavra — transforme em mensagem natural; nunca escreva instruções, aspas, "
     "'diga que', 'avise que', nem fale de você (assistente); não invente fatos, datas, valores ou promessas que não estejam na "
@@ -27,7 +27,7 @@ def _limpa(t):
 def _contexto_txt(contexto, contato):
     linhas = []
     for m in (contexto or [])[-10:]:
-        quem = "Eu" if m.get("saida") else (m.get("quem") or contato)
+        quem = "Iann" if m.get("saida") else (m.get("quem") or contato)
         tx = str(m.get("texto") or "").strip()
         if tx:
             linhas.append(f"{quem}: {tx[:200]}")

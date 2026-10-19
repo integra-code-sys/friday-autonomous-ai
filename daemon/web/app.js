@@ -289,9 +289,13 @@ window.modoAssistente = () => {
 
 function tsRender() {
   const e = $("#tsSel"); if (!e || !window.Nativo || !Nativo.tsAtivo) { if (e) e.hidden = true; return; }
-  const quer = Nativo.tsManter(), ativo = Nativo.tsAtivo();
-  $("#tsNome").textContent = !quer ? "DESLIGADO" : ativo ? "LIGADO" : "RELIGANDO";
-  e.className = quer && ativo ? "on" : "off";
+  try {
+    const quer = Nativo.tsManter(), ativo = Nativo.tsAtivo();
+    $("#tsNome").textContent = !quer ? "DESLIGADO" : ativo ? "LIGADO" : "RELIGANDO";
+    e.className = quer && ativo ? "on" : "off";
+  } catch (err) {
+    if (e) e.className = "off";
+  }
 }
 $("#tsSel").onclick = () => { const on = !Nativo.tsManter(); Nativo.tsLigar(on); vibrar(); toast(on ? "Tailscale ligado (vigia ativo)" : "Tailscale desligado"); setTimeout(tsRender, 1500); tsRender(); };
 setInterval(tsRender, 5000); setTimeout(tsRender, 800);

@@ -78,12 +78,12 @@ echo.
 echo [4/6] Configurando Sincronização Mesh com Workstation e Servidor...
 if not exist "memory" mkdir memory
 
-:: Token vazio: a Friday gera um token exclusivo no primeiro uso (remoto.config)
+:: Token compartilhado do cluster
 if not exist "memory\remoto.json" (
     echo {"token": ""} > memory\remoto.json
 )
 
-:: Pares: vazio; o sync_mesh descobre os aparelhos da rede local por broadcast
+:: Pares: descobertos sozinhos na rede (sync_mesh por UDP); nenhum IP fixo
 if not exist "memory\peers.json" (
     echo {"peers": []} > memory\peers.json
 )
@@ -92,7 +92,7 @@ if not exist "memory\peers.json" (
 if not exist "memory\profile.json" (
     (
         echo {
-        echo   "nome": "Iann",
+        echo   "nome": null,
         echo   "fatos": {},
         echo   "autonomia": true,
         echo   "voice": true,
@@ -109,6 +109,28 @@ if not exist "memory\agenda.json" (
 :: Tarefas padrão se não existir
 if not exist "memory\tarefas.json" (
     echo {"itens": []} > memory\tarefas.json
+)
+
+:: 4b. IA local (Ollama + modelo), Claude Code CLI e papel de parede da Friday
+echo.
+echo [4b/6] Instalando IA local (Ollama + qwen3.5:4b), Claude Code e papel de parede...
+where ollama >nul 2>nul
+if %errorlevel% neq 0 (
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile \"$env:TEMP\OllamaSetup.exe\""
+    if exist "%TEMP%\OllamaSetup.exe" start /wait "" "%TEMP%\OllamaSetup.exe" /VERYSILENT /NORESTART
+    set "PATH=%PATH%;%LOCALAPPDATA%\Programs\Ollama"
+)
+start /B "" ollama serve >nul 2>nul
+timeout /t 5 /nobreak >nul
+ollama pull qwen3.5:4b
+if %errorlevel% neq 0 echo [AVISO] Modelo não baixado agora; a Friday tenta de novo ao iniciar.
+where claude >nul 2>nul
+if %errorlevel% neq 0 (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"
+)
+if exist "%~dp0installer\wallpaper_friday.jpg" (
+    copy /Y "%~dp0installer\wallpaper_friday.jpg" "%LOCALAPPDATA%\Friday\wallpaper_friday.jpg" >nul 2>nul || (mkdir "%LOCALAPPDATA%\Friday" & copy /Y "%~dp0installer\wallpaper_friday.jpg" "%LOCALAPPDATA%\Friday\wallpaper_friday.jpg" >nul)
+    powershell -NoProfile -Command "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class W { [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d); }'; [W]::SystemParametersInfo(20, 0, \"$env:LOCALAPPDATA\Friday\wallpaper_friday.jpg\", 3)"
 )
 
 :: 5. Criação de Atalhos (Área de Trabalho e Inicialização Automática)

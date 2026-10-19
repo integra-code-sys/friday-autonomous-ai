@@ -346,7 +346,7 @@ final class Agenda {
     }
 
     static String quandoTxt(long t) {
-        long d = (inicioDoDia(t) - inicioDoDia(System.currentTimeMillis())) / 86400000L;
+        long d = Math.round((inicioDoDia(t) - inicioDoDia(System.currentTimeMillis())) / 86400000.0);   // round: dia de 23/25 h (horário de verão)
         String h = new java.text.SimpleDateFormat("HH:mm", Locale.ROOT).format(new java.util.Date(t));
         return (d == 0 ? "hoje" : d == 1 ? "amanhã" : new java.text.SimpleDateFormat("EEEE dd/MM", new Locale("pt", "BR")).format(new java.util.Date(t))) + " às " + h;
     }
@@ -548,53 +548,75 @@ final class Agenda {
     // ------------------------------------------------------------------ "amanhã às 15h" sem o PC
     static final class Quando {
         private static final String[] SEM = {"domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"};
+        private static final String MESES = "jan fev mar abr mai jun jul ago set out nov dez";
 
+        // mesma regra do PC (prom_ops.parse_quando): celular e PC têm que dar a MESMA data
         static long parse(String txt, long agora) {
-            String t = norm(txt);
+            if (txt == null) return -1;
+            Matcher mais = Pattern.compile("^\\s*\\+(\\d{1,4})\\s*([mhd])\\s*$").matcher(txt);   // "+2h"
+            if (mais.find()) return agora + Integer.parseInt(mais.group(1)) * (mais.group(2).equals("m") ? 60000L : mais.group(2).equals("h") ? 3600000L : 86400000L);
+            // como norm(), mas guarda : / - (hora e data: "15:00", "24/10", "2026-10-24")
+            String t = Normalizer.normalize(txt.toLowerCase(Locale.ROOT), Normalizer.Form.NFD).replaceAll("\\p{M}", "")
+                .replaceAll("[^a-z0-9:/ -]", " ").trim().replaceAll("\\s+", " ");
             if (t.isEmpty()) return -1;
+            t = t.replaceAll("\\bmeia hora\\b", "30 min").replaceAll("\\buma? (?=min|hora|dia|semana|da )", "1 ");   // "daqui a uma hora"
+            Matcher mes = Pattern.compile("\\b(\\d{1,2}) de (jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*(?: de (\\d{4}))?").matcher(t);
+            if (mes.find()) t = t.replace(mes.group(0), mes.group(1) + "/" + (MESES.indexOf(mes.group(2)) / 4 + 1) + (mes.group(3) != null ? "/" + mes.group(3) : ""));   // "25 de dezembro" -> 25/12
             Calendar k = Calendar.getInstance();
             k.setTimeInMillis(agora); k.set(Calendar.SECOND, 0); k.set(Calendar.MILLISECOND, 0);
-            boolean temDia = false;
-            String resto = t;                                       // o que sobra p/ achar a hora (sem a data)
-            if (t.contains("depois de amanha")) { k.add(Calendar.DAY_OF_YEAR, 2); temDia = true; }
-            else if (t.contains("amanha")) { k.add(Calendar.DAY_OF_YEAR, 1); temDia = true; }
-            else if (t.contains("hoje")) temDia = true;
-            else {
-                for (int d = 0; d < 7 && !temDia; d++) if (t.matches(".*\\b" + SEM[d] + "\\b.*")) {
-                    int dif = ((d + 1) - k.get(Calendar.DAY_OF_WEEK) + 7) % 7;
-                    k.add(Calendar.DAY_OF_YEAR, dif == 0 ? 7 : dif); temDia = true;
-                }
-                Matcher m = Pattern.compile("\\b(\\d{1,2}) (\\d{1,2})(?: (\\d{4}))?\\b").matcher(t);
-                Matcher md = Pattern.compile("\\bdia (\\d{1,2})\\b").matcher(t);
-                if (!temDia && txt.matches(".*\\d{1,2}/\\d{1,2}.*") && m.find()) {
-                    k.set(Calendar.DAY_OF_MONTH, Integer.parseInt(m.group(1))); k.set(Calendar.MONTH, Integer.parseInt(m.group(2)) - 1);
-                    if (m.group(3) != null) k.set(Calendar.YEAR, Integer.parseInt(m.group(3)));
-                    else if (k.getTimeInMillis() < agora - 86400000L) k.add(Calendar.YEAR, 1);
-                    resto = resto.replaceFirst(Pattern.quote(m.group(0)), " ");
-                    temDia = true;
-                } else if (!temDia && md.find()) {
-                    int dia = Integer.parseInt(md.group(1));
-                    if (dia < k.get(Calendar.DAY_OF_MONTH)) k.add(Calendar.MONTH, 1);
-                    k.set(Calendar.DAY_OF_MONTH, dia); temDia = true;
-                    resto = resto.replaceFirst(Pattern.quote(md.group(0)), " ");
-                }
+            // prazo: "daqui (a) 2 horas", "em 30 minutos", "em 3 dias" ("em 15h" é horário, não prazo)
+            Matcher rel = Pattern.compile("\\b(daqui(?: a)?|dentro de|em) (\\d{1,4}) ?(min[a-z]*|h|horas?|dias?|semanas?)(?![a-z])").matcher(t);
+            boolean temRel = rel.find() && !(rel.group(1).equals("em") && rel.group(3).equals("h"));
+            if (temRel && "mh".indexOf(rel.group(3).charAt(0)) >= 0)
+                return agora + Integer.parseInt(rel.group(2)) * (rel.group(3).charAt(0) == 'm' ? 60000L : 3600000L);
+            if (temRel) t = t.replace(rel.group(0), " ");                 // dias/semanas: o dia aqui, a hora abaixo (padrão 9h)
+            Matcher iso = Pattern.compile("\\b(\\d{4})-(\\d{1,2})-(\\d{1,2})(?:t|\\b)").matcher(t);   // "2026-10-24 15:00" (ferramenta evento)
+            Matcher md = Pattern.compile("\\b(\\d{1,2})/(\\d{1,2})(?:/(\\d{2,4}))?\\b").matcher(t);
+            Matcher dn = Pattern.compile("\\bdia (\\d{1,2})\\b").matcher(t);
+            boolean temIso = iso.find(), temMd = md.find(), temDn = dn.find(), temDia = true;
+            int sem = -1;                                                 // dia da semana citado (Calendar.SUNDAY..SATURDAY), segunda primeiro como no PC
+            for (int i = 1; i <= 7 && sem < 0; i++) if (t.matches(".*\\b" + SEM[i % 7] + "\\b.*")) sem = i % 7 + 1;
+            if (temRel) k.add(Calendar.DAY_OF_YEAR, Integer.parseInt(rel.group(2)) * (rel.group(3).startsWith("s") ? 7 : 1));
+            else if (temIso) k.set(Integer.parseInt(iso.group(1)), Integer.parseInt(iso.group(2)) - 1, Integer.parseInt(iso.group(3)));
+            else if (t.matches(".*\\b(proxima semana|semana que vem)\\b.*")) {
+                int dif = (Calendar.MONDAY - k.get(Calendar.DAY_OF_WEEK) + 7) % 7;              // segunda que vem (+ o dia citado)
+                k.add(Calendar.DAY_OF_YEAR, (dif == 0 ? 7 : dif) + (sem < 0 ? 0 : (sem - Calendar.MONDAY + 7) % 7));
             }
-            int h = -1, min = 0;
-            if (t.contains("meio dia")) h = 12;
-            else if (t.contains("meia noite")) h = 0;
-            Matcher mh = Pattern.compile("\\b(?:as |a )?(\\d{1,2})(?: ?h| horas?| ?:)? ?(\\d{2})?\\b(?! (?:de|do) )").matcher(resto);
-            if (h < 0) while (mh.find()) {
-                int v = Integer.parseInt(mh.group(1));
-                if (v > 23) continue;
-                h = v; min = mh.group(2) != null ? Math.min(59, Integer.parseInt(mh.group(2))) : 0;
-                break;
+            else if (t.contains("depois de amanha")) k.add(Calendar.DAY_OF_YEAR, 2);
+            else if (t.contains("amanha")) k.add(Calendar.DAY_OF_YEAR, 1);
+            else if (t.contains("hoje")) { }
+            else if (sem > 0 || t.contains("fim de semana")) {               // "fim de semana" = o próximo sábado
+                int dif = ((sem > 0 ? sem : Calendar.SATURDAY) - k.get(Calendar.DAY_OF_WEEK) + 7) % 7;
+                k.add(Calendar.DAY_OF_YEAR, dif == 0 ? 7 : dif);
+            } else if (temMd) {
+                int y = md.group(3) != null ? Integer.parseInt(md.group(3)) : k.get(Calendar.YEAR);
+                k.set(y < 100 ? y + 2000 : y, Integer.parseInt(md.group(2)) - 1, Integer.parseInt(md.group(1)));
+                if (md.group(3) == null && inicioDoDia(k.getTimeInMillis()) < inicioDoDia(agora) - 86400000L) k.add(Calendar.YEAR, 1);   // "10/01" já passou
+            } else if (temDn) {                                           // "dia 20": este mês, ou o próximo se já passou
+                int dia = Integer.parseInt(dn.group(1));
+                if (dia < k.get(Calendar.DAY_OF_MONTH)) k.add(Calendar.MONTH, 1);
+                k.set(Calendar.DAY_OF_MONTH, dia);
+            } else temDia = false;
+            String r = t;                                                 // tira a data p/ o número do dia não virar hora
+            if (temIso) r = r.replace(iso.group(0), " ");
+            if (temMd) r = r.replace(md.group(0), " ");
+            if (temDn) r = r.replace(dn.group(0), " ");
+            Matcher mh = null;                                            // "15h"/"9:30" > "às 9 (e 15)" > "1 da tarde" > número solto
+            for (String re : new String[]{"\\b(\\d{1,2})\\s*(?:h(?:rs?|s)?(?![a-z])|:|horas?\\b)\\s*(?:e\\s+)?(\\d{2})?",
+                    "\\b(?:as?|ao?)\\s+(\\d{1,2})(?:\\s*e\\s*(\\d{1,2}))?\\b(?!/)",
+                    "\\b(\\d{1,2})(?:\\s*e\\s*(\\d{1,2}))?\\s+da (?:manh|tarde|noite)", "\\b(\\d{1,2})()\\b(?![/:-])"}) {
+                Matcher x = Pattern.compile(re).matcher(r);
+                if (x.find()) { mh = x; break; }
             }
-            if (h >= 0 && h < 12 && (t.contains("da tarde") || t.contains("da noite"))) h += 12;
-            if (t.contains("e meia") && min == 0) min = 30;
-            if (h < 0) {
-                if (!temDia) return -1;
-                h = 9;                                                // só o dia: 9h
-            }
+            boolean temHora = mh != null;
+            int h = temHora ? Integer.parseInt(mh.group(1)) : 9, min = temHora && mh.group(2) != null && !mh.group(2).isEmpty() ? Integer.parseInt(mh.group(2)) : 0;
+            if (temHora && t.matches(".*\\be meia\\b.*")) min = 30;
+            if (temHora && h < 12 && t.matches(".*(?<!meia[- ])\\b(tarde|noite)\\b.*")) h += 12;   // "8 da noite", "8 à noite"
+            Matcher per = Pattern.compile("(?<!meia[- ])\\b(manha|tarde|noite)\\b").matcher(t);
+            if (!temHora && per.find()) { h = per.group(1).startsWith("m") ? 9 : per.group(1).startsWith("t") ? 14 : 20; temHora = true; }   // manhã 9h, tarde 14h, noite 20h
+            if (t.matches(".*\\bmeio[- ]dia\\b.*")) { h = 12; min = t.split("dia", 2)[1].contains("meia") ? 30 : 0; temHora = true; }
+            else if (t.matches(".*\\bmeia[- ]noite\\b.*")) { h = 0; min = 0; temHora = true; }
+            if (h > 23 || min > 59 || (!temDia && !temHora)) return -1;   // só o dia: 9h
             k.set(Calendar.HOUR_OF_DAY, h); k.set(Calendar.MINUTE, min);
             if (!temDia && k.getTimeInMillis() < agora) k.add(Calendar.DAY_OF_YEAR, 1);   // "às 8" já passou: amanhã
             return k.getTimeInMillis();

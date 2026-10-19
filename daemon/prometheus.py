@@ -3318,6 +3318,16 @@ async def handle_modes(txt):
         await broadcast({"type": "text", "role": "assistant", "text": msg}); log_turn("prometheus", msg)
         await speak(msg)
     # --- pedido ao Claude: vai DIRETO para a sessão do Claude CLI no terminal (o cérebro local inventava "arquivo salvo") ---
+    # 19/10: "continua"/"prossiga" com o Claude do MODO DEV usado há <30 min vai PARA ELE como texto (virava pedido novo: abriu site)
+    if len(t.split()) <= 8 and re.search(r"\b(?:continu\w*|prossig\w*|segue|siga|pode seguir|termin[ae]\w*|clic\w*|aperte?\w*|escolh\w*|selecion\w*|op[çc][ãa]o|yes|sim|confirm\w*|aceit\w*|n[ãa]o mostr\w*|not now)\b", t):
+        try:
+            import dev_cli
+            if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 1800:
+                r_ = await asyncio.to_thread(dev_cli.responder, txt)
+                await dizer(r_[0].upper() + r_[1:] + ".")
+                return True
+        except Exception as e_:
+            print("dev continuar:", e_, flush=True)
     # 19/10: "ative o modo dev e nele crie ..." e "no diretório integra site coordene modificação ..." caíam no cérebro local (só consultava memória)
     _dev_tarefa = len(t.split()) >= 8 and (
         re.search(r"\bmodo\s+dev\b.{0,25}\b(?:e\s+(?:nele|l[áa]|ent[ãa]o|depois)?|para|pra)\s+\w+", t)
@@ -3740,7 +3750,7 @@ _INCOMPLETA = re.compile(r"(\.\.\.|…|,)\s*$|\b(a|o|as|os|e|de|do|da|dos|das|qu
 
 
 def _nome_unico(rostos):
-    """19/10: dois rostos no mesmo quadro saíam ambos 'Iann' e o aprendizado gravava o errado.
+    """19/10: dois rostos no mesmo quadro saíam ambos 'Iann' (sim 0,49 e 0,56) e o aprendizado gravava o errado.
     A mesma pessoa só aparece uma vez: fica com o rosto mais parecido; os outros viram desconhecidos."""
     melhor = {}
     for f in rostos:
@@ -3797,6 +3807,7 @@ _NOMES_STT = [(r"\bchat\s*-?\s*(?:g\s*)?(?:[ie]\s*)?p\s*t\b|\bchat\s*gpt\b|\bcha
               (r"\bdes(?:moque|broque|boque|loque|bloke|moquei|mulque|mulqu|bloqe)(\w*)", r"desbloque\1"),          # 16/10 STT: "Desmoquear celular"
               (r"\b(desbloque\w*|destrav\w*)\s+(?:o\s+)?navegador\b", r"\1 o celular"),       # 16/10 STT: "Desbloquear Navegador"
               (r"\bvir[ie]\b", "vire"), (r"\b(ptz|petz|pedz|iptz)\b", "PTZ"),
+              (r"\b(?:ou|o|n[ao])\s+integra\s+site\b", "no Integra Site"),
               (r"\bmodo\s+(?:deve|devi|d[ée]vi?|de\s+v[eê]|dvd|debe|devo)\b", "modo dev"), (r"\bdev\s*mode\b", "modo dev"),
               (r"\b(?:ente[,\s]*gravit|antigravig|ante[- ]gravity|ante\s*gravit|anti\s*gravit\w*|broadway)\b", "Antigravity"),
               (r"\b(?:abracept|abra\s*o\s*chat\s*pt|abro\s*o\s*chat|chat\s*bt)\b", "abra o ChatGPT"),
@@ -4104,6 +4115,7 @@ async def _vigilia_multimodal_tick():
 
 
 # ======================= HUD HOLOGRÁFICO DE TAREFAS (padrão ao usar ferramentas) =======================
+_INICIO_DAEMON = time.time()
 hud_state = {"steps": [], "titulo": "", "t0": 0.0, "last": 0.0, "active": False, "n": 0, "clear_task": None}
 
 
@@ -4484,9 +4496,10 @@ async def resolver_aprovacao(aid, decisao, texto=None, origem="voz"):
         dest_nome = str(it.get("destino") or "destinatário")
         if not ok and "não encontrada" in str(msg):      # corrida (app + voz): a outra resolução já executou -> não reenvia nem marca "falhou"
             return False, "Essa aprovação já foi resolvida.", None
-        _retentar = not ok and it["acao"] != "self.apply"
+        _retentar = not ok and it["acao"] != "self.apply" and not it["acao"].startswith("wa.")   # WhatsApp não repete sozinho: reenvio virou loop
         resp = ("Aplicado. Passa a valer quando reiniciar o daemon." if it["acao"] == "self.apply" else f"Feito, enviei a mensagem para {dest_nome}.") if ok \
-            else (f"Certo, estou enviando para {dest_nome}." if _retentar else "Não consegui aplicar essa mudança.")   # nunca o erro cru (URLError...)
+            else (f"Ainda não enviei para {dest_nome}: a primeira tentativa falhou. Vou tentar de novo em 30 segundos e te aviso." if _retentar
+                  else (f"Não enviei para {dest_nome}: {str(msg)[:160]}. Não repito sozinha para não duplicar; peça de novo quando quiser." if it["acao"].startswith("wa.") else "Não consegui aplicar essa mudança."))   # nunca o erro cru (URLError...)
         if _retentar:
             asyncio.create_task(_retentar_aprovacao(it, dest_nome, msg))
         item = None
@@ -4530,6 +4543,9 @@ async def _retentar_aprovacao(it, dest_nome, erro, intervalo=30, limite=300):
         if ok:
             break
         erro = msg
+        if str(msg).startswith("enviei "):           # parte já saiu: repetir duplicaria as partes enviadas
+            ok = False
+            break
     else:
         ok = False
     try:
@@ -4541,7 +4557,7 @@ async def _retentar_aprovacao(it, dest_nome, erro, intervalo=30, limite=300):
         ops.audit(it["acao"], it["destino"], it["resumo"], f"retentativa {n}x→{'ok' if ok else 'falhou'}: {str(msg if ok else erro)[:120]}", "dono")
     except Exception as e:
         print("retentativa de aprovação:", e, flush=True)
-    resp = f"Pronto, enviei a mensagem para {dest_nome}." if ok else f"Não consegui enviar para {dest_nome}. Tentei por 5 minutos e não deu; está no histórico."
+    resp = f"Pronto, enviei a mensagem para {dest_nome}." if ok else f"Não consegui enviar para {dest_nome}: {str(erro)[:140]}"
     await broadcast({"type": "aprovacao_fim", "id": it["id"], "estado": "aprovada" if ok else "falhou", "msg": resp})
     await broadcast({"type": "text", "role": "assistant", "text": resp})
     log_turn("prometheus", resp); await speak(resp)
@@ -5258,15 +5274,25 @@ async def friday_ask(text: str, files=None, proactive=False):
             _cer, _cer_on = None, False
 
         async def _cerebro(pedido, ctx_):
-            """laço autônomo (cerebro.py): decide, age, confere e replaneja; o turno fica livre enquanto ela age."""
+            """laço autônomo: agente_geral (navegador próprio/celular/PC por observação estruturada) quando ativo em
+            memory/agente.json; senão o cerebro.py antigo. O turno fica livre enquanto ela age."""
             if agente_ativo[0]:
                 _dec.append("fila")
                 return _enfileirar(pedido)
-            _dec.append("cerebro")
+            try:
+                import agente_geral as _geral
+                _usar_geral = bool(_geral.config().get("ativo"))
+            except Exception as _eg:
+                print("agente_geral indisponível:", _eg, flush=True)
+                _geral, _usar_geral = None, False
+            _dec.append("geral" if _usar_geral else "cerebro")
             _lp = asyncio.get_running_loop()
             agente_ativo[0] = True
             busy.release()          # ela continua ouvindo ("pare", "aprovado") enquanto age
             try:
+                if _usar_geral:
+                    r_ = await asyncio.to_thread(_geral.resolver, pedido, fr, ops, lambda s_: asyncio.run_coroutine_threadsafe(speak(s_), _lp))
+                    return {"fala": r_.get("fala") or "", "acoes": [], "pose": "neutro", "humor": "neutro", "lembrar": {}, "passos": r_.get("passos")}
                 return await asyncio.to_thread(_cer.run, pedido, ctx_, fr, ops, _friday_history(6),
                                                lambda s_: asyncio.run_coroutine_threadsafe(speak(s_), _lp), mem.get("nome") or "Iann")
             finally:
@@ -5834,6 +5860,89 @@ def _brief_programacao(pedido: str, pasta=None):
     return out
 
 
+_SUDO_RE = re.compile(r"(?:^|[\s`!])(sudo\s+(?:pacman|apt|apt-get|dnf|systemctl|npm|pip|install|chmod|chown|ln|mkdir|cp|usermod)\b[^\n`]*)", re.M)
+
+
+async def _sudo_aprovado(cmd, espera=600):
+    """pede o sudo pelo portão de aprovação (dono diz 'aprovado' e digita a senha na janela do sistema) e espera o fim."""
+    m_ = re.match(r"^(?:sudo\s+)?pacman\s+(-S|-Syu)\b(.*)$", cmd.strip())
+    if m_:                                           # 19/10: /etc/sudoers.d/friday-dev libera só 'pacman -S --noconfirm <pacotes>' e 'pacman -Syu --noconfirm' sem senha
+        pac = [x for x in m_.group(2).split() if x != "--noconfirm"]
+        if all(re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", x) for x in pac) and (pac or m_.group(1) == "-Syu"):
+            arg = ["sudo", "-n", "/usr/bin/pacman", m_.group(1), "--noconfirm"] + (pac if m_.group(1) == "-S" else [])
+            r = await asyncio.to_thread(subprocess.run, arg, capture_output=True, text=True, timeout=1800)
+            return r.returncode == 0, ((r.stdout or "") + (r.stderr or ""))[-600:]
+    import agent as _ag
+    antes = {i["id"] for i in ops.approvals()}
+    await asyncio.to_thread(_ag.t_comando_sudo, comando=re.sub(r"^sudo\s+", "", cmd), motivo="O Claude do MODO DEV precisa disso para continuar", ops=ops)   # o executor já põe sudo -A
+    novo = next((i for i in ops.approvals() if i["id"] not in antes and i["acao"] == "sudo.run"), None)
+    if not novo:
+        return False, "não consegui criar a aprovação do sudo"
+    await speak(f"O Claude precisa rodar um comando de administrador: {cmd[:90]}. Diga aprovado e digite a senha na janela.")
+    t0 = time.time()
+    while time.time() - t0 < espera:
+        await asyncio.sleep(3)
+        it = next((i for i in ops.approvals() if i["id"] == novo["id"]), {})
+        if it.get("estado") in ("executada", "falhou", "rejeitada"):
+            return it["estado"] == "executada", str(it.get("resultado") or it["estado"])
+    return False, "o dono não aprovou a tempo"
+
+
+async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("FRIDAY_DEV_RODADAS", "60"))):
+    """a Friday conduz o Claude do MODO DEV até o objetivo: sudo via aprovação, testa/corrige/continua sem o dono
+    responder cada etapa; para em concluído, em algo que só o dono tem (certificado, credencial, chave) ou em `rodadas`."""
+    import dev_cli, orquestra_geral as _og
+    _sudo_feitos = set()
+    parado, anterior = 0, ""                             # 19/10: sem teto fixo de 10; para em concluído, só-o-dono ou 3 telas iguais seguidas
+    for n in range(rodadas):
+        fim = tela[-3500:]
+        parado = parado + 1 if fim.strip() == anterior.strip() else 0
+        anterior = fim
+        if parado >= 3:
+            await speak("O Claude do modo dev parou de avançar. Deixei a sessão aberta para você ver.")
+            break
+        m = _SUDO_RE.search(fim)
+        if m:
+            cmd = re.split(r"\s+e\s+|[.;,(]\s*|\s+(?:depois|então|e me|aí)\b", m.group(1).strip() + " ")[0].strip().rstrip(".")
+            mp_ = re.match(r"sudo\s+pacman\s+(-S\w*)\s+(.*)$", cmd)
+            if mp_:                                      # 19/10: frase vinha junto ("php no prompt", "(precisa de ...") -> só pacotes que EXISTEM no repositório
+                pac_ = [x for x in mp_.group(2).split() if re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", x)
+                        and subprocess.run(["pacman", "-Si", x], capture_output=True).returncode == 0]
+                cmd = f"sudo pacman -S --noconfirm {' '.join(pac_)}" if pac_ else ""
+            if not cmd or cmd in _sudo_feitos:          # nada válido ou já tentado nesta tarefa: não pede de novo (texto antigo segue na tela)
+                tela = await asyncio.to_thread(dev_cli.enviar, "Continue o objetivo de forma autônoma, sem depender desse comando de administrador.", 1800, pasta)
+                continue
+            _sudo_feitos.add(cmd)
+            ok, saida = await _sudo_aprovado(cmd)
+            msg = (f"A Friday executou `{cmd}` com sucesso. Saída: {saida[:400]}. " if ok else
+                   f"O comando `{cmd}` não foi executado ({saida[:200]}). Siga sem ele se der, ou explique o que falta. ")
+            msg += "Continue o objetivo de forma autônoma: teste, confira, corrija e avance sem me perguntar."
+        else:
+            prompt = ("Você supervisiona um agente de programação. OBJETIVO DO DONO:\n" + objetivo[:1500] +
+                      "\n\nFIM DA TELA DO AGENTE:\n" + fim +
+                      "\n\nResponda SÓ JSON: {\"concluido\": true|false, \"so_o_dono\": \"\" ou o que só o dono pode fornecer "
+                      "(certificado, senha, credencial, chave de API, decisão de negócio), \"proxima\": \"mensagem curta para o agente "
+                      "continuar: testar, conferir, corrigir e fazer o próximo passo do objetivo\"}\n"
+                      "REGRA: se o agente terminou PERGUNTANDO ('qual prefere?', 'posso começar?', 'quer que eu...?'), NÃO está concluído: "
+                      "escolha você a opção que NÃO depende do dono e mande seguir nela (proxima). so_o_dono só quando nenhuma opção dá para seguir.")
+            try:
+                d = json.loads(re.search(r"\{.*\}", await asyncio.to_thread(_og._modelo, prompt, 300), re.S).group(0))
+            except Exception:
+                d = {"concluido": False, "so_o_dono": "", "proxima": "Continue o objetivo: teste, confira e corrija."}
+            if d.get("concluido"):
+                break
+            dono_ = str(d.get("so_o_dono") or "").strip()
+            if dono_ and dono_ not in _sudo_feitos:       # 19/10: avisa 1x o que depende do dono, mas segue no que dá (antes parava tudo)
+                _sudo_feitos.add(dono_)
+                await speak("Para depois, o Claude vai precisar de você: " + dono_[:160] + ". Enquanto isso, sigo no resto.")
+            if dono_ and not str(d.get("proxima") or "").strip():
+                break
+            msg = str(d.get("proxima") or "Continue.") + " Faça de forma autônoma, sem me perguntar; teste antes de dizer que terminou."
+        await broadcast({"type": "text", "role": "tool", "text": f"MODO DEV rodada {n + 2}: {msg[:160]}"})
+        tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, pasta)
+    return tela
+
+
 async def run_programming(pedido: str, pasta=None):
     """Executa o Claude Code CLI em background de forma autônoma por múltiplos turnos até concluir sem interromper o usuário."""
     if ops is None:
@@ -5845,9 +5954,10 @@ async def run_programming(pedido: str, pasta=None):
     try:                                                    # MODO DEV: sessão fixa do claude no terminal kitty (menos token)
         import dev_cli
         aviso = f"Trabalhe em {cwd}. " if pasta else ""
-        tela = await asyncio.to_thread(dev_cli.enviar, aviso + pedido_prompt, 1800)
-        fim = [l.strip() for l in tela.splitlines() if l.strip().startswith("⏺")]
-        resumo = (fim[-1].lstrip("⏺ ").strip() if fim else "Terminei no terminal do modo dev.")[:300]
+        tela = await asyncio.to_thread(dev_cli.enviar, aviso + pedido_prompt, 1800, pasta)
+        tela = await _supervisionar_dev(pedido, tela, pasta)
+        fim = [l.strip() for l in tela.splitlines() if l.strip().startswith(("⏺", "●"))]
+        resumo = (fim[-1].lstrip("⏺● ").strip() if fim else "Terminei no terminal do modo dev.")[:300]
         await broadcast({"type": "text", "role": "tool", "text": "MODO DEV (terminal): " + resumo})
         await speak(resumo if len(resumo) <= 180 else "Terminei. O resultado está no terminal do modo dev.")
         return
@@ -7127,6 +7237,8 @@ async def handle(r, w):
         await send(w, {"type": "camera", "on": camera_on})
         await send(w, {"type": "friday", "on": friday_state["on"]})
         await send(w, {"type": "modes", **modes})
+        if time.time() - _INICIO_DAEMON < 30 and not hud_state.get("active"):   # holograma de tarefa morta (daemon reiniciado) ficava congelado no shell
+            await send(w, {"type": "holo", "op": "clear", "spec": None})
     except Exception:
         pass
     try:

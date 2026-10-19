@@ -8,7 +8,8 @@ if _HERE not in sys.path:
 
 
 OLLAMA = os.environ.get("FRIDAY_OLLAMA", "http://127.0.0.1:11434")
-MODEL = os.environ.get("FRIDAY_MODEL", "qwen3-vl:4b-instruct")   # um só modelo p/ conversa + câmera + tela (cabe na GPU: Whisper vai p/ CPU)
+MODEL = os.environ.get("FRIDAY_MODEL", "qwen3.5:4b")   # conversa e ferramentas: modelo que raciocina
+MODEL_VISAO = os.environ.get("FRIDAY_VISION_MODEL", "qwen3-vl:4b-instruct")   # só câmera e tela (enxerga)
 NUM_GPU = int(os.environ.get("FRIDAY_NUM_GPU", "99"))     # 99 = tudo na GPU (Whisper roda na CPU); offload parcial gera lixo, então é tudo ou nada
 NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "16384"))  # IGUAL em todo o projeto (visao/documento/prometheus/cerebro): valor diferente recarrega o modelo
 
@@ -63,7 +64,8 @@ def llm(system, user, history=None, json_mode=True, num_predict=220, temperature
     for tentativa in range(2):
         try:
             _r = _post("/api/chat", body, timeout)
-            out = _r["message"]["content"].strip()
+            out = (_r["message"].get("content") or "").strip()
+            out = re.sub(r"(?is)<think>.*?</think>", "", out).strip()
             _llm_log(_r, out, json_mode)
             break
         except Exception as e:
@@ -381,7 +383,7 @@ def fast_intent(text):
         url = re.sub(r"^.*?(?:holograma|hologr\w*)\b[\s,]*(?:e\s+)?(?:(?:abr[aeio]|entr[ae]|v[aá]|pesquis[ae]|busqu?[ea])\w*\s+(?:em|no|na|por|o|a)?\s*)?", "", t).strip()
         return {"fala": _v("Navegador holográfico no ar.", "Projetando o navegador."), "acoes": [{"t": "navegador_holo", "url": url}], "pose": "apresentar", "humor": "neutro"}
     mp = re.search(r"\b(?:painel|tela|janela|mostr\w*|abr\w*|exib\w*)\b.*\b(clima|tempo|previs[ãa]o|agenda|sistema|desempenho|m[íi]dia|m[úu]sica)\b|\bcomo (?:est[áa]|t[áa]) o (?:clima|tempo)\b|\bprevis[ãa]o do tempo\b", t)
-    if mp and len(t.split()) > 7 and not re.search(r"\bpain[ée]l\b", t):
+    if mp and (len(t.split()) > 12 or (len(t.split()) > 7 and not re.search(r"\bpain[ée]l\b", t))):   # tarefa longa ("painel Admin ... sistema") não é o painel de status
         mp = None                                  # frase longa com "música"/"tempo" no meio é outro pedido: o LLM interpreta
     if mp:
         alvo = mp.group(1) or ("clima" if re.search(r"clima|tempo|previs", t) else "")
@@ -474,7 +476,7 @@ def fast_intent(text):
         return {"fala": "", "acoes": [{"t": "sistema", "op": "volume", "valor": "up"}], "pose": "confirmar", "humor": "neutro"}
     if re.search(r"\b(diminui|baixa|abaixa|menos)\b.*\bvolume\b", t):
         return {"fala": "", "acoes": [{"t": "sistema", "op": "volume", "valor": "down"}], "pose": "confirmar", "humor": "neutro"}
-    if re.search(r"\bque horas\b|\bhor[áa]rio\b", t):
+    if re.search(r"\bque horas\b|\bhor[áa]rio\b", t) and not re.search(r"\b(?:pesquis\w*|busc\w*|mensagem|whatsapp|zap(?:\s*zap)?)\b", t):
         return {"fala": "__hora__", "acoes": [], "pose": "apresentar", "humor": "neutro"}
     if re.search(r"\bagenda\b.*\b(hoje|dia)\b|\bo que (eu )?tenho hoje\b|\bcompromissos\b", t):
         return {"fala": "", "acoes": [{"t": "agenda", "op": "listar"}], "pose": "apresentar", "humor": "neutro"}
@@ -532,6 +534,11 @@ def fast_intent(text):
         return {"fala": "Modo vigia ativado.", "acoes": [{"t": "camera", "op": "vigiar"}], "pose": "confirmar", "humor": "neutro"}
 
     # ---------------- WHATSAPP / ZAPZAP ----------------
+    # "pesquise X e prepare a mensagem para Fulano no zap com a lista" NÃO é leitura de conversa.
+    if re.search(r"\b(?:pesquis\w*|busc\w*|procur\w*|entr\w*)\b", t, re.I) and re.search(r"\b(?:prepar\w*|escrev\w*|mand\w*|envi\w*)\b", t, re.I) and re.search(r"\b(?:mensagem|msg|whatsapp|zap(?:\s*zap)?)\b", t, re.I) and re.search(r"\b(?:para|pra|pro)\b", t, re.I):
+        return {"fala": "Vou entrar na página, montar a lista e deixar a mensagem pronta.",
+                "acoes": [{"t": "tarefa", "pedido": t}], "pose": "apontar", "humor": "neutro"}
+
     # Se for pedido composto ("veja as datas do Eduardo e mande pro Wander" / "encaminha para o Wander"), deixa ir para o agente/tarefa
     _eh_composto_zap = bool(re.search(r"\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+)\b.*?\b(?:para|pra|pro)\b", t, re.I) and
                             re.search(r"\b(?:l[eê]|ler|leia|veja|v[eê]|datas?|sess[õo]es?|o que)\b", t, re.I))
@@ -550,7 +557,7 @@ def fast_intent(text):
             m_zcon = re.search(r"\b(?:l[eê]|ler|leia|veja|v[eê]|olh[ae]|mostr[ae]|o que)\b.*?(?:mensagens?|msgs?|conversa|áudios?|recados?)\b.*?\b(?:d[eoa]|com)\s+([A-Za-zÀ-ÿ0-9_@\s]+?)(?:\s+(?:no|pelo|via|do)\s+(?:zap(?:\s*zap)?|whatsapp))?$", t, re.I)
         if not m_zcon:
             m_zcon = re.search(r"\b(?:o que|quais(?:\s+as)?(?:\s+mensagens)?)\s+(?:que\s+)?(?:o\s+|a\s+)?([A-Za-zÀ-ÿ0-9_@\s]+?)\s+(?:mandou|enviou|falou|escreveu|disse)\b.*?(?:zap|whatsapp)", t, re.I)
-        if not m_zcon:
+        if not m_zcon and not re.search(r"\b(?:para|pra|pro)\s+\S+", t, re.I):
             m_zcon = re.search(r"\b(?:zap(?:\s*zap)?|whatsapp|mensagens?)\b.*?\b(?:d[eoa]|com)\s+([A-Za-zÀ-ÿ0-9_@\s]+)$", t, re.I)
 
         if m_zcon:
@@ -626,6 +633,16 @@ def fast_intent(text):
     if re.search(r"\b(?:claude(?:\s*code|\s*cli)?|programa[çr]|c[óo]digo|desenvolv\w+)\b.*?\b(?:projeto|pasta|diret[óo]rio|workspace|docs)\b|\b(?:entre no projeto|continue o projeto|fa[çc]a o projeto)\b", t):
         m_dir = re.search(r"\b(?:na pasta|no diret[óo]rio|no caminho|em)\s+(?:de\s+|do\s+|da\s+)?([~/a-zA-Z0-9_\-\./]+)", text, re.I)
         pasta_alvo = m_dir.group(1).rstrip(".,;:/") if m_dir else ""
+        if m_dir and "/" not in pasta_alvo:          # "integra site" = pasta de 2 palavras: casa com as pastas reais (a mais longa)
+            base = os.path.expanduser("~/Workspace/Projetos/Sistemas")
+            resto = re.sub(r"\s+", " ", text[m_dir.start(1):].lower())
+            try:
+                nomes = sorted(os.listdir(base), key=len, reverse=True)
+            except Exception:
+                nomes = []
+            achou = next((n for n in nomes if resto.startswith(n.lower() + " ") or resto == n.lower()), "")
+            if achou:
+                pasta_alvo = os.path.join(base, achou)
         return {"fala": _v("Pode deixar, chefe. Vou trabalhar no projeto em segundo plano com o Claude.",
                            "Iniciando o trabalho no projeto em background sem interromper você.",
                            "Deixa comigo. Assumindo o projeto por trás com a CLI."),
@@ -1595,7 +1612,13 @@ def gesture_action(kind, data):
     if kind == "maximizar":
         _niri("maximize-column")
         return "Maximizar", "apresentar"
-    if kind == "fechar":
+    if kind == "fechar":                                  # nunca fecha terminal (Claude CLI/MODO DEV rodando nele)
+        try:
+            f = json.loads(subprocess.run(["niri", "msg", "-j", "focused-window"], capture_output=True, text=True, timeout=3).stdout or "null") or {}
+        except Exception:
+            f = {}
+        if re.search(r"kitty|term|alacritty|foot|wezterm|konsole", str(f.get("app_id") or ""), re.I):
+            return "Terminal protegido", "neutro"
         _niri("close-window")
         return "Fechar janela", "confirmar"
     if kind == "passar":
@@ -1686,7 +1709,7 @@ def vision_describe(jpg_bytes, pergunta):
     """pergunta sobre a imagem da câmera ao VLM LOCAL (qwen2.5vl). Devolve texto curto em pt-BR ou None."""
     import base64
     try:
-        body = {"model": MODEL, "stream": False,       # sem keep_alive (parâmetros iguais = sem recarregar); gemma3 também enxerga: mesmo modelo = sem trocar na GPU
+        body = {"model": MODEL_VISAO, "stream": False,       # visão fica no modelo que enxerga; o de raciocínio não recebe imagem
                 "options": {"temperature": 0.1, "num_predict": 120, "num_ctx": NUM_CTX, "num_gpu": NUM_GPU},
                 "messages": [{"role": "user", "content": "Responda em português do Brasil, em 1 ou 2 frases curtas, só com o que está VISÍVEL. Pergunta: " + pergunta,
                               "images": [base64.b64encode(jpg_bytes).decode()]}]}

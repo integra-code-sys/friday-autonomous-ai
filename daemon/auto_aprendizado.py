@@ -213,7 +213,7 @@ class BancoConhecimentoCompacto:
             "## 1. Destinatário Integra Code",
             "- Perfil: Engenharia, Projetos e Automação de Sistemas.",
             "- Tom: Direto, técnico, limpo e objetivo.",
-            "- Formato: Resumo executivo -> Dados tabulares -> Ação recomendada.",
+            "- Formato: o que o dono pedir; por padrão mensagem normal de WhatsApp (relatório/formal só se pedido).",
             "",
             "## 2. Fluxo Completo de Atendimento",
             "- Passo 1: Receber o pedido do usuário.",

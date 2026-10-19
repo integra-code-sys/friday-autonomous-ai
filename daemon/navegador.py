@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("FRIDAY_NAV_PORT", "9333"))
 PERFIL = os.path.expanduser("~/.local/share/friday/chromium-perfil")
 PC = os.path.join(HERE, "pc")
+_janela_id = None
 _offset = None                     # (dx, dy): tela = página + offset; recalibra sozinho a cada clique
 
 
@@ -114,9 +115,19 @@ def _focar_janela():
         pids = set(map(int, subprocess.run(["pgrep", "-f", f"remote-debugging-port={PORT}"], capture_output=True, text=True).stdout.split()))
         for w in ws:
             if w.get("pid") in pids or w.get("app_id") == "friday-navegador":
-                if not w.get("is_focused"):
+                global _offset, _janela_id
+                if w["id"] != _janela_id:              # janela nova (fechou e reabriu): a calibração antiga desalinha o cursor
+                    _offset, _janela_id = None, w["id"]
+                if True:                            # is_focused do niri fica True mesmo com a área da janela escondida
+                    # focus-window não troca de área de trabalho: vai primeiro para a área da janela
+                    wss = json.loads(subprocess.run(["niri", "msg", "--json", "workspaces"], capture_output=True, text=True, timeout=5).stdout)
+                    idx = next((x["idx"] for x in wss if x["id"] == w.get("workspace_id")), None)
+                    if idx is not None:
+                        subprocess.run(["niri", "msg", "action", "focus-workspace", str(idx)], timeout=5)
                     subprocess.run(["niri", "msg", "action", "focus-window", "--id", str(w["id"])], timeout=5)
                     time.sleep(0.35)
+                    f = json.loads(subprocess.run(["niri", "msg", "--json", "focused-window"], capture_output=True, text=True, timeout=5).stdout or "{}")
+                    return (f or {}).get("id") == w["id"]      # outro programa pode roubar o foco de volta
                 return True
     except Exception:
         pass
@@ -140,10 +151,16 @@ def _tela():
         return 1920, 1080
 
 
+_calib_falhou = 0.0
+
+
 def _calibrar(pg):
     """no Wayland a página não sabe onde a janela está (screenX = 0): varre a tela com o cursor real até a
     página sentir o mousemove; daí tela - página = deslocamento exato."""
-    global _offset
+    global _offset, _calib_falhou
+    if time.time() - _calib_falhou < 30 or not _focar_janela():
+        return False                                # sem a janela da Friday na frente, varrer só mexe o cursor à toa
+    _pc("sync")                                     # rastreio relativo desvia (touchpad, bordas): posição exata antes de calibrar
     W, H = _tela()
     pg.js("window.__fridayMouse = {x:-1, y:-1, t:0}")
     for sy in (H // 2, H // 3, 2 * H // 3):
@@ -154,6 +171,7 @@ def _calibrar(pg):
             if m.get("x", -1) >= 0:
                 _offset = (sx - m["x"], sy - m["y"])
                 return True
+    _calib_falhou = time.time()
     return False
 
 
@@ -244,10 +262,13 @@ _JS_CAMADAS = r"""(() => {
 })()"""
 
 _JS_TEXTO = r"""(() => {
-  const lixo = 'script,style,noscript,svg,nav,footer,aside,iframe,[role=banner],[role=navigation],[aria-hidden=true],.ad,.ads,.advert,[class*=cookie],[id*=cookie]';
-  const raiz = document.querySelector('article') || document.querySelector('main') || document.body;
+  const lixo = 'script,style,noscript,svg,nav,footer,aside,iframe,[role=banner],[role=navigation],[aria-hidden=true],.ad,.ads,.advert,[class*=cookie],[id*=cookie],.mw-editsection,.reference,.navbox,#toc,.interlanguage-link,[class*=language-list]';
+  // bloco com MAIS texto de parágrafo (Wikipédia: o artigo, não a lista de idiomas do <main>)
+  const cands = [...document.querySelectorAll('article, main, [role=main], #content, #mw-content-text, .mw-parser-output, .post, .entry-content, .article-body, section')];
+  const nota = el => [...el.querySelectorAll('p, li, td, h1, h2, h3')].reduce((n, p) => n + Math.min(600, (p.innerText || '').length), 0);
+  const raiz = cands.length ? cands.reduce((a, b) => nota(b) > nota(a) * 1.15 ? b : a) : document.body;
   const c = raiz.cloneNode(true); c.querySelectorAll(lixo).forEach(e => e.remove());
-  return {url: location.href, titulo: document.title, texto: (c.innerText || '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 20000)};
+  return {url: location.href, titulo: document.title, texto: (c.innerText || '').replace(/[ \t ]+/g, ' ').replace(/ ?\n[\s]*/g, '\n').trim().slice(0, 20000)};
 })()"""
 
 
@@ -274,6 +295,38 @@ def _esperar_carregar(pg, limite=15):
 
 
 # ------------------------------------------------------------------ ações (cursor/teclado reais)
+def _aba_responde(limite=4.0):
+    """a aba ativa ainda roda JS? (página pesada/travada fica sem responder e tudo depois dá timeout de 20 s)"""
+    import threading
+    res = []
+    def _t():
+        try:
+            with Pagina() as pg:
+                res.append(pg.js("1") == 1)
+        except Exception:
+            res.append(False)
+    th = threading.Thread(target=_t, daemon=True)
+    th.start()
+    th.join(limite)
+    return bool(res and res[0])
+
+
+def _trocar_aba_travada(url):
+    """fecha a aba que não responde e abre uma nova já no endereço (como uma pessoa faria ao ver a aba congelada)."""
+    for t in _abas():
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{PORT}/json/close/{t['id']}", timeout=4).read()
+        except Exception:
+            pass
+    req = urllib.request.Request(f"http://127.0.0.1:{PORT}/json/new?" + urllib.request.quote(url, safe=":/?&=%"), method="PUT")
+    urllib.request.urlopen(req, timeout=8).read()
+    time.sleep(1.0)
+    with Pagina() as pg:                                # o /json/new às vezes ignora o endereço e fica em about:blank
+        if not pg.js("location.href").startswith("http"):
+            pg.js("location.href = " + json.dumps(url))
+    time.sleep(1.5)
+
+
 def abrir(url):
     """abre a URL no navegador da Friday pela barra de endereço (ctrl+l, digita, Enter) e fecha anúncios."""
     ok, msg = garantir()
@@ -281,12 +334,21 @@ def abrir(url):
         return {"ok": False, "erro": msg}
     if not re.match(r"^[a-z]+://", url):
         url = "https://" + url if "." in url and " " not in url else "https://www.google.com/search?q=" + urllib.request.quote(url)
-    _focar_janela()
-    _pc("key", "ctrl+l")
-    _pc("type", url)
-    _pc("key", "enter")
-    time.sleep(0.8)
+    if not _aba_responde():                              # aba congelada: digitar/recarregar nela não adianta
+        _trocar_aba_travada(url)
+        with Pagina() as pg:
+            _esperar_carregar(pg)
+            return {"ok": True, "url": pg.js("location.href"), "titulo": pg.js("document.title"), "aba_nova": True}
+    focou = _focar_janela() or (time.sleep(1.5) or _focar_janela())   # janela recém-aberta demora a aceitar foco
+    if focou:
+        _pc("key", "ctrl+l")
+        _pc("type", url)
+        _pc("key", "enter")
+        time.sleep(0.8)
     with Pagina() as pg:
+        if not focou:                                   # sem foco não digita (cairia em outra janela): navega pelo CDP
+            pg.js("location.href = " + json.dumps(url))
+            time.sleep(0.8)
         _esperar_carregar(pg)
         fechados = _fechar_camadas(pg)
         return {"ok": True, "url": pg.js("location.href"), "titulo": pg.js("document.title"), "anuncios_fechados": fechados}

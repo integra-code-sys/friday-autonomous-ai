@@ -325,8 +325,43 @@ async def _send(nome, texto):
         res = await c.call("Runtime.evaluate", expression=_JS_FOCUS, returnByValue=True)
         if not res.get("result", {}).get("value"):
             return {"ok": False, "motivo": "caixa de mensagem não encontrada"}
-        await c.call("Input.insertText", text=texto)
-        await asyncio.sleep(0.4)
+        async def _tecla(key, code, vk, mods=0):
+            for typ in ("keyDown", "keyUp"):
+                await c.call("Input.dispatchKeyEvent", type=typ, key=key, code=code, modifiers=mods, windowsVirtualKeyCode=vk)
+        _JS_LEN = "(()=>{const c=document.querySelector('footer [contenteditable=\"true\"]');return c?c.innerText.trim().length:-1})()"
+        _JS_SEL = ("(()=>{const c=document.querySelector('footer [contenteditable=\"true\"]');if(!c)return false;c.focus();"
+                   "const r=document.createRange();r.selectNodeContents(c);const s=getSelection();s.removeAllRanges();s.addRange(r);return true})()")
+        async def _limpar():                            # Ctrl+A no WhatsApp não pega texto de muitas linhas: seleciona o campo todo
+            for _ in range(6):
+                if (await c.call("Runtime.evaluate", expression=_JS_LEN, returnByValue=True)).get("result", {}).get("value") == 0:
+                    return True
+                await c.call("Runtime.evaluate", expression=_JS_SEL, returnByValue=True)
+                await _tecla("Backspace", "Backspace", 8)
+                await asyncio.sleep(0.5)
+            return False
+        if not await _limpar():                         # rascunho velho ia junto ("todos os itens...Oi, equipe")
+            return {"ok": False, "motivo": "não consegui limpar o rascunho do campo; não enviei"}
+        # cola o bloco (como Ctrl+V): "\n" digitado vira Enter e ENVIA só o pedaço; Shift+Enter faz o WhatsApp
+        # continuar a lista e duplicar "•". Colar mantém as linhas e não reformata.
+        _JS_COLAR = ("((t)=>{const c=document.querySelector('footer [contenteditable=\"true\"]');if(!c)return false;c.focus();"
+                     "const dt=new DataTransfer();dt.setData('text/plain',t);"
+                     "c.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));return true})")
+        _JS_TXT = "(()=>{const c=document.querySelector('footer [contenteditable=\"true\"]');return c?c.innerText:''})()"
+        _norm = lambda t: re.sub(r"\s+", "", t).replace("•", "-")     # o campo exibe "- " de lista como "•"
+        no_campo = ""
+        for _tent in range(3):                          # logo após enviar a parte anterior o campo ainda está ocupado: espera e cola de novo
+            await c.call("Runtime.evaluate", expression=f"{_JS_COLAR}({json.dumps(texto)})", returnByValue=True)
+            for _ in range(10):
+                await asyncio.sleep(0.5)
+                no_campo = (await c.call("Runtime.evaluate", expression=_JS_TXT, returnByValue=True)).get("result", {}).get("value") or ""
+                if _norm(no_campo) == _norm(texto):
+                    break
+            if _norm(no_campo) == _norm(texto) or not await _limpar():
+                break
+            await asyncio.sleep(1.5)
+        if _norm(no_campo) != _norm(texto):             # 3ª trava: o campo não tem EXATAMENTE a mensagem aprovada -> não envia
+            await _limpar()
+            return {"ok": False, "motivo": f"o texto no campo não bateu com a mensagem aprovada ({len(no_campo)} de {len(texto)} caracteres); apaguei e não enviei"}
         chk = await c.call("Runtime.evaluate", expression=f"({_JS_HEADER})({json.dumps(r.get('nome') or '')})", returnByValue=True)
         if not (chk.get("result", {}).get("value") or {}).get("certo"):     # 2ª trava: a conversa mudou no meio -> apaga e NÃO envia
             for typ in ("keyDown", "keyUp"):
@@ -359,11 +394,34 @@ async def _send(nome, texto):
 
 def send(nome, texto):
     try:
+        for _ in range(3):                              # ocupado/lento != fechado: reiniciar no meio reenviava a fila (loop)
+            if available():
+                break
+            time.sleep(2)
+        else:
+            if subprocess.run(["pgrep", "-f", "/app/bin/zapzap"], capture_output=True).returncode != 0:
+                ensure_running()
         if not available():
-            ensure_running()
-        if not available():
-            return {"ok": False, "motivo": "ZapZap não está em execução ou não respondeu ao depurador"}
-        return _run(_send(nome, texto))
+            return {"ok": False, "motivo": "ZapZap não respondeu ao depurador; não enviei"}
+        partes, atual = [], ""                          # colar aceita ~30 mil caracteres numa mensagem só; divide só acima de 60 mil
+        for linha in (texto or "").split("\n"):
+            if atual and len(atual) + len(linha) + 1 > 60000:
+                partes.append(atual.rstrip("\n"))
+                atual = ""
+            atual += linha + "\n"
+        if atual.strip():
+            partes.append(atual.rstrip("\n"))
+        r = {"ok": False, "motivo": "mensagem vazia"}
+        for i, parte in enumerate(partes or [texto]):
+            r = _run(_send(nome, parte))
+            if not r.get("ok"):
+                if i:
+                    r["motivo"] = f"enviei {i} de {len(partes)} partes; a parte {i + 1} falhou: " + str(r.get("motivo", ""))
+                return r
+            time.sleep(2.5)                             # deixa o WhatsApp terminar de enviar a parte antes da próxima
+        if len(partes) > 1:
+            r["partes"] = len(partes)
+        return r
     except Exception as e:
         return {"ok": False, "motivo": f"{type(e).__name__}: {e}"[:160]}
 

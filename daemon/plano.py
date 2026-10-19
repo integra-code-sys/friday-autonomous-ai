@@ -102,9 +102,62 @@ def _limpa_contato(c):
     c = re.sub(r"^(?:(?:o|a|meu|minha|um|uma)\s+)?(?:amig[oa]|contat[oa]|coleg[oa]|brother|parceir[oa]|irm[ãa]o)\b[:,]?\s*", "", c, flags=re.I)
     c = re.sub(r"^(?:para|ao|pro|a)\s+", "", c, flags=re.I)
     c = re.sub(r"\s+(?:no|pelo|via)\s+(?:zap(?:\s?zap)?|whatsapp)\b.*$", "", c, flags=re.I)
-    c = re.sub(r"^[^\w]+|[^\w]+$", "", c).strip()
+    c = re.sub(r"^[^\w@]+|[^\w]+$", "", c).strip()
+    c = re.sub(r"^@+", "", c).strip()
     c = re.sub(r"\bintegrea\b", "integra", c, flags=re.I)
     return c
+
+
+def _consulta_limpa(texto):
+    """Tira o que foi falado em volta e fica com o assunto. Não pesquisa a frase inteira."""
+    q = str(texto or "")
+    q = re.sub(r"(?is)^.*?\b(?:pesquis\w*|busc\w*|procur\w*|investig\w*)\s+", "", q, count=1)
+    q = re.split(r"(?i)\s+e\s+(?:depois\s+)?(?:mand\w*|envi\w*|escrev\w*|cri\w*|mont\w*|faz\w*|prepar\w*)\b", q, maxsplit=1)[0]
+    q = re.sub(r"(?i)\s+e\s+me\s+(?:fala|diz|conta)\b.*$", "", q)
+    q = re.sub(r"(?i)\b(?:sexta[- ]?feira|friday|por favor|me fala|me diz|me conta|quero saber|acessar o site oficial e)\b", " ", q)
+    q = re.sub(r"(?i)^(?:sobre|por)\s+", "", q.strip())
+    q = re.sub(r"\s+", " ", q).strip(" ,.!?")
+    q = re.sub(r"(?i)\s+e$", "", q)
+    cmd = re.compile(
+        r"(?i)^\s*(?:e\s+)?(?:entr\w*|abr\w*|acesse|vai|pesquis\w*|busc\w*|procur\w*)\s+"
+        r"(?:(?:no|na|ao|o|a)\s+)?(?:site|p[aá]gina|portal|navegador)?\s*(?:e\s+)?(?:pesquis\w*|busc\w*)?\s*(?:sobre|por)?\s*"
+    )
+    for _ in range(4):
+        n = cmd.sub("", q).strip()
+        if not n or n == q:
+            break
+        q = n
+    q = re.sub(r"(?i)\bfortin[ae]te\b", "fortnite", q)
+    return q[:90]
+
+
+def _fatos_das_paginas(textos, consulta):
+    """Frases que falam do assunto. Menu, cookie e texto sem as palavras da busca ficam de fora."""
+    chaves = [w for w in re.findall(r"\w{4,}", (consulta or "").lower()) if w not in ("para", "sobre", "como", "quando", "onde", "qual")][:6]
+    frases = []
+    for bloco in textos:
+        bloco = re.sub(r"(?i)^FONTE \S+\s*", "", bloco)
+        for sent in re.split(r"(?<=[.!?])\s+", bloco):
+            s = re.sub(r"\s+", " ", sent).strip()
+            if len(s) < 40 or len(s) > 280:
+                continue
+            if re.search(r"cookie|javascript|privacidade|inscreva|aceitar|menu|newsletter|exibindo resultados|vou pesquisar", s, re.I):
+                continue
+            if chaves and not any(k in s.lower() for k in chaves):
+                continue
+            if s not in frases:
+                frases.append(s)
+            if len(frases) >= 4:
+                break
+    if not frases and chaves:
+        blob = re.sub(r"\s+", " ", " ".join(textos))
+        low = blob.lower()
+        for k in chaves:
+            i = low.find(k)
+            if i >= 0:
+                frases.append(blob[max(0, i - 80):i + 220].strip())
+                break
+    return " ".join(frases[:4])
 
 
 def planejar(pedido, fr, ctx=""):
@@ -113,19 +166,22 @@ def planejar(pedido, fr, ctx=""):
 
     # Atalho Determinístico Composto: Pesquisar (+ entrar no site) + Zap/Mensagem
     m_zap = re.search(
-        r"(?is)^\s*(?:sexta[- ]?feira[,:\s]*)?(?:por\s+favor[,:\s]*)?(?:pesquis\w*|busc\w*|procur\w*)\s+"
+        r"(?is)^\s*(?:sexta[- ]?feira[,:\s]*)?(?:por\s+favor[,:\s]*)?"
+        r"(?:(?:entr\w*|abr\w*|vai)\s+(?:no\s+|na\s+|o\s+|a\s+)?navegador\s+(?:e\s+)?)?"
+        r"(?:pesquis\w*|busc\w*|procur\w*)\s+"
         r"(?:(?:e\s+)?(?:entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+)?(?:site|p[áa]gina|loja|portal)?\s*)?"
         r"(?:sobre\s+|por\s+|o\s+que\s+[ée]\s+)?(.+?)\s+e\s+(?:depois\s+)?"
-        r"(?:prepar\w*|escrev\w*|redij\w*|envi\w*|mand\w*)\s+"
-        r"(?:uma\s+)?(?:mensagem\s+|msg\s+|isso\s+|o\s+resumo\s+|o\s+resultado\s+)?"
-        r"(?:no\s+whats(?:app)?\s+|no\s+zap\s+|pelo\s+whats(?:app)?\s+|pelo\s+zap\s+)?"
-        r"(?:para\s+|pro\s+|pra\s+|ao\s+|à\s+)([\w_+\- ]+?)"
-        r"(?:\s+no\s+(?:whats(?:app)?|zap)|\s+dizendo\s+(.+))?\s*[.!?]*$", ped_limpo)
+        r"(?:prepar\w*|escrev\w*|redij\w*|envi\w*|mand\w*)\s+.{0,80}?"
+        r"(?:para|pro|pra|ao|à)\s+([@A-Za-zÀ-ÿ0-9][\wÀ-ÿ @.'+-]{1,40}?)"
+        r"(?=\s+no\s+(?:whats(?:app)?|zap(?:zap)?)\b|\s+com\b|\s+dizendo\b|$)"
+        r"(?:\s+no\s+(?:whats(?:app)?|zap(?:zap)?))?(?:\s+dizendo\s+(.+))?(?:\s+com\s+.+)?\s*$", ped_limpo)
     if m_zap:
         tema = m_zap.group(1).strip()
-        contato = _limpa_contato(m_zap.group(2).strip()) or "integra code"
+        contato = _limpa_contato(m_zap.group(2).strip())
+        if not contato or re.fullmatch(r"[0-9+\s()-]{6,}", contato):
+            contato = ""
         extra = (m_zap.group(3) or "").strip()
-        tema_norm = re.sub(r"\bfortinate\b", "fortnite", tema, flags=re.I)
+        tema_norm = re.sub(r"\bfortin[aei]te\b", "fortnite", tema, flags=re.I)
         deve_abrir = bool(re.search(r"\b(entr\w*|acess\w*|abr\w*)\s+(?:no\s+|na\s+|ao\s+)?(?:site|p[áa]gina|loja|portal)\b", ped_lower))
         if "fortnite" in tema_norm.lower():
             obj_pesq = "site oficial da loja do fortnite e itens à venda hoje"
@@ -284,9 +340,11 @@ def _verificar(e, r, ag=None, ops=None):
         return (bool(m and os.path.exists(m.group(1))), "arquivo " + (m.group(1) if m else "não citado"))
     if tipo == "pesquisar":                          # fontes lidas > 0
         n = e.get("fontes")
-        if isinstance(n, int) and n > 0:
-            return True, f"{n} fonte(s) lida(s)"
-        return (len(txt) >= 80, "busca direta, sem fonte lida confirmada" if len(txt) >= 80 else "nenhuma fonte lida")
+        if isinstance(n, int) and n >= 2:
+            return True, f"{n} fontes lidas"
+        if isinstance(n, int):
+            return False, f"só {n} página; não fecho na primeira"
+        return (len(txt) >= 80 and "fonte:" in txt.lower(), "busca direta, sem duas fontes" if len(txt) < 80 else "texto sem duas fontes")
     if tipo in ("zap", "whatsapp", "email"):         # aprovação criada (ou envio automático)
         if re.search(r"\benviad[ao]\b|^Enviado", txt, re.I):
             return True, "enviado"
@@ -348,45 +406,46 @@ def _ver_no_navegador(q, urls, ag, fr, ops=None, progress=None):
     import difflib, urllib.parse as up
     if not urls:
         return
-    try:
-        ag.t_abrir_site(url="https://duckduckgo.com/?kl=br-pt&q=" + up.quote(q), fr=fr, ops=ops)
-        time.sleep(1.2)
-    except Exception:
-        return
-    m = ag._manual()
-    u = urls[0]
-    dom = up.urlparse(u).netloc.replace("www.", "")
-    if progress:
-        progress(f"Abrindo {dom.split('.')[0]}.")
-    alvo = (_TIT.get(u) or dom)[:35]
-    clicou = False
-    for tentativa in range(2):                         # acha o TÍTULO por OCR rápido
+    direto = not re.search(r"google\.|duckduckgo|bing\.", urls[0])
+    if not direto:
         try:
-            linhas = [x for x in m.screen_lines() if x["y"] > 230 and x["x"] < 1300
-                      and difflib.SequenceMatcher(None, x["t"].lower(), q.lower()).ratio() < 0.85]
-            l, sc = m._find(alvo, linhas)
-        except Exception:
-            l, sc = None, 0
-        if l and sc >= 0.55 and _chromium_em_foco(ag, fr):
-            m._pc("clickat", l["x"], l["y"])
+            ag.t_abrir_site(url="https://duckduckgo.com/?kl=br-pt&q=" + up.quote(q), fr=fr, ops=ops)
             time.sleep(1.2)
-            clicou = True
-            break
-        if tentativa == 0 and _chromium_em_foco(ag, fr):
-            m._pc("move", 960, 520)
-            ag.t_rolar(n=4)
-            time.sleep(0.5)
-    if not clicou:
-        # Garante navegação direta e foco no site alvo sem falhar
-        try:
-            ag.t_abrir_site(url=u, fr=fr, ops=ops)
         except Exception:
-            if _chromium_em_foco(ag, fr):
-                fr._pc("goto", u, timeout=15)
-        time.sleep(1.5)
-    else:
-        time.sleep(1.2)
-    _ler_ate_o_fim(ag, fr, m, max_rolagens=5)
+            return
+    m = ag._manual()
+    for u in urls[:2]:
+        dom = up.urlparse(u).netloc.replace("www.", "")
+        if progress:
+            progress(f"Abrindo {dom.split('.')[0]}.")
+        alvo = (_TIT.get(u) or dom)[:35]
+        clicou = False
+        for tentativa in range(2):
+            try:
+                linhas = [x for x in m.screen_lines() if x["y"] > 230 and x["x"] < 1300
+                          and difflib.SequenceMatcher(None, x["t"].lower(), q.lower()).ratio() < 0.85]
+                l, sc = m._find(alvo, linhas)
+            except Exception:
+                l, sc = None, 0
+            if l and sc >= 0.55 and _chromium_em_foco(ag, fr):
+                m._pc("clickat", l["x"], l["y"])
+                time.sleep(1.2)
+                clicou = True
+                break
+            if tentativa == 0 and _chromium_em_foco(ag, fr):
+                m._pc("move", 960, 520)
+                ag.t_rolar(n=4)
+                time.sleep(0.5)
+        if not clicou:
+            try:
+                ag.t_abrir_site(url=u, fr=fr, ops=ops)
+            except Exception:
+                if _chromium_em_foco(ag, fr):
+                    fr._pc("goto", u, timeout=15)
+            time.sleep(1.5)
+        else:
+            time.sleep(1.2)
+        _ler_ate_o_fim(ag, fr, m, max_rolagens=3)
 
 
 def _ler_ate_o_fim(ag, fr, m, max_rolagens=5):
@@ -429,13 +488,15 @@ def _etapa(e, p, fr, ag, ops, ctx, programar, progress, visivel=True, ver=None):
         return ag.t_consultar_ia(pergunta=obj_ia + (f"\n\nContexto: {mem[-800:]}" if mem else ""), site=e.get("site", "chatgpt"), fr=fr, ops=ops)
     if tipo == "pesquisar":                          # várias fontes: busca, lê as 3 melhores e consolida os FATOS (com fonte)
         try:
-            q = fr.llm("Transforme o objetivo numa consulta de busca curta (3 a 7 palavras-chave, pt-BR, sem verbos como buscar/pesquisar). "
-                       "Se o objetivo falar de 'o objeto', 'isso', 'ele', use o NOME concreto que está nas informações já apuradas. "
-                       "Responda só a consulta.", obj + (f"\n\nInformações já apuradas:\n{mem[-700:]}" if mem else ""), None, False, 30, 0.1, 30) or obj
-            q = re.sub(r"[\"'\n]+", " ", q).strip()[:90]
+            q = _consulta_limpa(obj)
+            if len(q) < 3:
+                q = re.sub(r"[\"'\n]+", " ", obj).strip()[:90]
             urls = []
+            if re.search(r"fortn", q, re.I) and re.search(r"loja|item|skin", q, re.I):
+                urls = ["https://www.fortnite.com/item-shop?lang=pt-BR", "https://fortnite.gg/shop"]
             try:
-                urls = _ddg(q, 5)
+                if not urls:
+                    urls = _ddg(q, 5)
             except Exception:
                 urls = []
             try:
@@ -467,19 +528,30 @@ def _etapa(e, p, fr, ag, ops, ctx, programar, progress, visivel=True, ver=None):
                             break
                 except Exception:
                     pass
-            e["fontes"] = len(textos)                # F6: _verificar exige fonte lida
-            if textos:
-                if is_dinamico:
-                    p_sys = ("Você extrai as informações de loja de itens e produtos com base estritamente nos textos fornecidos. "
-                             "Liste os principais itens, skins, pacotes e seus respectivos preços (em V-Bucks ou moeda) em tópicos curtos. "
-                             "Não fale sobre a história do jogo, modos de jogo ou regras gerais; foque exclusivamente nos itens e preços à venda.")
-                else:
-                    p_sys = ("Você extrai fatos de textos em português do Brasil com base estritamente no objetivo e nos textos fornecidos. "
-                             "Liste os dados essenciais (nomes, itens, preços, datas, conclusões) em tópicos curtos e objetivos. "
-                             "Não misture assuntos e nunca invente informações que não estejam nos textos.")
-                r = fr.llm(p_sys, f"Objetivo: {obj}\n\n" + "\n\n".join(textos), None, False, 800, 0.2, 120)
-                if r and not _falhou(r):
-                    return r
+            if len(textos) < 2:
+                try:
+                    tela = ag.t_ver_tela()
+                    if tela and len(tela) > 80:
+                        textos.append("FONTE tela\n" + tela[:4000])
+                except Exception:
+                    pass
+            e["fontes"] = len(textos)
+            fatos = _fatos_das_paginas(textos, q)
+            if len(textos) < 2 or len(fatos) < 40:
+                return "falhou: li " + str(len(textos)) + " página(s) e o texto não cobre o assunto. Não fecho na primeira nem invento."
+            if is_dinamico:
+                p_sys = ("Extraia só o que está nos textos: itens, preços e o que está à venda. "
+                         "Sem introdução, sem história do jogo, sem frase genérica. Se o texto não tiver o dado, não invente.")
+            else:
+                p_sys = ("Responda em português, 3 a 5 frases, só com fatos que estão nos textos e que respondem o objetivo. "
+                         "Cite o dado concreto (nome, número, data). Proibido: 'com base na pesquisa', 'em resumo', 'é importante destacar'. "
+                         "Se o texto não tiver a resposta, diga o que a página realmente diz.")
+            r = fr.llm(p_sys, f"Objetivo: {obj}\nConsulta: {q}\n\n" + "\n\n".join(textos), None, False, 500, 0.1, 90)
+            chaves = [w for w in re.findall(r"\w{4,}", fatos.lower())][:8]
+            ancora = sum(1 for w in chaves if w in (r or "").lower())
+            if not r or _falhou(r) or ancora < 2 or re.search(r"com base na pesquisa|em resumo|vale destacar|é importante", r, re.I):
+                return fatos
+            return r.strip()
         except Exception:
             pass
         e["fontes"] = "direta"
@@ -542,20 +614,20 @@ def _etapa(e, p, fr, ag, ops, ctx, programar, progress, visivel=True, ver=None):
                             break
                     if achado:
                         contato = achado
-                    elif s["chats"]:
-                        contato = s["chats"][0]["nome"]
             except Exception:
                 pass
-        if not contato:
-            contato = "amigo"
+        if not contato or re.fullmatch(r"[0-9+\s()-]{6,}", contato or ""):
+            return "Para quem eu escrevo? Me diz o nome do contato. Não uso um número que você não falou."
 
         txt_msg = e.get("mensagem") or ""
         if not txt_msg:
             txt_msg = fr.llm("Você é a F.R.I.D.A.Y. Com base nas informações apuradas, elabore uma mensagem em pt-BR clara, concisa e direta para enviar pelo WhatsApp ao contato. Sem cabeçalhos ou markdown exagerado.",
                              f"Objetivo: {obj}\n\nInformações apuradas:\n{mem}", None, False, 250, 0.3, 60)
         txt_msg = (txt_msg or mem or obj).strip()
-        if not txt_msg:
-            return "falhou: nenhuma mensagem para enviar."
+        if re.search(r"vou pesquisar|exibindo resultados|sites como|youtube", txt_msg, re.I):
+            txt_msg = (mem or "").strip()
+        if not txt_msg or re.search(r"vou pesquisar|exibindo resultados", txt_msg, re.I):
+            return "falhou: a pesquisa não entrou na página. Não montei mensagem genérica."
 
         ok, msg = fr.run_action({"t": "zap", "op": "enviar", "contato": contato, "texto": txt_msg}, ops)
         if not ok and _falhou(msg):
@@ -615,7 +687,9 @@ def frase_final(p, falar=None):
     if n == 1:
         e = ets[0]
         if e.get("estado") == "ok":
-            return (nat(e, 200) if e.get("tipo") in ("pesquisar", "ia") else "") or res(e)[:500]
+            if e.get("tipo") == "pesquisar":
+                return res(e)[:500]
+            return (nat(e, 200) if e.get("tipo") == "ia" else "") or res(e)[:500]
         if falhas and res(e) and not re.match(r"\W*(falhou|erro)\b", res(e), re.I):
             return res(e)[:500]                          # "não consegui achar..." já é frase dela (sem erro cru)
         return f"Não consegui: {str(e.get('objetivo', 'a tarefa'))[:60]}."
@@ -629,8 +703,8 @@ def frase_final(p, falar=None):
                 final = f"Pronto, chefe. Pesquisei as informações e preparei a mensagem no WhatsApp. {res(ult)}"
             elif ult.get("tipo") == "email":
                 final = f"Pronto, chefe. Preparei o e-mail. {res(ult)}"
-            elif ult.get("tipo") == "pesquisar":         # fala natural (sem tópicos, links, "FONTE:"); o detalhe fica no plano salvo
-                final = nat(ult, 160) or final
+            elif ult.get("tipo") == "pesquisar":
+                final = res(ult)[:500] or final
         return final.strip()
     obj = lambda l: "; ".join(str(e.get("objetivo", ""))[:50] for e in l)
     partes = [f"Fiz {len(feitas)} de {n} etapas."]

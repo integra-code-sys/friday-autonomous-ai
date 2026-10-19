@@ -54,6 +54,27 @@ final class FalaPt {
         return s.toString().replace(", ", " ");
     }
 
+    /** cardinal feminino (hora é feminina): 1 -> "uma", 22 -> "vinte e duas", 200 -> "duzentas" */
+    static String fem(long n) {
+        return n >= 1000 ? cardinal(n) : cardinal(n).replaceAll("\\bum\\b", "uma").replaceAll("\\bdois\\b", "duas").replaceAll("entos\\b", "entas");
+    }
+
+    /** "às 12:00" -> "ao meio-dia", "00:30" -> "meia-noite e trinta", "21:45" -> "vinte e uma e quarenta e cinco", "às 1h" -> "à uma hora" */
+    private static String hora(Matcher m) {
+        String as = m.group(1);
+        int h = Integer.parseInt(m.group(2)), mi = m.group(3) == null ? 0 : Integer.parseInt(m.group(3));
+        boolean comMin = m.group(3) != null;
+        if (h > 23 || mi > 59)                                         // não é hora do dia: duração ("48h") ou placar
+            return (as == null ? "" : as + " ") + (comMin ? cardinal(h) + " e " + cardinal(mi) : fem(h) + " horas");
+        boolean especial = comMin || as != null;                       // "12h" solto pode ser duração ("jejum de 12h")
+        String fala = especial && h == 0 ? "meia-noite" : especial && h == 12 ? "meio-dia" : fem(h);
+        if (comMin) fala += mi > 0 ? " e " + cardinal(mi) : h % 12 == 0 ? "" : " em ponto";
+        else if (!fala.startsWith("mei")) fala += h == 1 ? " hora" : " horas";
+        if (as == null) return fala;
+        String art = h == 12 ? "ao" : h <= 1 ? "à" : as;               // "ao meio-dia", "à meia-noite", "à uma"
+        return (Character.isUpperCase(as.charAt(0)) ? Character.toUpperCase(art.charAt(0)) + art.substring(1) : art) + " " + fala;
+    }
+
     static String ordinal(int n) {
         if (n <= 0 || n >= 100) return cardinal(n);
         return (ORD_D[n / 10] + " " + ORD_U[n % 10]).trim();
@@ -98,8 +119,10 @@ final class FalaPt {
             int d = Integer.parseInt(m.group(1)), mm = Integer.parseInt(m.group(2));
             return mm >= 1 && mm <= 12 && d >= 1 && d <= 31 ? (d == 1 ? "primeiro" : cardinal(d)) + " de " + MES[mm - 1] : m.group();
         });
-        t = sub(t, "\\b(\\d{1,2})[:h](\\d{2})\\b", m -> cardinal(Integer.parseInt(m.group(1)))
-            + ("00".equals(m.group(2)) ? " em ponto" : " e " + cardinal(Integer.parseInt(m.group(2)))));
+        // horas (antes "15h" ficava em algarismo, "21:45" virava "vinte e um", "00:30" "zero e trinta")
+        t = sub(t, "(?<![\\p{L}\\d])(?:([àÀaA]s)\\s+)?(\\d{1,2})(?:[:h](\\d{2})|\\s?hs?)(?![\\p{L}\\d])", FalaPt::hora);
+        t = sub(t, "(?<![\\d.,])\\b(\\d{1,3})\\s+(horas?)\\b", m -> fem(Long.parseLong(m.group(1))) + " " + m.group(2));   // "1 hora" -> "uma hora"
+        t = t.replaceAll("\\b1 de (?=(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\\b)", "primeiro de ");
         // dinheiro, porcentagem, graus, ordinais
         t = sub(t, "R\\$\\s*(\\d{1,3}(?:\\.\\d{3})*|\\d+)(?:,(\\d{1,2}))?", m -> {
             long r = Long.parseLong(m.group(1).replace(".", ""));

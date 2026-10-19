@@ -470,6 +470,7 @@ def task_finish(tid, resultado, ok=True):
 # ----------------------------------------------------------------- agenda própria
 TIPOS = ("reuniao", "compromisso", "tarefa", "lembrete", "prazo", "aniversario", "consulta")
 _DIAS = {"segunda": 0, "terça": 1, "terca": 1, "quarta": 2, "quinta": 3, "sexta": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+_MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 
 
 def parse_quando(q, ref=None):
@@ -487,15 +488,37 @@ def parse_quando(q, ref=None):
         except ValueError:
             pass
     q = re.sub(r"\bmeia hora\b", "30 min", q)
-    m = re.fullmatch(r"\+(\d+)\s*([mhd])", q) or re.search(r"daqui a (\d+)\s*(min|h|hora|horas|dia|dias)", q)
+    q = re.sub(r"\buma?\s+(?=min|hora|dia|semana|da )", "1 ", q)       # "daqui a uma hora", "uma da tarde"
+    q = re.sub(r"\b(\d{1,2})\s+de\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-zç]*(?:\s+de\s+(\d{4}))?",   # "25 de dezembro" -> 25/12
+               lambda m: f"{m.group(1)}/{_MESES.index(m.group(2)) + 1}" + (f"/{m.group(3)}" if m.group(3) else ""), q)
+    m = re.fullmatch(r"\+(\d+)\s*([mhd])", q)
     if m:
         u = m.group(2)[0]
         return now + int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[u]
+    # prazo: "daqui (a) 2 horas", "em 30 minutos", "em 3 dias" ("em 15h" é horário, não prazo)
+    rel = re.search(r"\b(daqui(?: a)?|dentro de|em)\s+(\d{1,4})\s*(min\w*|h|horas?|dias?|semanas?)(?![^\W\d_])", q)
+    if rel and rel.group(1) == "em" and rel.group(3) == "h":
+        rel = None
+    if rel and rel.group(3)[0] in "mh":
+        return now + int(rel.group(2)) * (60 if rel.group(3)[0] == "m" else 3600)
+    if rel:                                                         # dias/semanas: o dia aqui, a hora abaixo (padrão 9h)
+        q = q.replace(rel.group(0), " ")
     lt = time.localtime(now)
     base = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
     day = None
-    if re.search(r"pr[óo]xima semana|semana que vem", q):
-        day = base + ((7 - lt.tm_wday) % 7 or 7) * 86400              # segunda que vem
+    iso = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})(?:t|\b)", q)     # "2026-10-24 hoje 09:00" (evento sem hora) também
+    md = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", q)
+    dn = re.search(r"\bdia (\d{1,2})\b", q)
+    if rel:
+        day = base + int(rel.group(2)) * (7 if rel.group(3)[0] == "s" else 1) * 86400
+    elif iso:
+        try:
+            day = time.mktime((int(iso.group(1)), int(iso.group(2)), int(iso.group(3)), 0, 0, 0, 0, 0, -1))
+        except Exception:
+            return None
+    elif re.search(r"pr[óo]xima semana|semana que vem", q):
+        wd = next((d for nome, d in _DIAS.items() if nome in q), 0)  # "quarta da semana que vem"
+        day = base + (((7 - lt.tm_wday) % 7 or 7) + wd) * 86400       # segunda que vem (+ o dia citado)
     elif "depois de amanh" in q:
         day = base + 2 * 86400
     elif "amanh" in q:
@@ -504,12 +527,10 @@ def parse_quando(q, ref=None):
         day = base
     else:
         for nome, wd in _DIAS.items():
-            if nome in q:
+            if nome in q or (wd == 5 and "fim de semana" in q):         # "fim de semana" = o próximo sábado
                 delta = (wd - lt.tm_wday) % 7 or 7
                 day = base + delta * 86400
                 break
-        md = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", q)
-        dn = re.search(r"\bdia (\d{1,2})\b", q)
         if dn and not md and day is None:                               # "dia 20": este mês, ou o próximo se já passou
             y, mo = lt.tm_year, lt.tm_mon
             if int(dn.group(1)) < lt.tm_mday:
@@ -523,15 +544,24 @@ def parse_quando(q, ref=None):
             y = y + 2000 if y < 100 else y
             try:
                 day = time.mktime((y, int(md.group(2)), int(md.group(1)), 0, 0, 0, 0, 0, -1))
+                if not md.group(3) and day < base - 86400:          # "10/01" já passou: ano que vem
+                    day = time.mktime((y + 1, int(md.group(2)), int(md.group(1)), 0, 0, 0, 0, 0, -1))
             except Exception:
                 return None
-    hm = (re.search(r"\b(\d{1,2})\s*(?:h|:|horas?\b)\s*(\d{2})?", q) or re.search(r"\b(?:[àa]s?|ao?)\s+(\d{1,2})(?:\s*e\s*(\d{1,2}))?\b(?!/)", q)
-          or re.search(r"\b(\d{1,2})(?:\s*e\s*(\d{1,2}))?\s+da (?:manh|tarde|noite)", q))
+    for x in (iso, md, dn):                                         # tira a data p/ o número do dia não virar hora
+        if x:
+            q = q.replace(x.group(0), " ")
+    # "h" só conta se não vier letra depois ("24 hoje" não é 24h)
+    hm = (re.search(r"\b(\d{1,2})\s*(?:h(?:rs?|s)?(?![^\W\d_])|:|horas?\b)\s*(?:e\s+)?(\d{2})?", q) or re.search(r"\b(?:[àa]s?|ao?)\s+(\d{1,2})(?:\s*e\s*(\d{1,2}))?\b(?!/)", q)
+          or re.search(r"\b(\d{1,2})(?:\s*e\s*(\d{1,2}))?\s+da (?:manh|tarde|noite)", q) or re.search(r"\b(\d{1,2})()\b(?![/:-])", q))
     h, mi = (int(hm.group(1)), int(hm.group(2) or 0)) if hm else (9, 0)
     if hm and re.search(r"\be meia\b", q):
         mi = 30
-    if hm and h < 12 and re.search(r"da tarde|da noite", q):
+    if hm and h < 12 and re.search(r"(?<!meia[- ])\b(?:tarde|noite)\b", q):   # "8 da noite", "8 à noite"
         h += 12
+    per = None if hm else re.search(r"(?<!meia[- ])\b(manh[ãa]|tarde|noite)\b", q)
+    if per:                                                         # sem número: manhã 9h, tarde 14h, noite 20h
+        h, mi, hm = {"m": 9, "t": 14, "n": 20}[per.group(1)[0]], 0, True
     if re.search(r"meio[- ]dia", q):
         h, mi, hm = 12, 30 if "meia" in q.split("dia", 1)[-1] else 0, True
     elif re.search(r"meia[- ]noite", q):

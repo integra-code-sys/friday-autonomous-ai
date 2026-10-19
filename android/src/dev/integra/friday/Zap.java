@@ -251,8 +251,16 @@ final class Zap {
                 }
             }
             if (entrada == null) return "Toquei o contato " + contato + ", mas a conversa não abriu. A lista continua na tela.";
-            if (texto(entrada).trim().isEmpty()) escrever(entrada, msg);
+            escrever(entrada, msg);                          // SET_TEXT troca o campo inteiro: rascunho velho não vai junto
             dormir(300);
+            AccessibilityNodeInfo conf = porId(pkg, "entry");
+            if (conf != null && !Agenda.norm(texto(conf)).equals(Agenda.norm(msg))) {
+                escrever(conf, msg);                         // 2ª tentativa; se ainda não bater, não finge que escreveu
+                dormir(400);
+                conf = porId(pkg, "entry");
+                if (conf != null && !Agenda.norm(texto(conf)).equals(Agenda.norm(msg)))
+                    return "Abri a conversa com " + real + ", mas o campo não ficou com a mensagem certa; não deixei pronta para enviar.";
+            }
             pendente = new String[]{pkg, real, msg};
             pendenteT = System.currentTimeMillis();
             return "Mensagem escrita para " + real + ": \"" + msg + "\". Posso enviar?";
