@@ -6020,6 +6020,7 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
     responder cada etapa; para em concluído, em algo que só o dono tem (certificado, credencial, chave) ou em `rodadas`."""
     import dev_cli, orquestra_geral as _og
     _sudo_feitos = set()
+    _manual_vezes = {}
     parado, anterior = 0, ""                             # 19/10: sem teto fixo de 10; para em concluído, só-o-dono ou 3 telas iguais seguidas
     for n in range(rodadas):
         fim = tela[-3500:]
@@ -6029,10 +6030,39 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
             await speak("O Claude do modo dev parou de avançar. Deixei a sessão aberta para você ver.")
             break
         if _CLAUDE_NAO.search(fim[-1600:]) and not _SUDO_RE.search(fim[-1600:]):
-            # 19/10: Claude dizia "não posso, faça você" e o supervisor mandava "continue" -> loop. Agora para e avisa o dono.
-            await broadcast({"type": "text", "role": "tool", "text": "MODO DEV parado, o Claude pediu algo que não consegue fazer:\n" + fim[-900:]})
-            await speak("O Claude parou porque precisa que alguém faça um passo fora do alcance dele. Os detalhes estão no painel.")
-            break
+            # 19/10: Claude dizia "não posso, faça você" e o supervisor mandava "continue" -> loop. Agora a Sexta-Feira FAZ o passo
+            # (navegador, terminal, arquivo; sudo segue a regra de aprovação) e devolve o resultado. Mesmo bloqueio 3x = para e avisa.
+            try:
+                d_m = json.loads(re.search(r"\{.*\}", await asyncio.to_thread(_og._modelo,
+                    "Um agente de programação disse que NÃO consegue fazer algo e pediu ajuda. Leia o fim da tela e responda SÓ JSON: "
+                    "{\"tarefa\": \"o passo concreto que ele pediu para alguém fazer (imperativo, com caminhos/comandos/site exatos)\", "
+                    "\"so_o_dono\": \"\" ou o que SÓ o dono pode dar (senha que não está salva em lugar nenhum, decisão de negócio)}\n\nFIM DA TELA:\n"
+                    + fim[-2500:], 300), re.S).group(0))
+            except Exception:
+                d_m = {}
+            tarefa_m = str(d_m.get("tarefa") or "").strip()
+            dono_m = str(d_m.get("so_o_dono") or "").strip()
+            chave_m = re.sub(r"\W+", " ", tarefa_m.lower())[:80]
+            _manual_vezes[chave_m] = _manual_vezes.get(chave_m, 0) + 1
+            if dono_m or not tarefa_m or _manual_vezes[chave_m] > 2:
+                motivo_ = dono_m or tarefa_m or "um passo que o Claude não consegue fazer"
+                await broadcast({"type": "text", "role": "tool", "text": "MODO DEV parado, precisa de você: " + motivo_[:400]})
+                await speak("O Claude travou e precisa de você: " + _falavel(motivo_) + ". Os detalhes estão no painel.")
+                break
+            await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira fazendo pelo Claude: " + tarefa_m[:300]})
+            try:
+                import cerebro as _cb
+                ctx_m = await asyncio.to_thread(_friday_ctx)
+                r_m = await asyncio.to_thread(_cb.run, tarefa_m + (f" (projeto em {pasta})" if pasta else ""), ctx_m, fr, ops)
+                feito = str(r_m.get("fala") or "")[:500] + " | passos: " + "; ".join(str(x)[:120] for x in (r_m.get("passos") or [])[-5:])
+            except Exception as e_m:
+                feito = f"falhou: {e_m}"
+            await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira fez: " + feito[:400]})
+            msg = (f"A Sexta-Feira fez por você: {tarefa_m}. Resultado: {feito}. Confira o resultado e continue o objetivo daqui, "
+                   "sem pedir de novo o mesmo passo. Se ainda faltar algo, diga exatamente o que e por quê.")
+            await broadcast({"type": "text", "role": "tool", "text": f"MODO DEV rodada {n + 2}: {msg[:160]}"})
+            tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, pasta)
+            continue
         m = _SUDO_RE.search(fim)
         if m:
             cmd = re.split(r"\s+e\s+|[.;,(]\s*|\s+(?:depois|então|e me|aí)\b", m.group(1).strip() + " ")[0].strip().rstrip(".")
@@ -6069,6 +6099,25 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
             # e isso ia ao Claude como ordem. Pensamento ou algo que depende do dono = não envia; avisa curto e para.
             pensamento = bool(re.search(r"\b(?:o|ao|do)\s+(?:agente|dono|usu[áa]rio)\b|\baguard\w*|\baguar\b|\.env\b|\bprecisa(?:r)?\s+(?:das?|de)\s+(?:credenciais|senha|acesso|dados|chave|decis)", prox_, re.I))
             depende = pensamento or re.search(r"credencia|senha|password|chave de api|token|certificado|ssh|sftp|ftp|login|acesso ao servidor", prox_ + " " + dono_, re.I)
+            if (dono_ or depende) and _manual_vezes.get("__dados__", 0) < 2:
+                # 19/10: antes de parar, ela TENTA buscar o dado (navegador já logado, .env/config do projeto) e entrega ao Claude
+                _manual_vezes["__dados__"] = _manual_vezes.get("__dados__", 0) + 1
+                falta_ = dono_ or prox_
+                await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira buscando o que falta: " + falta_[:300]})
+                try:
+                    import cerebro as _cb
+                    ctx_m = await asyncio.to_thread(_friday_ctx)
+                    r_m = await asyncio.to_thread(_cb.run, "Obtenha para o projeto" + (f" em {pasta}" if pasta else "") + ": " + falta_ +
+                                                  ". Procure nos arquivos .env/config do projeto e no painel já logado no navegador. "
+                                                  "Não invente valores; se não achar, diga o que não achou.", ctx_m, fr, ops)
+                    achou_ = str(r_m.get("fala") or "")[:800]
+                except Exception as e_m:
+                    achou_ = f"falhou: {e_m}"
+                await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira encontrou: " + achou_[:300]})
+                if not re.search(r"n[ãa]o (?:achei|encontrei|consegui)|falhou", achou_, re.I):
+                    tela = await asyncio.to_thread(dev_cli.enviar, "A Sexta-Feira buscou o que faltava (" + falta_[:200] + "): " + achou_ +
+                                                   ". Use isso e continue o objetivo, testando antes de dizer que terminou.", 1800, pasta)
+                    continue
             if dono_ or depende or _RECUSA.search(prox_):
                 aviso_ = _falavel(dono_ or prox_)
                 await broadcast({"type": "text", "role": "tool", "text": "MODO DEV aguardando você: " + (dono_ or prox_)[:400]})
