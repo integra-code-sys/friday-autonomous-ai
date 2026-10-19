@@ -5891,6 +5891,18 @@ def _pasta_do_pedido(pedido):
     return None
 
 
+def _falavel(t, limite=110):
+    """frase curta e pronunciável para a voz: sem caminhos, URLs, código, símbolos, parênteses e siglas coladas por barra."""
+    t = re.sub(r"https?://\S+|[~/]\S*/\S+|`[^`]*`|\*\*|[•▎#_*`]+|\([^)]*\)", " ", str(t or ""))
+    t = re.sub(r"\b([A-Z]{2,})/([A-Z]{2,})\b", r"\1 ou \2", t)
+    t = re.sub(r"\b[Oo] agente\b", "o Claude", t); t = re.sub(r"\b[Oo] (?:dono|usu[áa]rio) deve\b", "você precisa", t)
+    t = re.sub(r"\b(?:[Oo] dono|[Oo] usu[áa]rio)\b", "você", t); t = re.sub(r"\.env\b", "ponto env", t)
+    t = re.sub(r"\s+", " ", t).strip(" .,:;-")
+    if len(t) > limite:
+        t = t[:limite].rsplit(" ", 1)[0]
+    return t or "uma informação sua"
+
+
 def _sem_meta_claude(pedido):
     """tira a parte dirigida à Friday ('eu quero que fale para o claude code que ...') e deixa só o conteúdo para o Claude."""
     t = re.sub(r"^.*?\b(?:fal[ae]r?|diga|dizer|avis[ae]r?|pe[çc]a|pedir|mand[ae]r?)\s+(?:para|pro|pra|ao|a)\s+(?:(?:o\s+)?claude(?:\s+code)?|ela|ele)"
@@ -6042,14 +6054,20 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
             if d.get("concluido"):
                 break
             dono_ = str(d.get("so_o_dono") or "").strip()
-            if dono_ and dono_ not in _sudo_feitos:       # 19/10: avisa 1x o que depende do dono, mas segue no que dá (antes parava tudo)
-                _sudo_feitos.add(dono_)
-                await speak("Para depois, o Claude vai precisar de você: " + dono_[:160] + ". Enquanto isso, sigo no resto.")
-            if dono_ and not str(d.get("proxima") or "").strip():
-                break
             prox_ = str(d.get("proxima") or "").strip()
-            if not prox_ or _RECUSA.search(prox_):          # 19/10: "Aguardando credenciais..." ia como ordem ao Claude
-                prox_ = "Continue o objetivo no que não depende do dono: teste, confira, corrija e avance."
+            # 19/10: o modelo escrevia PENSAMENTO em 3ª pessoa ("O agente precisa das credenciais...", "o dono deve escolher...")
+            # e isso ia ao Claude como ordem. Pensamento ou algo que depende do dono = não envia; avisa curto e para.
+            pensamento = bool(re.search(r"\b(?:o|ao|do)\s+(?:agente|dono|usu[áa]rio)\b|\baguard\w*|\baguar\b|\.env\b|\bprecisa(?:r)?\s+(?:das?|de)\s+(?:credenciais|senha|acesso|dados|chave|decis)", prox_, re.I))
+            depende = pensamento or re.search(r"credencia|senha|password|chave de api|token|certificado|ssh|sftp|ftp|login|acesso ao servidor", prox_ + " " + dono_, re.I)
+            if dono_ or depende or _RECUSA.search(prox_):
+                aviso_ = _falavel(dono_ or prox_)
+                await broadcast({"type": "text", "role": "tool", "text": "MODO DEV aguardando você: " + (dono_ or prox_)[:400]})
+                if aviso_ not in _sudo_feitos:
+                    _sudo_feitos.add(aviso_)
+                    await speak("O Claude parou porque precisa de você: " + aviso_ + ". Os detalhes estão no painel.")
+                break
+            if not prox_:
+                prox_ = "Continue o objetivo: teste, confira, corrija e avance."
             msg = prox_ + " Faça de forma autônoma, sem me perguntar; teste antes de dizer que terminou."
         await broadcast({"type": "text", "role": "tool", "text": f"MODO DEV rodada {n + 2}: {msg[:160]}"})
         tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, pasta)
