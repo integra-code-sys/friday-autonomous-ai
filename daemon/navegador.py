@@ -41,7 +41,7 @@ def garantir(url="about:blank"):
         return False, "Chromium não encontrado"
     os.makedirs(PERFIL, exist_ok=True)
     subprocess.Popen([exe, f"--user-data-dir={PERFIL}", f"--remote-debugging-port={PORT}", "--remote-debugging-address=127.0.0.1",
-                      "--ozone-platform=wayland", "--no-first-run", "--no-default-browser-check", "--password-store=gnome-libsecret",
+                      "--ozone-platform=wayland", "--no-first-run", "--no-default-browser-check", "--deny-permission-prompts", "--password-store=gnome-libsecret",
                       "--class=friday-navegador", url],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     for _ in range(30):
@@ -65,6 +65,10 @@ class Pagina:
         self.aba = aba or abas[0]
         self.ws = connect(self.aba["webSocketDebuggerUrl"], max_size=2 ** 25, origin=None, open_timeout=5).__enter__()
         self._id = 0
+        try:                                         # 19/10: alert/confirm/"sair da página?" congela a aba (todo evaluate = timeout 20 s)
+            self.call("Page.handleJavaScriptDialog", accept=True)
+        except Exception:
+            pass                                     # "No dialog is showing" = normal
 
     def __enter__(self):
         return self
@@ -221,6 +225,13 @@ _JS_CAMADAS = r"""(() => {
       const rb = b.getBoundingClientRect();
       if (rb.width < 6 || rb.height < 6 || rb.width > 260) continue;
       if (fechar.test(t) || /close|fechar|dismiss/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.className || '').toString())) { btn = b; break; }
+    }
+    if (!btn) {                                                             // 19/10: botão só-ícone (svg sem texto/rótulo) no canto de cima à direita
+      for (const b of el.querySelectorAll('button,[role=button],a,svg,span,i,div')) {
+        const rb = b.getBoundingClientRect(), t = (b.innerText || '').trim();
+        if (rb.width >= 8 && rb.height >= 8 && rb.width <= 56 && rb.height <= 56 && t.length <= 1 && getComputedStyle(b).cursor === 'pointer'
+            && r.right - rb.right <= 40 && rb.top - r.top <= 40) { btn = b; break; }
+      }
     }
     const rb = btn && btn.getBoundingClientRect();
     if (res.some(o => o._el.contains(el))) continue;                        // já pego pela camada de fora
