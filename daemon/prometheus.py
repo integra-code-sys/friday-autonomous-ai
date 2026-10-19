@@ -5896,6 +5896,31 @@ _CLAUDE_NAO = re.compile(r"n[ãa]o (?:consigo|posso|tenho (?:acesso|permiss[ãa]
                          r"\bI (?:can'?t|cannot|don'?t have|am unable)|you(?:'ll)? need to|permission denied", re.I)
 
 
+def _dados_locais(pasta, falta):
+    """lê .env*/config do projeto (sem node_modules/vendor/.git) e devolve só linhas CHAVE=valor ligadas ao que falta
+    (host/usuário/senha/ftp/ssh/banco/porta). Vazio = não achou. Nada de navegador nem modelo: não alucina."""
+    if not pasta or not os.path.isdir(pasta):
+        return ""
+    alvo = re.compile(r"host|user|usu[áa]rio|login|pass|senha|ftp|ssh|sftp|server|servidor|port|porta|db_|database|deploy|remote", re.I)
+    linhas, vistos = [], 0
+    for raiz, dirs, arqs in os.walk(pasta):
+        dirs[:] = [d for d in dirs if d not in ("node_modules", "vendor", ".git", "dist", "build", "__pycache__") and raiz.count(os.sep) - pasta.count(os.sep) < 3]
+        for a in arqs:
+            if not re.match(r"^\.env(\..+)?$|^(?:config|settings|deploy|ftp|sftp)[\w.-]*\.(?:php|json|ya?ml|ini|env|conf)$", a, re.I):
+                continue
+            vistos += 1
+            try:
+                for l in open(os.path.join(raiz, a), errors="ignore").read().splitlines()[:400]:
+                    m = re.match(r"\s*(?:define\(\s*['\"])?([A-Za-z_][\w.]*)['\"]?\s*(?:=|=>|:|,)\s*['\"]?([^'\";#]+)", l)
+                    if m and alvo.search(m.group(1)) and m.group(2).strip() and not re.search(r"seu_|your_|changeme|example|xxx", m.group(2), re.I):
+                        linhas.append(f"{os.path.relpath(os.path.join(raiz, a), pasta)}: {m.group(1)}={m.group(2).strip()}")
+            except Exception:
+                pass
+            if vistos > 30:
+                break
+    return "\n".join(dict.fromkeys(linhas))[:2500]
+
+
 def _falavel(t, limite=110):
     """frase curta e pronunciável para a voz: sem caminhos, URLs, código, símbolos, parênteses e siglas coladas por barra."""
     t = re.sub(r"https?://\S+|[~/]\S*/\S+|`[^`]*`|\*\*|[•▎#_*`]+|\([^)]*\)", " ", str(t or ""))
@@ -5998,6 +6023,11 @@ async def _sudo_aprovado(cmd, espera=600):
         if all(re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", x) for x in pac) and (pac or m_.group(1) == "-Syu"):
             arg = ["sudo", "-n", "/usr/bin/pacman", m_.group(1), "--noconfirm"] + (pac if m_.group(1) == "-S" else [])
             r = await asyncio.to_thread(subprocess.run, arg, capture_output=True, text=True, timeout=1800)
+            if r.returncode != 0 and m_.group(1) == "-S" and re.search(r"404|falha ao obter|failed retrieving|not found in sync db", (r.stdout or "") + (r.stderr or ""), re.I):
+                # 19/10: base de pacotes velha (espelho 404) -> atualiza o sistema 1x e tenta de novo (antes repetia o mesmo erro em loop)
+                await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira: base de pacotes desatualizada, rodando pacman -Syu"})
+                await asyncio.to_thread(subprocess.run, ["sudo", "-n", "/usr/bin/pacman", "-Syu", "--noconfirm"], capture_output=True, text=True, timeout=3600)
+                r = await asyncio.to_thread(subprocess.run, arg, capture_output=True, text=True, timeout=1800)
             return r.returncode == 0, ((r.stdout or "") + (r.stderr or ""))[-600:]
     import agent as _ag
     ok_d, out_d = await asyncio.to_thread(_ag.sudo_direto, re.sub(r"^sudo\s+", "", cmd.strip()))
@@ -6056,7 +6086,7 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
             try:
                 import cerebro as _cb
                 ctx_m = await asyncio.to_thread(_friday_ctx)
-                r_m = await asyncio.to_thread(_cb.run, tarefa_m + (f" (projeto em {pasta})" if pasta else ""), ctx_m, fr, ops)
+                r_m = await asyncio.to_thread(lambda: _cb.run(tarefa_m + (f" (projeto em {pasta})" if pasta else ""), ctx_m, fr, ops, atalhos=False))
                 feito = str(r_m.get("fala") or "")[:500] + " | passos: " + "; ".join(str(x)[:120] for x in (r_m.get("passos") or [])[-5:])
             except Exception as e_m:
                 feito = f"falhou: {e_m}"
@@ -6070,8 +6100,8 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
         if m:
             cmd = re.split(r"\s+e\s+|[.;,(]\s*|\s+(?:depois|então|e me|aí)\b", m.group(1).strip() + " ")[0].strip().rstrip(".")
             mp_ = re.match(r"sudo\s+pacman\s+(-S\w*)\s+(.*)$", cmd)
-            if mp_:                                      # 19/10: frase vinha junto ("php no prompt", "(precisa de ...") -> só pacotes que EXISTEM no repositório
-                pac_ = [x for x in mp_.group(2).split() if re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", x)
+            if mp_:                                      # 19/10: "sudo"/"pacman" também são pacotes -> entravam na lista e furavam a trava de repetição                                      # 19/10: frase vinha junto ("php no prompt", "(precisa de ...") -> só pacotes que EXISTEM no repositório
+                pac_ = [x for x in mp_.group(2).split() if x not in ("sudo", "pacman") and re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", x)
                         and subprocess.run(["pacman", "-Si", x], capture_output=True).returncode == 0]
                 cmd = f"sudo pacman -S --noconfirm {' '.join(pac_)}" if pac_ else ""
             if not cmd or cmd in _sudo_feitos:          # nada válido ou já tentado nesta tarefa: não pede de novo (texto antigo segue na tela)
@@ -6107,17 +6137,9 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
                 _manual_vezes["__dados__"] = _manual_vezes.get("__dados__", 0) + 1
                 falta_ = dono_ or prox_
                 await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira buscando o que falta: " + falta_[:300]})
-                try:
-                    import cerebro as _cb
-                    ctx_m = await asyncio.to_thread(_friday_ctx)
-                    r_m = await asyncio.to_thread(_cb.run, "Obtenha para o projeto" + (f" em {pasta}" if pasta else "") + ": " + falta_ +
-                                                  ". Procure nos arquivos .env/config do projeto e no painel já logado no navegador. "
-                                                  "Não invente valores; se não achar, diga o que não achou.", ctx_m, fr, ops)
-                    achou_ = str(r_m.get("fala") or "")[:800]
-                except Exception as e_m:
-                    achou_ = f"falhou: {e_m}"
-                await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira encontrou: " + achou_[:300]})
-                if not re.search(r"n[ãa]o (?:achei|encontrei|consegui)|falhou", achou_, re.I):
+                achou_ = await asyncio.to_thread(_dados_locais, pasta, falta_)    # 19/10: leitura local (o cérebro jogava no Google e inventava)
+                await broadcast({"type": "text", "role": "tool", "text": "Sexta-Feira encontrou: " + (f"{achou_.count(chr(10)) + 1} configuração(ões) no projeto" if achou_ else "nada no projeto")})
+                if achou_:
                     tela = await asyncio.to_thread(dev_cli.enviar, "A Sexta-Feira buscou o que faltava (" + falta_[:200] + "): " + achou_ +
                                                    ". Use isso e continue o objetivo, testando antes de dizer que terminou.", 1800, pasta)
                     continue

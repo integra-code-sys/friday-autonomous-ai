@@ -356,24 +356,25 @@ _AFIRMA_CONSULTA = re.compile(r"\b(?:consultei|verifiquei|chequei|conferi|olhei|
                               r"\bli\s+(?:a|o|as|os|sua|seu|suas|seus)\b", re.I)
 
 
-def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
-    """mesmo contrato do agent.run: devolve {fala, acoes:[], pose, humor, lembrar} (as ações já foram EXECUTADAS aqui)."""
+def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann", atalhos=True):
+    """mesmo contrato do agent.run: devolve {fala, acoes:[], pose, humor, lembrar} (as ações já foram EXECUTADAS aqui).
+    atalhos=False (executor do MODO DEV): pula composta/mídia/pesquisa direta — 'procure no .env' virava busca no Google."""
     A.CANCEL.clear()
     try:
-        r_comp = A._tarefa_composta(text, fr, ops, progress)
+        r_comp = A._tarefa_composta(text, fr, ops, progress) if atalhos else None
         if r_comp:
             _log("TAREFA_COMPOSTA", text[:160], "->", r_comp[:160])
             return {"fala": r_comp, "acoes": [], "pose": "confirmar", "humor": "confiante", "lembrar": {}, "passos": ["tarefa_composta -> ok"]}
     except Exception as e_c:
         _log("ERRO tarefa_composta", repr(e_c))
     try:
-        r_midia = A._midia_direta(text, fr, ops, progress)
+        r_midia = A._midia_direta(text, fr, ops, progress) if atalhos else None
         if r_midia:
             return {"fala": r_midia, "acoes": [], "pose": "confirmar", "humor": "alegre", "lembrar": {}, "passos": ["midia_direta -> ok"]}
     except Exception as e_m:
         _log("ERRO midia_direta", repr(e_m))
     try:
-        r_nav = A._pesquisa_navegador_direta(text, fr, ops, progress, historico)
+        r_nav = A._pesquisa_navegador_direta(text, fr, ops, progress, historico) if atalhos else None
         if r_nav:
             _log("PESQUISA_NAV_DIRETA", text[:160], "->", r_nav[:160])
             return {"fala": r_nav, "acoes": [], "pose": "apresentar", "humor": "neutro", "lembrar": {}, "passos": ["pesquisa_navegador_direta -> ok"]}
