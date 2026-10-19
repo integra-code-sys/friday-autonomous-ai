@@ -83,6 +83,7 @@ simples = [
     ("pesquise inteligência artificial e crie um documento", "doc"),
     ("pesquise o preço do café e anote na agenda amanhã 9h", "agenda"),
     ("toca Yellow no youtube", "youtube"),
+    ("encaminhe o PDF de Pai para Eduardo Becker no zap", "zap_forward"),
 ]
 
 
@@ -127,6 +128,10 @@ def checar_simples(frase, tipo):
         fi = friday.fast_intent(frase) or {}
         ac = (fi.get("acoes") or [{}])[0]
         ok(ac.get("t") != "zap", f"hora virou zap: {ac}")
+    if tipo == "zap_forward":
+        ok(agent.dominio(frase) == "zap", f"não caiu no zap: {frase}")
+        ok("zap_encaminhar" in agent.DOMINIOS["zap"], "zap_encaminhar fora do domínio zap")
+        ok("zap_encaminhar" in agent.DOMINIOS["arquivo"], "zap_encaminhar fora do domínio arquivo")
 
 
 def main():

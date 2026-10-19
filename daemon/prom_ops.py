@@ -52,7 +52,7 @@ DEFAULT_POLICY = {
              "bt.status", "bt.list", "bt.scan", "bt.on", "bt.off", "bt.connect", "bt.disconnect",
              "remote.status", "remote.list", "phone.status", "phone.battery", "phone.ring", "phone.notifs", "phone.ping", "notify.me", "task.*",
              "mail.list", "mail.read", "wa.read", "approvals.*", "policy.show"],
-    "confirmar": ["wifi.off", "wifi.connect_new", "bt.pair", "bt.remove", "remote.connect", "remote.input", "wa.send_chat", "mail.send", "sms.send", "wa.reply", "wa.send", "phone.share", "fs.delete", "git.push", "deploy", "install", "sudo.*", "self.*", "shell.escrever",
+    "confirmar": ["wifi.off", "wifi.connect_new", "bt.pair", "bt.remove", "remote.connect", "remote.input", "wa.send_chat", "wa.forward", "mail.send", "sms.send", "wa.reply", "wa.send", "phone.share", "fs.delete", "git.push", "deploy", "install", "sudo.*", "self.*", "shell.escrever",
                   "money.*", "account.*"],
     "proibido": ["credencial.exfiltrar", "seguranca.desativar"],
     # regras permanentes: libera uma ação específica sem perguntar. Ex.:
@@ -169,6 +169,16 @@ def request_approval(acao, destino, resumo, payload):
             "titulo": "Novo E-mail",
             "ttl": 300
         })
+    elif acao == "wa.forward":
+        holo_show({
+            "kind": "email",
+            "para": f"WhatsApp · {destino}",
+            "assunto": f"Encaminhar de {payload.get('de')}",
+            "corpo": f"Encaminhar {payload.get('filtro') or 'documento/mídia'} de {payload.get('de')} para {payload.get('para')}",
+            "status": "aguardando aprovação",
+            "titulo": "WhatsApp — Encaminhar",
+            "ttl": 300
+        })
     return aid
 
 
@@ -195,6 +205,16 @@ def resolve(aid, aprovar=True, quem="dono"):
             "status": "enviado" if ok else f"falhou: {msg[:40]}",
             "titulo": "WhatsApp — Mensagem",
             "ttl": 6
+        })
+    elif it["acao"] == "wa.forward":
+        holo_show({
+            "kind": "email",
+            "para": f"WhatsApp · {it['destino']}",
+            "assunto": "Encaminhamento " + ("Concluído" if ok else "Falhou"),
+            "corpo": f"{it['payload'].get('filtro') or 'Documento'} de {it['payload'].get('de')} para {it['payload'].get('para')}",
+            "status": "enviado" if ok else f"falhou: {msg[:40]}",
+            "titulo": "WhatsApp — Encaminhamento",
+            "ttl": 25
         })
     return ok, msg
 
@@ -303,6 +323,13 @@ def _execute(acao, p):
             import zap
             r = zap.send(p["nome"], p["texto"])
             return bool(r.get("ok")), ("enviado a " + str(r.get("conversa"))) if r.get("ok") else str(r.get("motivo"))
+        if acao == "wa.forward":
+            if os.environ.get("FRIDAY_ZAP_DRYRUN") == "1":
+                audit("wa.forward.dryrun", p.get("para", ""), f"de {p.get('de')} filtro: {p.get('filtro')}", "simulado")
+                return True, f"simulado (dry-run): encaminhar de {p.get('de')} para {p.get('para')}"
+            import zap
+            r = zap.forward(p.get("de"), p.get("para"), p.get("filtro", ""))
+            return bool(r.get("ok")), ("encaminhado para " + str(p.get("para"))) if r.get("ok") else str(r.get("motivo"))
         if acao == "self.apply":
             r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "aprimorar.py"), "aplicar", p["id"]],
                                capture_output=True, text=True, timeout=120)
@@ -1612,6 +1639,12 @@ def main(a):
             return 0
         if s == "reply" and len(rest) >= 2:
             ok, msg = gated("wa.send_chat", rest[0], f"responder {rest[0]}: {rest[1][:100]}", {"nome": rest[0], "texto": rest[1]})
+            print(msg); return 0 if ok else 1
+        if s == "forward" and len(rest) >= 2:
+            de = rest[0]
+            para = rest[1]
+            filtro = rest[rest.index("--filtro") + 1] if "--filtro" in rest and rest.index("--filtro") + 1 < len(rest) else ""
+            ok, msg = gated("wa.forward", para, f"encaminhar de {de} para {para}", {"de": de, "para": para, "filtro": filtro})
             print(msg); return 0 if ok else 1
     if g == "agenda":
         def opt(n, d=None):

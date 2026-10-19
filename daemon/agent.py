@@ -34,7 +34,7 @@ def _say(cb, texto):
             cb(texto)
     except Exception:
         pass
-EFEITO = {"onlyoffice_criar", "onlyoffice_abrir", "nota", "pesquisa_para_documento", "pular_anuncio", "zap_enviar"}   # abrir_site/clicar/digitar/tecla não encerram: tarefas visuais têm vários passos
+EFEITO = {"onlyoffice_criar", "onlyoffice_abrir", "nota", "pesquisa_para_documento", "pular_anuncio", "zap_enviar", "zap_encaminhar"}   # abrir_site/clicar/digitar/tecla não encerram: tarefas visuais têm vários passos
 # F6: abrir_app e acao SAÍRAM: marcavam "feito" e mandavam dar final na hora ("abra o ZapZap e mande X" parava no abrir_app)
 
 # o que dispara o modo agente (pedidos que exigem mais de uma ferramenta/etapa)
@@ -1987,9 +1987,27 @@ def t_zap_enviar(contato="", mensagem="", fr=None, ops=None, pronto=False, **_):
     return msg or f"Mensagem para {contato}: estado desconhecido (confira no WhatsApp)."
 
 
+def t_zap_encaminhar(de_contato="", para_contato="", filtro="", fr=None, ops=None, pronto=False, **_):
+    """Encaminha documento, PDF, mídia ou mensagem no WhatsApp (ZapZap) de um contato para outro."""
+    de = str(de_contato or "").strip()
+    para = str(para_contato or "").strip()
+    flt = str(filtro or "").strip()
+    if not de or not para:
+        raise RuntimeError("Contato de origem (de_contato) e destino (para_contato) são obrigatórios.")
+    if fr is None:
+        raise RuntimeError("Envio bloqueado: sem portão de aprovação.")
+    acao = {"t": "zap", "op": "encaminhar", "de_contato": de, "para_contato": para, "filtro": flt}
+    ok, msg = fr.run_action(acao, ops)
+    if not ok:
+        raise RuntimeError(msg or "falha ao encaminhar no WhatsApp")
+    return msg or f"Encaminhamento de {de} para {para}: estado desconhecido (confira no WhatsApp)."
+
+
 TOOLS = {
     "zap_ler": (t_zap_ler, '{"contato":"nome do contato (opcional)","n":5}', "lê as últimas mensagens de uma conversa no WhatsApp ou lista os chats recentes"),
     "zap_enviar": (t_zap_enviar, '{"contato":"nome do contato","mensagem":"texto"}', "envia ou prepara uma mensagem no WhatsApp (ZapZap) para um contato"),
+    "zap_encaminhar": (t_zap_encaminhar, '{"de_contato":"nome da origem","para_contato":"nome do destinatário","filtro":"pdf (opcional)"}',
+                       "encaminha documento/PDF/mídia/mensagem no WhatsApp (ZapZap) de um contato para outro"),
     "pesquisar_web": (t_pesquisar_web, '{"consulta":"termos"}', "pesquisa na internet; devolve 5 resultados com trecho e URL"),
     "ler_pagina": (t_ler_pagina, '{"url":"https://..."}', "lê o texto de uma página web"),
     "ler_arquivo": (t_ler_arquivo, '{"caminho":"~/..."}', "lê txt/md/pdf/docx/xlsx da pasta do dono"),
@@ -2230,7 +2248,7 @@ def _v_doc(a, r, an, de, ops):
 
 
 def _v_zap(a, r, an, de, ops):
-    if str(r).startswith("Enviado para"):                 # só o envio REAL (PENDENTE/"preparada" não contam)
+    if str(r).startswith("Enviado para") or str(r).startswith("Encaminhado para"):                 # só o envio REAL (PENDENTE/"preparada" não contam)
         return True, "enviado (política automática)"
     return v_aprovacao(ops, an)
 
@@ -2261,6 +2279,7 @@ VERIF = {             # nome da ferramenta -> f(args, resultado, antes, depois, 
     "nota": lambda a, r, an, de, ops: v_arquivo(os.path.join(DOCS, "notas.md"), 0),
     "criar_arquivo": lambda a, r, an, de, ops: (lambda m: v_arquivo(m.group(1), 0) if m else (False, "caminho não retornado"))(re.search(r"(/[^\n:(]+)", str(r))),
     "zap_enviar": _v_zap,
+    "zap_encaminhar": _v_zap,
     "comando_sudo": lambda a, r, an, de, ops: v_aprovacao(ops, an, ("sudo.run",)),
     "terminal": lambda a, r, an, de, ops: (v_aprovacao(ops, an, ("sudo.run", "shell.escrever")) if str(r).startswith(("Pedi aprovação", "PENDENTE"))
                                            else (None, "")),       # leitura: o próprio agente confere a saída
@@ -2291,22 +2310,22 @@ _CEL = {n for n in ("cel_acordar", "cel_desbloquear", "cel_ver", "cel_tocar_text
 DOMINIOS = {
     "celular": _CEL | {"resumir", "nota", "criar_arquivo", "pesquisar_web"},
     "arquivo": {"ler_arquivo", "criar_arquivo", "onlyoffice_criar", "onlyoffice_abrir", "pesquisa_para_documento", "analisar_extrato", "pesquisar_web",
-                "ler_pagina", "resumir", "nota", "abrir_app", "ver_tela", "consultar_ia", "terminal", "zap_enviar", "acao"},
+                "ler_pagina", "resumir", "nota", "abrir_app", "ver_tela", "consultar_ia", "terminal", "zap_enviar", "zap_encaminhar", "zap_ler", "acao"},
     "web": {"pesquisar_web", "ler_pagina", "resumir", "abrir_site", "ver_tela", "clicar_texto", "clicar_elemento", "apontar", "digitar",
-            "tecla", "rolar", "pular_anuncio", "consultar_ia", "pesquisa_para_documento", "criar_arquivo", "nota", "abrir_app", "zap_enviar", "zap_ler", "acao"},
-    "zap": {"zap_ler", "zap_enviar", "pesquisar_web", "ler_pagina", "resumir", "consultar_ia", "abrir_app", "nota", "criar_arquivo", "acao"},
+            "tecla", "rolar", "pular_anuncio", "consultar_ia", "pesquisa_para_documento", "criar_arquivo", "nota", "abrir_app", "zap_enviar", "zap_encaminhar", "zap_ler", "acao"},
+    "zap": {"zap_ler", "zap_enviar", "zap_encaminhar", "ler_arquivo", "pesquisar_web", "ler_pagina", "resumir", "consultar_ia", "abrir_app", "nota", "criar_arquivo", "acao"},
 }
 
 
 def dominio(text):
-    """celular > arquivo > web > zap > pc (reusa as regex que já existem: CELULAR_RE, DOCW, NAV/PESQ/YT)"""
+    """celular > zap > arquivo > web > pc (reusa as regex que já existem: CELULAR_RE, DOCW, NAV/PESQ/YT)"""
     t = text or ""
     if CELULAR_RE.search(t):
         return "celular"
-    if DOCW.search(t) or re.search(r"\b(arquiv\w+|txt|markdown|\.md\b|\.csv\b|\.json\b|relat[óo]rio)\b", t, re.I):
-        return "arquivo"
     if re.search(r"\b(zap|whatsapp|wpp|msgs?|mensagens?|conversa|áudios?)\b", t, re.I):
         return "zap"
+    if DOCW.search(t) or re.search(r"\b(arquiv\w+|txt|markdown|\.md\b|\.csv\b|\.json\b|relat[óo]rio)\b", t, re.I):
+        return "arquivo"
     if re.search(r"\b(?:mand\w+|envi\w+|encaminh\w+|repass\w+)\b.*?\b(?:para|pra|pro)\b", t, re.I) and not re.search(r"\b(email|e-mail|correio|arquivo|pasta)\b", t, re.I):
         return "zap"
     if NAV.search(t) or PESQ.search(t) or YT.search(t):
@@ -2340,7 +2359,7 @@ RECEITAS: (1) abrir app = abrir_app (nunca digite o nome no terminal). (2) site/
 (4) YouTube: abrir_site com a URL do vídeo/pesquisa; se aparecer anúncio use pular_anuncio {{"espera":15}}. (5) "pesquise X e faça planilha/docx/slides"
 = pesquisa_para_documento (1 chamada). (6) Nunca clique em enviar/pagar/apagar/senha/desligar/reiniciar: pare e diga que é com o dono.
 (7) Nunca use o canto superior direito da tela (botão de energia). (8) Arquivos, pastas, disco, processos, pacotes ou estado do PC = terminal (leitura roda direto, ex.: ls -1 ~/Downloads para nomes, du -sh ~/Downloads, df -h /); responda com o que o terminal DEVOLVEU, nunca de cabeça; para alterar arquivos o terminal pede aprovação ao dono. (9) Se não for capaz de fazer sozinha (código, texto longo, análise), use consultar_ia (ChatGPT do dono) e aproveite a resposta; se um site/ferramenta falhar, tente outra (claude, gemini, perplexity) antes de desistir. (8) Se clicar_texto falhar ou o alvo for ícone/imagem, use clicar_elemento (visão local). Qualquer app vale, não só navegador. Antes de clicar, ver_tela; se não achar o texto, role (rolar) e olhe de novo.
-(10) WHATSAPP / ZAPZAP: Para ler conversas ou extrair dados (datas, horários, recados), use zap_ler {{"contato":"Nome do Contato", "n":5}}. Para repassar, responder ou encaminhar dados para outro contato, use zap_enviar {{"contato":"Nome do Destinatário", "mensagem":"resumo claro com as informações extraídas da conversa lida"}}. Nunca invente datas ou mensagens que não estavam na saída do zap_ler.
+(10) WHATSAPP / ZAPZAP: Para ler conversas ou extrair dados (datas, horários, recados, arquivos), use zap_ler {{"contato":"Nome do Contato", "n":5}}. Para ENCAMINHAR documento, PDF, mídia ou mensagem de uma conversa para outro contato, use zap_encaminhar {{"de_contato":"Origem", "para_contato":"Destinatário", "filtro":"pdf ou nome do arquivo"}}. NUNCA use o terminal (pdftoppm, scripts, etc.) para manipular mídias do WhatsApp. Para repassar textos ou enviar novas mensagens, use zap_enviar {{"contato":"Destinatário", "mensagem":"resumo claro com as informações extraídas da conversa lida"}}. Nunca invente datas ou mensagens que não estavam na saída do zap_ler.
 PC DO DONO: {perfil}
 {licoes}
 Contexto: {ctx}"""

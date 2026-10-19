@@ -1405,6 +1405,22 @@ def _run_action(a, ops, ctx=None):
                     lido = f"Escrevi para {contato}: {texto}" if len(texto) <= 180 else f"Escrevi a mensagem para {contato}; está no espelho"
                     return True, f"{msg} — {lido}. Diga aprovado para enviar, ou modifica para mudar."
                 return False, msg
+            if a.get("op") == "encaminhar":
+                de_contato = str(a.get("de_contato") or a.get("de") or a.get("origem") or "").strip()
+                para_contato = str(a.get("para_contato") or a.get("para") or a.get("destino") or "").strip()
+                filtro = str(a.get("filtro") or "").strip()
+                if not de_contato or not para_contato:
+                    return False, "Origem e destino são obrigatórios para encaminhar no WhatsApp."
+                if ops is None:
+                    return False, "Envio bloqueado: o portão de aprovação não está disponível."
+                ok, msg = ops.gated("wa.forward", para_contato,
+                                    f"encaminhar {filtro or 'documento'} de {de_contato} para {para_contato}",
+                                    {"de": de_contato, "para": para_contato, "filtro": filtro})
+                if ok:
+                    return True, f"Encaminhado de {de_contato} para {para_contato}."
+                if str(msg).startswith("PENDENTE"):
+                    return True, f"{msg} — Encaminhamento de {de_contato} para {para_contato} preparado no espelho. Diga aprovado para confirmar o envio."
+                return False, msg
         if t == "manual":
             if re.search(r"only\s*office|planilh|document|apresenta|slides?|\.(?:docx|xlsx|pptx)\b", str(a.get("objetivo", "")), re.I):
                 return False, "Para documentos e planilhas use onlyoffice_criar: o modo manual toma mouse/teclado e trava a tela."

@@ -90,19 +90,149 @@ _JS_OPEN = r"""((nome)=>{
 
 
 _JS_MSGS = r"""((n)=>{
-  const els=[...document.querySelectorAll('[data-pre-plain-text]')];
-  const out=[];
-  for(const e of els.slice(-n)){
-    const meta=e.getAttribute('data-pre-plain-text')||'';
-    const m=meta.match(/^\[(.*?)\]\s*(.*?):\s*$/);
-    const txt=[...e.querySelectorAll('span.selectable-text, span[dir]')].map(s=>s.textContent).join(' ').trim() || e.textContent.trim();
-    const row=e.closest('[class*="message-"]');
-    const saida=!!(row && /message-out/.test(row.className));
-    out.push({quando:m?m[1]:'', quem:m?m[2]:'', saida, texto:txt.slice(0,500)});
+  const rows = [...document.querySelectorAll('#main div[data-id]')].filter(e => !e.querySelector('div[data-id]'));
+  const els = rows.length ? rows : [...document.querySelectorAll('[data-pre-plain-text]')];
+  const out = [];
+  for (const r of els.slice(-n)) {
+    const pre = r.querySelector ? r.querySelector('[data-pre-plain-text]') : null;
+    const meta = (pre ? pre.getAttribute('data-pre-plain-text') : (r.getAttribute ? r.getAttribute('data-pre-plain-text') : '')) || '';
+    const m = meta.match(/^\[(.*?)\]\s*(.*?):\s*$/);
+    let quando = m ? m[1] : '';
+    let quem = m ? m[2] : '';
+
+    const spanLabel = r.querySelector ? r.querySelector('span[aria-label]') : null;
+    const aria = spanLabel ? (spanLabel.getAttribute('aria-label') || '').replace(':', '').trim() : '';
+    if (!quem && aria && !aria.includes('Lida')) quem = aria;
+
+    const rowEl = r.closest ? (r.closest('[class*="message-"]') || r) : r;
+    const saida = !!(quem === 'Você' || (rowEl && /message-out/.test(rowEl.className)));
+
+    const selectable = r.querySelectorAll ? [...r.querySelectorAll('span.selectable-text, span[dir]')].map(s => s.textContent).join(' ').trim() : '';
+    const rawText = (r.innerText || r.textContent || '').trim();
+
+    let tipo = 'texto';
+    let doc = '';
+    const docThumb = r.querySelector ? r.querySelector('div[data-testid="document-thumb"], [data-icon*="document"]') : null;
+    if (docThumb) {
+      tipo = 'documento';
+      const t = docThumb.getAttribute('title') || '';
+      const mTitle = t.match(/["“](.*?)["”]/);
+      if (mTitle) doc = mTitle[1];
+      else if (t) doc = t.replace(/^(?:Mostrar|Baixar)\s*/i, '').replace(/^["']|["']$/g, '').trim();
+      if (!doc) {
+        const mDoc = rawText.match(/([\w\-\.]+\.(?:pdf|docx?|xlsx?|pptx?|pfx|zip|png|jpe?g))/i);
+        if (mDoc) doc = mDoc[1];
+      }
+    } else if (r.querySelector && r.querySelector('[data-icon="audio-play"],[data-icon="ptt-status"],[data-icon="audio-download"]')) {
+      tipo = 'audio';
+    }
+
+    let txt = '';
+    if (doc) {
+      const extra = selectable ? selectable.replace(doc, '').trim() : '';
+      txt = extra ? ('[Documento: ' + doc + '] ' + extra) : ('[Documento: ' + doc + ']');
+    } else if (tipo === 'audio') {
+      txt = selectable ? ('[Áudio] ' + selectable) : '[Mensagem de voz/áudio]';
+    } else {
+      txt = selectable || rawText;
+    }
+
+    if (!quando) {
+      const mHora = rawText.match(/\b(\d{1,2}:\d{2})\b/);
+      if (mHora) quando = mHora[1];
+    }
+
+    if (txt || doc || tipo !== 'texto') {
+      out.push({quando, quem, saida, tipo, arquivo: doc, texto: txt.slice(0, 500)});
+    }
   }
-  const comp=!!document.querySelector('footer [contenteditable="true"], div[contenteditable="true"][data-tab]');
-  return {ok:true, composer:comp, msgs:out};
+  const comp = !!document.querySelector('footer [contenteditable="true"], div[contenteditable="true"][data-tab]');
+  return {ok: true, composer: comp, msgs: out};
 })"""
+
+_JS_FORWARD_FIND = r"""((filtro) => {
+  const rows = [...document.querySelectorAll('#main div[data-id]')];
+  const f = (filtro || '').toLowerCase().trim();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    const text = row.innerText || '';
+    const title = row.querySelector('[title]') ? row.querySelector('[title]').getAttribute('title') : '';
+    const isDoc = !!row.querySelector('div[data-testid="document-thumb"], span[title*="."], [data-icon*="document"]');
+    const match = !f ||
+                  text.toLowerCase().includes(f) ||
+                  title.toLowerCase().includes(f) ||
+                  (f === 'pdf' && (isDoc || text.toLowerCase().includes('.pdf') || text.includes('PDF')));
+    if (match) {
+      row.scrollIntoView({block: 'center'});
+      const btn = row.querySelector('div[aria-label="Encaminhar mídia"], [aria-label*="Encaminhar"]');
+      let docName = '';
+      const titleEl = row.querySelector('div[data-testid="document-thumb"], span[title*="."], [data-icon*="document"]');
+      if (titleEl && titleEl.getAttribute('title')) {
+        const t = titleEl.getAttribute('title') || '';
+        const mTitle = t.match(/["“](.*?)["”]/);
+        docName = mTitle ? mTitle[1] : t.replace(/^(?:Mostrar|Baixar)\s*/i, '').replace(/^["']|["']$/g, '').trim();
+      } else {
+        const m = text.match(/([\w\-\.]+\.(?:pdf|docx?|xlsx?|pptx?|pfx|zip|png|jpe?g))/i);
+        if (m) docName = m[1];
+      }
+      return {
+        ok: true,
+        id: row.getAttribute('data-id'),
+        docName: docName || (isDoc ? 'documento' : 'mensagem'),
+        hasBtn: !!btn
+      };
+    }
+  }
+  return {ok: false, motivo: 'nenhum documento ou mensagem correspondente encontrado para encaminhar'};
+})"""
+
+_JS_FORWARD_CLICK = r"""((id) => {
+  const row = document.querySelector('div[data-id*="' + id + '"]');
+  if (!row) return false;
+  let btn = row.querySelector('div[aria-label="Encaminhar mídia"], [aria-label*="Encaminhar"]');
+  if (!btn) {
+    row.scrollIntoView({block: 'center'});
+    row.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
+    btn = row.querySelector('[data-icon="down-context"], [aria-label="Abrir menu de contexto"]');
+  }
+  if (!btn) return false;
+  btn.scrollIntoView({block: 'center'});
+  btn.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+  btn.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+  btn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+  return true;
+})"""
+
+_JS_FORWARD_SEARCH_INPUT = r"""(() => {
+  const m = document.querySelector('div[data-animate-modal-body="true"], [data-testid="forward-modal"], div[role="dialog"]');
+  if (!m) return false;
+  const inp = m.querySelector('input[type="text"], [contenteditable="true"]');
+  if (!inp) return false;
+  inp.focus();
+  return true;
+})()"""
+
+_JS_FORWARD_SELECT_DEST = r"""((dest) => {
+  const modal = document.querySelector('div[data-animate-modal-body="true"], [data-testid="forward-modal"], div[role="dialog"]');
+  if (!modal) return {ok: false, motivo: 'modal de encaminhamento sumiu'};
+  const items = [...modal.querySelectorAll('div[role="listitem"], div[data-testid*="list-item"]')];
+  const norm = (s) => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const d = norm(dest);
+  const target = items.find(li => norm(li.innerText).includes(d));
+  if (!target) return {ok: false, motivo: `destinatário "${dest}" não encontrado na busca de encaminhamento`};
+  const clickable = target.querySelector('div[role="checkbox"], div[role="button"], [tabindex="0"]') || target;
+  const b = clickable.getBoundingClientRect();
+  return {ok: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
+})"""
+
+_JS_FORWARD_SEND_BTN = r"""(() => {
+  const sendBtn = document.querySelector('div[role="button"][aria-label="Enviar"], span[data-icon="send"], [data-testid="send"]');
+  if (!sendBtn) return {ok: false, motivo: 'botão de enviar do encaminhamento não apareceu'};
+  const btn = sendBtn.closest('div[role="button"]') || sendBtn;
+  const b = btn.getBoundingClientRect();
+  return {ok: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
+})()"""
+
 
 _JS_FOCUS = r"""(()=>{
   const c=document.querySelector('footer [contenteditable="true"]')||document.querySelector('div[contenteditable="true"][data-tab="10"]')||
@@ -488,6 +618,90 @@ def fetch_audio(msg_id, dest):
             open(dest, "wb").write(base64.b64decode(r["b64"]))
             return {"ok": True, "arquivo": dest}
         return r
+    except Exception as e:
+        return {"ok": False, "motivo": f"{type(e).__name__}: {e}"[:160]}
+
+
+async def _forward(de, para, filtro="", apenas_testar=False):
+    async with CDP() as c:
+        # 1. Abre conversa de origem
+        r = await _open_chat(c, de)
+        if not r.get("ok"):
+            return {"ok": False, "motivo": f"não foi possível abrir conversa de origem ({de}): {r.get('motivo')}"}
+        await asyncio.sleep(0.5)
+
+        # 2. Localiza a mensagem/documento
+        msg_info = await c.ev(_JS_FORWARD_FIND, filtro)
+        if not msg_info or not msg_info.get("ok"):
+            return msg_info or {"ok": False, "motivo": f"documento/mensagem não encontrado para filtro: {filtro}"}
+
+        # 3. Clica no botão de encaminhar
+        clicou = await c.ev(_JS_FORWARD_CLICK, msg_info["id"])
+        if not clicou:
+            return {"ok": False, "motivo": "não foi possível acionar o botão de encaminhar na mensagem"}
+
+        await asyncio.sleep(1.0)
+
+        # 4. Foca no campo de busca do modal
+        modal_ok = await c.ev(_JS_FORWARD_SEARCH_INPUT)
+        if not modal_ok:
+            return {"ok": False, "motivo": "modal de encaminhamento não apareceu"}
+
+        await c.call("Input.insertText", text=para)
+        await asyncio.sleep(0.8)
+
+        # 5. Seleciona o destinatário
+        sel = await c.ev(_JS_FORWARD_SELECT_DEST, para)
+        if not sel or not sel.get("ok"):
+            for typ in ("rawKeyDown", "keyUp"):
+                await c.call("Input.dispatchKeyEvent", type=typ, windowsVirtualKeyCode=27, key="Escape", code="Escape")
+            return sel or {"ok": False, "motivo": f"contato {para} não encontrado na lista de encaminhamento"}
+
+        await c.call("Input.dispatchMouseEvent", type="mousePressed", x=sel["x"], y=sel["y"], button="left", clickCount=1)
+        await c.call("Input.dispatchMouseEvent", type="mouseReleased", x=sel["x"], y=sel["y"], button="left", clickCount=1)
+        await asyncio.sleep(0.8)
+
+        # 6. Verifica botão de enviar
+        btn = await c.ev(_JS_FORWARD_SEND_BTN)
+        if not btn or not btn.get("ok"):
+            for typ in ("rawKeyDown", "keyUp"):
+                await c.call("Input.dispatchKeyEvent", type=typ, windowsVirtualKeyCode=27, key="Escape", code="Escape")
+            return btn or {"ok": False, "motivo": "botão enviar não ficou disponível no modal de encaminhamento"}
+
+        if apenas_testar:
+            for typ in ("rawKeyDown", "keyUp"):
+                await c.call("Input.dispatchKeyEvent", type=typ, windowsVirtualKeyCode=27, key="Escape", code="Escape")
+            await asyncio.sleep(0.4)
+            for typ in ("rawKeyDown", "keyUp"):
+                await c.call("Input.dispatchKeyEvent", type=typ, windowsVirtualKeyCode=27, key="Escape", code="Escape")
+            return {"ok": True, "teste": True, "de": r.get("nome", de), "para": para, "doc": msg_info.get("docName", "")}
+
+        # 7. Dispara envio
+        await c.call("Input.dispatchMouseEvent", type="mousePressed", x=btn["x"], y=btn["y"], button="left", clickCount=1)
+        await c.call("Input.dispatchMouseEvent", type="mouseReleased", x=btn["x"], y=btn["y"], button="left", clickCount=1)
+
+        for _ in range(15):
+            await asyncio.sleep(0.3)
+            fechou = await c.ev("!document.querySelector('div[data-animate-modal-body=\"true\"], [data-testid=\"forward-modal\"], div[role=\"dialog\"]')")
+            if fechou:
+                break
+
+        return {"ok": True, "de": r.get("nome", de), "para": para, "doc": msg_info.get("docName", "")}
+
+
+def forward(de, para, filtro="", apenas_testar=False):
+    """Encaminha documento, mídia ou mensagem de um contato para outro no WhatsApp Web."""
+    try:
+        for _ in range(3):
+            if available():
+                break
+            time.sleep(2)
+        else:
+            if subprocess.run(["pgrep", "-f", "/app/bin/zapzap"], capture_output=True).returncode != 0:
+                ensure_running()
+        if not available():
+            return {"ok": False, "motivo": "ZapZap não respondeu ao depurador"}
+        return _run(_forward(de, para, filtro, apenas_testar=apenas_testar))
     except Exception as e:
         return {"ok": False, "motivo": f"{type(e).__name__}: {e}"[:160]}
 

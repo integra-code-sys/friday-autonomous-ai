@@ -151,7 +151,19 @@ final class Ferramentas {
                     return Zap.preparar(c, this, alvo, txt);                 // abre a conversa e escreve; envia só com o "sim" do dono
                 }
                 case "compartilhar": {
-                    Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, a.optString("texto"));
+                    String arq = a.optString("arquivo", a.optString("caminho", ""));
+                    String txt = a.optString("texto", a.optString("mensagem", ""));
+                    Intent i = new Intent(Intent.ACTION_SEND);
+                    if (!arq.isEmpty()) {
+                        Uri uri = Uri.parse(arq.startsWith("content://") || arq.startsWith("file://") ? arq : "file://" + arq);
+                        String mime = arq.toLowerCase().endsWith(".pdf") ? "application/pdf" : "*/*";
+                        i.setType(mime).putExtra(Intent.EXTRA_STREAM, uri);
+                        if (!txt.isEmpty()) i.putExtra(Intent.EXTRA_TEXT, txt);
+                    } else {
+                        i.setType("text/plain").putExtra(Intent.EXTRA_TEXT, txt);
+                    }
+                    String pkg = a.optString("app", a.optString("pacote", ""));
+                    if (!pkg.isEmpty()) i.setPackage(pkg);
                     return iniciar(Intent.createChooser(i, "Compartilhar"), "tela de compartilhar aberta");
                 }
                 case "lanterna": {
