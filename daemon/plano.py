@@ -77,6 +77,8 @@ def ultimo_incompleto():
         for f in reversed(arqs):
             p = json.load(open(os.path.join(DIR, f)))
             if p.get("estado") not in ("concluido", "cancelado"):
+                if time.time() - float(p.get("inicio") or 0) > 6 * 3600:    # 19/10: "continue a tarefa anterior" retomou plano de 5 dias atrás (celular)
+                    return None
                 return p
     except Exception:
         pass

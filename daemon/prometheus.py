@@ -3341,7 +3341,11 @@ async def handle_modes(txt):
     if re.search(r"\b(?:fal[ae]|diga|pe[çc]a|pede|mand[ae]|avis[ae])\s+(?:para|pra|pro|a|ao)\s+(?:ela|ele)\b", t):
         try:
             import dev_cli
-            if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600:
+            try:
+                ult_t = json.load(open(os.path.join(MEM_DIR, "dev_ultima.json"))).get("t", 0)
+            except Exception:
+                ult_t = 0
+            if (dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600) or time.time() - ult_t < 7200:   # janela fechada mas tarefa recente: reabre
                 await dizer("Passei para o Claude.")
                 asyncio.create_task(run_programming(txt))
                 return True
