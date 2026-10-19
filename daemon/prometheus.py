@@ -5891,6 +5891,11 @@ def _pasta_do_pedido(pedido):
     return None
 
 
+_CLAUDE_NAO = re.compile(r"n[ãa]o (?:consigo|posso|tenho (?:acesso|permiss[ãa]o|como))|preciso que voc[êe]|voc[êe] (?:precisa|pode|deve|vai precisar) "
+                         r"(?:rodar|executar|editar|abrir|fazer|copiar|pegar|acessar|criar|colar|preencher)|execute manualmente|rode manualmente|"
+                         r"\bI (?:can'?t|cannot|don'?t have|am unable)|you(?:'ll)? need to|permission denied", re.I)
+
+
 def _falavel(t, limite=110):
     """frase curta e pronunciável para a voz: sem caminhos, URLs, código, símbolos, parênteses e siglas coladas por barra."""
     t = re.sub(r"https?://\S+|[~/]\S*/\S+|`[^`]*`|\*\*|[•▎#_*`]+|\([^)]*\)", " ", str(t or ""))
@@ -6022,6 +6027,11 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
         anterior = fim
         if parado >= 3:
             await speak("O Claude do modo dev parou de avançar. Deixei a sessão aberta para você ver.")
+            break
+        if _CLAUDE_NAO.search(fim[-1600:]) and not _SUDO_RE.search(fim[-1600:]):
+            # 19/10: Claude dizia "não posso, faça você" e o supervisor mandava "continue" -> loop. Agora para e avisa o dono.
+            await broadcast({"type": "text", "role": "tool", "text": "MODO DEV parado, o Claude pediu algo que não consegue fazer:\n" + fim[-900:]})
+            await speak("O Claude parou porque precisa que alguém faça um passo fora do alcance dele. Os detalhes estão no painel.")
             break
         m = _SUDO_RE.search(fim)
         if m:
