@@ -57,7 +57,7 @@ def _llm_log(r, out, json_mode):
 def llm(system, user, history=None, json_mode=True, num_predict=220, temperature=0.3, timeout=60, schema=None):
     """chamada ao modelo local. Devolve texto (ou dict, se json_mode e parse ok). schema = JSON schema do Ollama (enum fechado)."""
     msgs = [{"role": "system", "content": system}] + list(history or []) + [{"role": "user", "content": user}]
-    body = {"model": MODEL, "stream": False, "messages": msgs,      # sem keep_alive: vale o OLLAMA_KEEP_ALIVE do serviço
+    body = {"model": MODEL, "stream": False, "messages": msgs, "think": False,   # 19/10: qwen3.5 pensa por padrão e gastava todo num_predict -> conteúdo vazio (json_ok=0 em tudo)
             "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": NUM_CTX, "num_gpu": NUM_GPU}}
     if json_mode:
         body["format"] = schema if isinstance(schema, dict) else "json"     # F6: com schema a saída já vem no formato certo

@@ -5889,12 +5889,12 @@ def _brief_programacao(pedido: str, pasta=None):
                '{"pasta":"caminho EXATO de um dos projetos listados, ou caminho informado no pedido, ou \"\" se não souber","prompt":"briefing claro e completo em pt-BR: objetivo, '
                'arquivos/áreas prováveis, critérios de pronto, restrições (economizar tokens, ler só o necessário, editar com diff, reaproveitar '
                'código existente, nunca ler/imprimir segredos .env/.pfx/Secrets)"}\nProjetos:\n' + lista,
-               f"Pedido do dono: {pedido}\nPasta sugerida: {resolved_pasta or 'nenhuma'}", num_predict=420, temperature=0.2, timeout=90)
+               f"Pedido do dono: {pedido}\nPasta sugerida: {resolved_pasta or 'nenhuma'}", num_predict=1400, temperature=0.2, timeout=120)   # 19/10: 420 cortava o JSON (done_reason=length) -> ia o pedido cru
     if isinstance(d, dict):
         if isinstance(d.get("prompt"), str) and len(d["prompt"]) > 20:
             out["prompt"] = d["prompt"][:3000]
         c = str(d.get("pasta") or "").strip()
-        if c:
+        if c and not resolved_pasta:                     # 19/10: pasta achada pelo código/última tarefa vale mais que o palpite do modelo ("Agente Fiscal")
             cand = os.path.abspath(os.path.expanduser(c))
             if not os.path.exists(cand):
                 cand2 = os.path.join(os.path.expanduser("~"), c.lstrip("/"))
@@ -5998,8 +5998,14 @@ async def run_programming(pedido: str, pasta=None):
     if ops is None:
         return
     limpo = _sem_meta_claude(pedido)
+    ult_ = os.path.join(MEM_DIR, "dev_ultima.json")
     if not pasta:
         pasta = _pasta_do_pedido(pedido)
+    if not pasta and re.search(r"\b(?:continu\w*|anterior|mesma tarefa|tarefa atual|essa tarefa|corrij\w*|corre[çc][ãa]o|modifica[çc][ãa]o)\b", pedido, re.I):
+        try:                                                # 19/10: "continue a tarefa anterior" abria na raiz -> volta à pasta da última tarefa
+            pasta = json.load(open(ult_)).get("pasta") or None
+        except Exception:
+            pass
     try:                                                    # 19/10: correção no meio da tarefa ia colada crua ("eu quero que fale para o claude...")
         import dev_cli
         if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600 and _EH_CORRECAO.search(pedido):
@@ -6012,6 +6018,11 @@ async def run_programming(pedido: str, pasta=None):
         print("dev correção:", e, flush=True)
     brief = await asyncio.to_thread(_brief_programacao, pedido, pasta)
     pedido_prompt, pasta = brief["prompt"], brief["pasta"]
+    if pasta:
+        try:
+            json.dump({"pasta": pasta, "pedido": limpo[:500], "t": int(time.time())}, open(ult_, "w"), ensure_ascii=False)
+        except Exception:
+            pass
     if _RECUSA.search(pedido_prompt):                       # 19/10: modelo local escreveu "como sou um assistente de IA, não posso..." e foi pro Claude
         pedido_prompt = (limpo + "\n\nTrabalhe de forma autônoma: leia o código existente, implemente, teste e corrija até concluir. "
                          "Economize tokens: leia só o necessário e edite com diff.")
