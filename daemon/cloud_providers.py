@@ -135,7 +135,7 @@ def _vlm_ollama(b64, prompt, cfg, max_tokens, temp, timeout):
         "stream": False,
         "prompt": prompt,
         "images": [b64],
-        "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": 8192, "num_gpu": 99}
+        "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384")), "num_gpu": 99}
     }
     r = _http_post_json(url, {}, body, timeout=timeout)
     return (r.get("response") or "").strip() or None

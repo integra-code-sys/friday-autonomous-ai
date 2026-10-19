@@ -87,7 +87,7 @@ def _modelo(prompt, max_tokens=1000):
             "stream": False,
             "messages": [{"role": "user", "content": prompt}],
             "think": False,
-            "options": {"temperature": 0.2, "num_predict": max_tokens}
+            "options": {"temperature": 0.2, "num_predict": max_tokens, "num_ctx": int(os.environ.get("FRIDAY_NUM_CTX", "16384")), "num_gpu": 99}
         }
         req = urllib.request.Request(
             "http://127.0.0.1:11434/api/chat",

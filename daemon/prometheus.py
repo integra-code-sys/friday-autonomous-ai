@@ -1080,8 +1080,8 @@ async def ask(text: str, files: list[str], proactive: bool = False, voz: bool = 
     if not proactive and not files and not voz and text and len(text) < 300:   # voz: route_speech já passou pelos mesmos portões (com a checagem do TitaNet)       # "aprovado"/"cancela"/"altera para X"/"sim" DIGITADOS = mesma lógica da voz
         if await handle_approval_speech(text, eco=True) or await handle_offer_speech(text, eco=True) or await handle_skip_speech(text):
             return
-        if await handle_modes(text):
-            return
+    if not proactive and not files and not voz and text and await handle_modes(text):   # 19/10: pedido digitado >300 chars pulava a rota do MODO DEV
+        return
     if fr is not None and os.environ.get("FRIDAY_CLOUD", "0") != "1":
         return await friday_ask(text, files, proactive)
     async with busy:
@@ -2392,7 +2392,7 @@ def vlm_describe(frame) -> str:
 
 VLM_MODEL = fr.MODEL if "fr" in globals() and fr is not None else "qwen3-vl:4b-instruct"
 VLM_NUM_GPU = fr.NUM_GPU if "fr" in globals() and fr is not None else 99   # igual ao friday.py: num_gpu diferente recarrega o modelo
-VLM_NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "8192"))
+VLM_NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "16384"))
 
 
 HAND_PROMPT = ("The person's hand is in the center of this close-up. What object is the hand holding? "

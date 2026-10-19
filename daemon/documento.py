@@ -113,7 +113,7 @@ def _chamar_llm(system, user, schema=None, json_mode=False, num_predict=600, tem
             "model": "qwen3-vl:4b-instruct",
             "stream": False,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": int(__import__("os").environ.get("FRIDAY_NUM_CTX", "8192"))}
+            "options": {"temperature": temperature, "num_predict": num_predict, "num_ctx": int(__import__("os").environ.get("FRIDAY_NUM_CTX", "16384"))}
         }
         if json_mode:
             body["format"] = schema if isinstance(schema, dict) else "json"

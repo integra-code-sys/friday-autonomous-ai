@@ -10,7 +10,7 @@ if _HERE not in sys.path:
 OLLAMA = os.environ.get("FRIDAY_OLLAMA", "http://127.0.0.1:11434")
 MODEL = os.environ.get("FRIDAY_MODEL", "qwen3-vl:4b-instruct")   # um só modelo p/ conversa + câmera + tela (cabe na GPU: Whisper vai p/ CPU)
 NUM_GPU = int(os.environ.get("FRIDAY_NUM_GPU", "99"))     # 99 = tudo na GPU (Whisper roda na CPU); offload parcial gera lixo, então é tudo ou nada
-NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "8192"))  # IGUAL em todo o projeto (visao/documento/prometheus/cerebro): valor diferente recarrega o modelo
+NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "16384"))  # IGUAL em todo o projeto (visao/documento/prometheus/cerebro): valor diferente recarrega o modelo
 
 # nome falado: o Whisper erra bastante ("testa a feira", "esta feira", "sesta feira"...) -> casamento tolerante
 NOME = r"(?:s[eê]xt|t[eê]st|s[eê]st|c[eê]st|t[eê]xt|[eé]st|est|[eé]ss|ess|sest|cest|sext)a?\s*-?\s*(?:a\s+)?f[eé]i?ra?|friday|f\.?\s?r\.?\s?i\.?\s?d\.?\s?a\.?\s?y\.?"

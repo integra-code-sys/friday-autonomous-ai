@@ -21,7 +21,7 @@ ROOT = os.path.dirname(HERE)
 VLM_MODEL = os.environ.get("FRIDAY_VLM_MODEL", os.environ.get("FRIDAY_MODEL", "qwen3-vl:4b-instruct"))
 OLLAMA_URL = os.environ.get("FRIDAY_OLLAMA", "http://127.0.0.1:11434")
 NUM_GPU = int(os.environ.get("FRIDAY_NUM_GPU", "99"))
-NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "8192"))   # igual ao friday.NUM_CTX
+NUM_CTX = int(os.environ.get("FRIDAY_NUM_CTX", "16384"))   # igual ao friday.NUM_CTX
 # mesmas opções do friday.py (num_ctx/num_gpu iguais e sem keep_alive): opção diferente faz o Ollama recarregar o modelo
 OPCOES_BASE = {"num_ctx": NUM_CTX, "num_gpu": NUM_GPU}
 
