@@ -891,7 +891,7 @@ def agenda_nivel(ts=None):
 def agenda_nivel_fala(ts=None):
     n = agenda_nivel(ts)
     if not n["total"]:
-        return "Seu dia está livre, chefe."
+        return "Seu dia está livre, senhor."
     partes = [f"Dia {n['nivel']}: {n['total']} compromisso{'s' if n['total'] > 1 else ''}"]
     if n["feitos"]:
         partes.append(f"{n['feitos']} já feito{'s' if n['feitos'] > 1 else ''}")

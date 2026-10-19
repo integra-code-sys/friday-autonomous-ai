@@ -755,15 +755,26 @@ class _FalaStream:
 
 
 def _tts_garantir():
-    """sobe o servidor de voz (Pocket TTS no .venv-tts) se não estiver no ar."""
+    """sobe o servidor de voz (Kokoro, Kitsune, Supertonic ou Pocket TTS) se não estiver no ar."""
     if os.path.exists(TTS_SOCK):
         return True
-    st = _voz_cfg().get("tts_motor") == "supertonic"           # Supertonic 3 (.venv-st) ou Pocket (.venv-tts): mesmo socket/protocolo
-    py = os.path.join(ROOT, ".venv-st" if st else ".venv-tts", "bin", "python")
+    motor = _voz_cfg().get("tts_motor", "kokoro")
+    if motor == "kokoro":
+        py = os.path.join(ROOT, ".venv", "bin", "python")
+        script = os.path.join(ROOT, "daemon", "tts_kokoro.py")
+    elif motor == "kitsune":
+        py = os.path.join(ROOT, ".venv-kitsune", "bin", "python")
+        script = os.path.join(ROOT, "daemon", "tts_kitsune.py")
+    elif motor == "supertonic":
+        py = os.path.join(ROOT, ".venv-st", "bin", "python")
+        script = os.path.join(ROOT, "daemon", "tts_supertonic.py")
+    else:
+        py = os.path.join(ROOT, ".venv-tts", "bin", "python")
+        script = os.path.join(ROOT, "daemon", "tts_pocket.py")
     if not os.path.exists(py) or time.time() - _tts_srv["t"] < 20:
         return False
     _tts_srv["t"] = time.time()
-    subprocess.Popen([py, os.path.join(ROOT, "daemon", "tts_supertonic.py" if st else "tts_pocket.py")], stdout=open("/tmp/friday-tts.log", "a"),
+    subprocess.Popen([py, script], stdout=open("/tmp/friday-tts.log", "a"),
                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
     for _ in range(80):
         if os.path.exists(TTS_SOCK):
@@ -773,7 +784,7 @@ def _tts_garantir():
 
 
 def _synth_pocket(text: str):
-    """voz neural Kyutai Pocket TTS (modelo português, voz 'jane', CPU): 1º som em ~0,1 s, ~4x tempo real."""
+    """voz neural (Kokoro, Kitsune, Supertonic ou Pocket TTS no socket UNIX): 1º som em ~0,1 s, ~4x tempo real."""
     import socket as _sk
     for tentativa in range(2):
         if not _tts_garantir():
@@ -793,24 +804,24 @@ def _synth_pocket(text: str):
             except Exception:
                 pass
         except Exception as e:
-            print("voz pocket indisponível:", e, flush=True)
+            print("voz socket indisponível:", e, flush=True)
             return None
     return None
 
 
 def _synth_unlocked(text: str, stream: bool = False):
     global _piper
-    motor = os.environ.get("PROMETHEUS_TTS") or _voz_cfg().get("tts_motor", "dii")
+    motor = os.environ.get("PROMETHEUS_TTS") or _voz_cfg().get("tts_motor", "kokoro")
     if motor == "dii":
         r = _synth_dii(text)
         if r is not None:
             return r
-        motor = "pocket"
-    if motor in ("pocket", "supertonic"):                # mesmo cliente: o servidor no socket é o do motor escolhido
+        motor = "kokoro"
+    if motor in ("pocket", "supertonic", "kitsune", "kokoro"):     # mesmo cliente: o servidor no socket é o do motor escolhido
         r = _synth_pocket(text)
         if r is not None:
             return r if stream else (r[0].tudo(), r[1])
-        motor = "kokoro"
+        motor = "dii"
     if motor == "edge":                                  # online (a Microsoft passou a recusar com 403 em 10/2026)
         r = _synth_edge(text)
         if r is not None:
@@ -3646,7 +3657,7 @@ async def continuo_start(goal, retomar=False):
         continuo["task"] = asyncio.create_task(_cont_programar())
     else:
         continuo["task"] = asyncio.create_task(_cont_loop())
-    return True, "Entendido, chefe. Vou trabalhando nisso em segundo plano e te atualizo. Diga pare a tarefa quando quiser encerrar."
+    return True, "Entendido, senhor. Vou trabalhando nisso em segundo plano e te mantenho informado. Diga pare a tarefa quando quiser encerrar."
 
 
 def continuo_stop(motivo="parada"):
@@ -3678,8 +3689,8 @@ async def _cont_programar():
         if continuo["ativo"]:
             continuo["ativo"] = False
             _cont_save()
-            await broadcast({"type": "text", "role": "assistant", "text": "Terminei esta rodada de desenvolvimento, chefe. Quer que eu continue?"})
-            await speak("Terminei esta rodada de desenvolvimento, chefe. Quer que eu continue?")
+            await broadcast({"type": "text", "role": "assistant", "text": "Terminei esta rodada de desenvolvimento, senhor. Quer que eu continue?"})
+            await speak("Terminei esta rodada de desenvolvimento, senhor. Quer que eu continue?")
 
 
 async def _cont_loop():
@@ -3716,7 +3727,7 @@ async def _cont_loop():
         await broadcast({"type": "text", "role": "assistant", "text": f"[LOOP] #{continuo['iter']}: {fala}"})
         if fala.upper().startswith("CONCLU"):
             continuo["ativo"] = False; _cont_save()
-            await speak("Terminei a tarefa, chefe. " + fala.split(":", 1)[-1].strip()[:200])
+            await speak("Terminei a tarefa, senhor. " + fala.split(":", 1)[-1].strip()[:200])
             return
         if continuo["iter"] % 4 == 0:
             await speak(f"Atualização: {fala[:160]}")
@@ -3726,7 +3737,7 @@ async def _cont_loop():
             await asyncio.sleep(2)
     if continuo["ativo"]:
         continuo["ativo"] = False; _cont_save()
-        await speak("Cheguei ao limite desta tarefa contínua, chefe. Diga retomar se quiser que eu siga.")
+        await speak("Cheguei ao limite desta tarefa contínua, senhor. Diga retomar se quiser que eu siga.")
 
 
 async def handle_continuo(txt):
@@ -3893,19 +3904,19 @@ async def _route_speech_now(txt: str):
         fila_tarefas.clear()
         cancel_all()
         await broadcast({"type": "friday_heard", "text": txt[:140]})
-        asyncio.create_task(speak("Parei a tarefa e tudo que estava fazendo, chefe." if (_tinha or agente_ativo[0]) else "Parei, chefe."))
+        asyncio.create_task(speak("Parei a tarefa e tudo que estava fazendo, senhor." if (_tinha or agente_ativo[0]) else "Parei, senhor."))
         return
     if (STOP_RE.search(txt) and not _quer_desligar and len(_palavras_sem_nome(txt)) <= 3 and (friday_state["on"] or (fr is not None and fr.NAME_RE.search(txt)))
             and not oferta.get("tarefa") and not _ha_pendente(45) and not (ops is not None and any(i["estado"] == "pendente" for i in ops.approvals()))):
         barge["v"] = False                            # "pare" com nada rodando (nem aprovação/oferta para cancelar): diz isso, não vai p/ o think
         await broadcast({"type": "friday_heard", "text": txt[:140]})
-        asyncio.create_task(speak("Não tem nada rodando."))
+        asyncio.create_task(speak("Não tem nada rodando, senhor."))
         return
     if SKIP_RE.search(txt) and (agente_ativo[0] or busy.locked() or _man_run):
         barge["v"] = False
         skip_step()
         await broadcast({"type": "friday_heard", "text": txt[:140]})
-        asyncio.create_task(speak("Pulei a etapa, chefe."))
+        asyncio.create_task(speak("Pulei a etapa, senhor."))
         return
     if barge["v"]:                                    # começou enquanto ela falava: só passa se chamou pelo nome
         barge["v"] = False
@@ -4890,7 +4901,7 @@ def _zap_cmd_work(chat, items):
                 try: os.remove(dest)
                 except OSError: pass
             if not txt:
-                zapmod.send(chat, "[FRIDAY] Não entendi o áudio, chefe. Pode repetir?"); continue
+                zapmod.send(chat, "[FRIDAY] Não entendi o áudio, senhor. Pode repetir?"); continue
         ops.audit("zap.comando", chat, txt[:120], "recebido")
         try:
             lp = _main.get("loop")
@@ -5010,13 +5021,15 @@ async def friday_set(on: bool, force: bool = False):
         await broadcast({"type": "friday", "on": True})
         await broadcast({"type": "camera", "on": True})
         await asyncio.sleep(0.4)
-        nome = mem.get("nome") or "chefe"
+        nome = mem.get("nome") or "senhor"
         await friday_pose("acenar", 3500)
         import random as _r
         _h = time.localtime().tm_hour
         _sd = "Bom dia" if 5 <= _h < 12 else "Boa tarde" if _h < 18 else "Boa noite"
-        msg = _r.choice([f"{_sd}! Tô aqui, pode falar.", f"{_sd}, chefe. Tudo pronto por aqui.", "Oi! Voltei. No que a gente mexe hoje?",
-                         f"{_sd}. Já tô te vendo e ouvindo, pode mandar."])
+        msg = _r.choice([f"{_sd}, senhor! Estou aqui, em que posso ajudar?",
+                         f"{_sd}, senhor. Tudo pronto e à sua disposição.",
+                         "Olá, senhor! Em que posso ser útil agora?",
+                         f"{_sd}, senhor. Conectada e pronta para o que precisar."])
         await broadcast({"type": "text", "role": "assistant", "text": msg})
         log_turn("prometheus", msg)
         await speak(msg)
@@ -5215,7 +5228,7 @@ async def friday_ask(text: str, files=None, proactive=False):
             save_mem()
             await broadcast({"type": "text", "role": "assistant", "text": f"Anotado: {fato}"})
             log_turn("usuario", text); log_turn("prometheus", f"Anotado: {fato}")
-            await speak(random.choice([f"Anotado, chefe: {fato}.", "Guardei. Não esqueço.", "Pronto, está na memória."]))
+            await speak(random.choice([f"Anotado, senhor: {fato}.", "Guardei com certeza. Não esqueço.", "Pronto, está registrado na memória, senhor."]))
             return
 
         # ---- IDENTIDADE DO USUÁRIO ("QUEM SOU EU?"): RESPOSTA BIOMÉTRICA IMEDIATA ----
@@ -5230,17 +5243,17 @@ async def friday_ask(text: str, files=None, proactive=False):
             outro_voz = current_speaker.get("nome") or (last_voice.get("nome") if now_id - last_voice.get("t", 0) < 25 else None)
 
             if face_dono and voz_dono:
-                fala_id = f"Você é o {dono}, meu criador e chefe. Confirmei sua identidade tanto pelo reconhecimento facial quanto pela sua voz."
+                fala_id = f"O senhor é o {dono}, meu criador. Confirmei sua identidade com segurança tanto pelo reconhecimento facial quanto pela sua voz."
             elif face_dono:
-                fala_id = f"Você é o {dono}, senhor. Reconheço seu rosto perfeitamente pela câmera frontal."
+                fala_id = f"O senhor é o {dono}. Reconheço perfeitamente seu rosto pela câmera frontal."
             elif voz_dono:
-                fala_id = f"Você é o {dono}, senhor. Reconheço com certeza o timbre da sua voz."
+                fala_id = f"O senhor é o {dono}. Reconheço com certeza o timbre da sua voz."
             elif outro_face and outro_face.lower() != dono.lower():
                 fala_id = f"Pelo reconhecimento facial, você é {outro_face}."
             elif outro_voz and str(outro_voz).lower() != dono.lower():
                 fala_id = f"Pelo reconhecimento de voz, você é {outro_voz}."
             else:
-                fala_id = f"Você é o {dono}, meu criador e chefe."
+                fala_id = f"O senhor é o {dono}, meu criador."
 
             await broadcast({"type": "text", "role": "assistant", "text": fala_id})
             log_turn("usuario", text); log_turn("prometheus", fala_id)
@@ -5431,7 +5444,7 @@ async def friday_ask(text: str, files=None, proactive=False):
                 _dec.append("parar")
                 if agente_ativo[0] or fila_tarefas:
                     fila_tarefas.clear(); cancel_all()
-                    res = {"fala": "Parei a tarefa, chefe.", "acoes": [], "pose": "confirmar", "humor": "neutro"}
+                    res = {"fala": "Parei a tarefa, senhor.", "acoes": [], "pose": "confirmar", "humor": "neutro"}
                 else:
                     res = {"fala": "Não tem nada rodando agora.", "acoes": [], "pose": "neutro", "humor": "neutro"}
             elif _ri in ("aprovar", "rejeitar") and "aprovação pendente: não" in _rctx:
@@ -5585,7 +5598,7 @@ async def friday_ask(text: str, files=None, proactive=False):
         fala = res.get("fala", "")
         if fala == "__hora__":
             h = int(time.strftime("%H"))
-            toque = "" if os.urandom(1)[0] % 3 else (" O dia está passando rápido." if 9 <= h < 18 else " Já é tarde, chefe." if h >= 22 else " Bom começo de dia." if h < 9 else "")
+            toque = "" if os.urandom(1)[0] % 3 else (" O dia está passando rápido." if 9 <= h < 18 else " Já é tarde, senhor." if h >= 22 else " Bom começo de dia." if h < 9 else "")
             _hh, _mm = time.localtime().tm_hour, time.localtime().tm_min
             fala = (f"São {_hh} em ponto" if _mm == 0 else f"São {_hh} e {_mm}" if _hh != 1 else f"É uma e {_mm}") + "." + toque
         if isinstance(res.get("lembrar"), dict):
@@ -6266,7 +6279,7 @@ async def run_programming(pedido: str, pasta=None):
         turno += 1
 
     resumo = (ultimo_resultado.split("\n")[0] if ultimo_resultado else "trabalho finalizado")[:220]
-    msg = ("Chefe, terminei o projeto no Claude CLI em " + os.path.basename(cwd) + ": " + resumo) if sucesso else ("Não consegui concluir o projeto no Claude CLI: " + resumo)
+    msg = ("Senhor, terminei o projeto no Claude CLI em " + os.path.basename(cwd) + ": " + resumo) if sucesso else ("Não consegui concluir o projeto no Claude CLI: " + resumo)
     await broadcast({"type": "text", "role": "assistant", "text": msg})
     log_turn("prometheus", msg)
     if not speaking and state["state"] == "idle":

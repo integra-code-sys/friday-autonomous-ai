@@ -48,17 +48,17 @@ def main():
             try:
                 estilos[v] = tts.get_voice_style(v)
             except Exception:
-                estilos[v] = tts.get_voice_style("F1")
+                estilos[v] = tts.get_voice_style("F5")
         return estilos[v]
 
     def gerar(texto, voz):
         c_ = cfg()
-        wav, _ = tts.synthesize(texto, voice_style=estilo(voz), lang="pt", total_steps=int(c_.get("st_passos", 8)),
+        wav, _ = tts.synthesize(texto, voice_style=estilo(voz), lang="pt", total_steps=int(c_.get("st_passos", 10)),
                                 speed=float(c_.get("st_vel", 1.0)), silence_duration=0.15)
         return np.asarray(wav, dtype=np.float32).reshape(-1)
 
     sr = int(getattr(tts, "sample_rate", 44100))
-    gerar("Oi.", c.get("st_voz", "F1"))                        # aquece (1ª fala sem atraso)
+    gerar("Oi.", c.get("st_voz", "F5"))                        # aquece (1ª fala sem atraso)
     print(f"tts supertonic pronto em {time.time() - t0:.1f}s, sr {sr} ({SOCK})", flush=True)
     lock = threading.Lock()                                     # uma fala por vez
 
@@ -69,11 +69,13 @@ def main():
             texto = str(req.get("texto", "")).strip()
             if fala_pt is not None:
                 texto = fala_pt.normalizar(texto)
+                if cfg().get("sotaque_br", True):
+                    texto = getattr(fala_pt, "sotaque_br", lambda x: x)(texto)
             if not texto:
                 conn.sendall(b'{"ok": false}\n'); return
-            voz = str(req.get("voz") or cfg().get("st_voz", "F1"))
+            voz = str(req.get("voz") or cfg().get("st_voz", "F5"))
             if not re.fullmatch(r"[FM][1-5]", voz):
-                voz = cfg().get("st_voz", "F1")
+                voz = cfg().get("st_voz", "F5")
             with lock:
                 conn.sendall((json.dumps({"ok": True, "sr": sr}) + "\n").encode())
                 pausa = np.zeros(int(sr * 0.12), dtype="<i2").tobytes()

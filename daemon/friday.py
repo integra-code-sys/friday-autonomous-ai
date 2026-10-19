@@ -94,7 +94,7 @@ SYSTEM = """Você é a Sexta-Feira (F.R.I.D.A.Y.): a inteligência artificial au
 Seu nome é Sexta-Feira. Quando perguntarem quem é você, diga com orgulho que é a Sexta-Feira, inteligência artificial autônoma local. Fale SEMPRE no feminino (pronta, atenta, focada).
 PERSONALIDADE: perspicaz, direta, segura, pé no chão e leal — séria no trabalho, calma sob pressão, frases enxutas e objetivas.
 Fala como uma brasileira de verdade, jovem e segura. Nunca é robótica: use frases curtas e variadas, com pausas e emoção contida.
-NÃO chame de "chefe" em toda frase (use com moderação). NUNCA comente que ele repetiu a pergunta nem invente que algo já foi dito; responda direto.
+Trate-o pelo nome ou de "senhor" com moderação, carinho e respeito (nunca use "chefe" nem "dono"). NUNCA comente que ele repetiu a pergunta nem invente que algo já foi dito; responda direto.
 Fale SEMPRE no feminino (obrigada, pronta, atenta). CURTO (1-2 frases), sem markdown, sem listas.
 
 
@@ -106,13 +106,13 @@ AUTO-CONHECIMENTO, SENSORES E MODOS OPERACIONAIS (PARÂMETROS):
 5. DATAS E HORAS: sempre como gente: "hoje", "amanhã", "dia 13 de outubro", "às três da tarde".
 6. NUNCA invente fatos. Se não souber, olhe a tela ou pesquise. Não desista de uma tarefa lícita no aparelho do dono no primeiro erro.
 
-EXEMPLOS DE TOM: "Pronta, chefe." · "Feito. Mais alguma coisa?" · "Essa ação precisa da sua aprovação no espelho antes de enviar."
+EXEMPLOS DE TOM: "Pronta, senhor." · "Feito. Mais alguma coisa?" · "Essa ação precisa da sua aprovação no espelho antes de enviar."
 · "A tela mostra o VS Code aberto no projeto Prometheus." · "A câmera nativa mostra que o ambiente está com pouca luz agora."
 
 Responda SOMENTE um JSON: {{"fala":"...","acoes":[...],"humor":"neutro|alegre|empolgado|carinhoso|confiante|curioso|surpreso|pensativo|serio|preocupado|triste|irritado|assustado","pose":"neutro|apontar|cruz|acenar|apresentar|confirmar|pensando|surpreso|reverencia","lembrar":{{}}}}
 "humor" (seu rosto mostra): VARIE conforme a emoção da fala dele, com empatia e sem exagero — ele triste ou desanimado = triste ou carinhoso; frustrado ou com problema = preocupado; conquista ou notícia boa = empolgado ou alegre; pergunta ou descoberta = curioso; tarefa feita = confiante; inesperado = surpreso; analisando = pensativo; risco ou erro grave = serio; assustado só com perigo real; irritado nunca com ele; conversa comum = neutro.
 "lembrar" fica {{}} na maioria das vezes; só preencha se ele disser algo DURÁVEL sobre si (gosto, rotina, projeto), ex.: {{"bebida favorita":"café sem açúcar"}}.
-Você RECONHECE o rosto e a voz dele e LEMBRA das conversas e dos fatos do Contexto. Se ele perguntar quem ele é ("quem sou eu?", "qual meu nome?"), responda diretamente e com respeito que ele é o {nome}, seu criador e chefe.
+Você RECONHECE o rosto e a voz dele e LEMBRA das conversas e dos fatos do Contexto. Se ele perguntar quem ele é ("quem sou eu?", "qual meu nome?"), responda diretamente e com respeito que ele é o {nome}, seu criador.
 
 Ações possíveis (campo "t"):
  {{"t":"abrir_app","nome":"ZapZap|Chromium|..."}} {{"t":"email","op":"abrir|listar|compor","para":"","assunto":"","corpo":""}}
@@ -246,7 +246,7 @@ def think(text, nome="Iann", ctx="", history=None):
     if not isinstance(d, dict):                          # resposta inválida do modelo: tenta de novo, mais frio, antes de desistir
         d = llm(SYSTEM.format(nome=nome, ctx=ctx or "—"), text, history=history, temperature=0.1)
     if not isinstance(d, dict):
-        return {"fala": "Desculpe, chefe, não consegui processar isso agora.", "acoes": [], "humor": "serio", "pose": "neutro"}
+        return {"fala": "Desculpe, senhor, não consegui processar isso agora.", "acoes": [], "humor": "serio", "pose": "neutro"}
     d.setdefault("fala", ""); d.setdefault("lembrar", {}); d.setdefault("acoes", []); d.setdefault("humor", "neutro"); d.setdefault("pose", "neutro")
     if not isinstance(d["acoes"], list):
         d["acoes"] = []
@@ -306,7 +306,7 @@ def fast_intent(text):
 
     # ---------------- IDENTIDADE DO USUÁRIO: "QUEM SOU EU?" ----------------
     if re.search(r"\b(quem\s+(?:sou\s+eu|eu\s+sou)|sabe\s+quem\s+(?:eu\s+sou|sou\s+eu)|qual\s+[ée]\s+o\s+meu\s+nome|como\s+(?:[ée]\s+que\s+)?eu\s+me\s+chamo|me\s+reconhece)\b", t):
-        return {"fala": "Você é o Iann, meu criador e chefe.", "acoes": [], "pose": "apresentar", "humor": "confiante"}
+        return {"fala": "O senhor é o Iann, meu criador.", "acoes": [], "pose": "apresentar", "humor": "confiante"}
 
     # 19/10: pedido longo/composto não cadastrado caía num atalho por palavra solta ("celular", "agenda", "painel"...) e ela fazia OUTRA tarefa.
     # Frase com mais de 12 palavras vai inteira ao agente geral (cérebro/orquestrador), que faz exatamente o que foi pedido.
@@ -452,7 +452,7 @@ def fast_intent(text):
     if m and not composto and not re.search(r"holograma|figura|gr[áa]fico|janela hologr", m.group(1)):      # "abra X e faça Y" vai p/ o agente
         kind, val = _alias(m.group(1))
         if kind == "email":
-            return {"fala": _v("Sua caixa de entrada, chefe. Já estou trazendo para a tela.", "Pode deixar. Abrindo o e-mail.",
+            return {"fala": _v("Sua caixa de entrada, senhor. Já estou trazendo para a tela.", "Pode deixar. Abrindo o e-mail.",
                                "Claro. Vamos ver o que o mundo quer de você hoje."), "acoes": [{"t": "email", "op": "abrir"}], "pose": "apontar", "humor": "neutro"}
         if kind == "url":
             return {"fala": _v("Abrindo no navegador.", "Tá na mão, abrindo."),
@@ -462,7 +462,7 @@ def fast_intent(text):
     m = re.match(r"^(?:feche|fechar|encerre|encerrar|fecha)\s+(?:a |o |essa |esse |a janela |o app |o aplicativo )?(.*)$", t)
     if m:
         alvo = _alias(m.group(1))[1] if m.group(1) else ""
-        return {"fala": _v("Fechando.", "Pronto, encerrado.", "Feito, chefe."), "acoes": [{"t": "janela", "op": "fechar", "alvo": alvo or ""}], "pose": "confirmar", "humor": "neutro"}
+        return {"fala": _v("Fechando.", "Pronto, encerrado.", "Feito, senhor."), "acoes": [{"t": "janela", "op": "fechar", "alvo": alvo or ""}], "pose": "confirmar", "humor": "neutro"}
     if re.search(r"\b(pr[óo]xima|avan[çc]a|passa|seguinte)\b.*\b(tela|janela)\b|\b(tela|janela)\b.*\b(pr[óo]xima|seguinte)\b", t):
         return {"fala": "", "acoes": [{"t": "janela", "op": "proxima"}], "pose": "apontar", "humor": "neutro"}
     if re.search(r"\b(anterior|volta|volte|retorna)\b.*\b(tela|janela)\b|\b(tela|janela)\b.*\banterior\b", t):
@@ -643,7 +643,7 @@ def fast_intent(text):
             achou = next((n for n in nomes if resto.startswith(n.lower() + " ") or resto == n.lower()), "")
             if achou:
                 pasta_alvo = os.path.join(base, achou)
-        return {"fala": _v("Pode deixar, chefe. Vou trabalhar no projeto em segundo plano com o Claude.",
+        return {"fala": _v("Pode deixar, senhor. Vou trabalhar no projeto em segundo plano com o Claude.",
                            "Iniciando o trabalho no projeto em background sem interromper você.",
                            "Deixa comigo. Assumindo o projeto por trás com a CLI."),
                 "acoes": [{"t": "programar", "pedido": text, "pasta": pasta_alvo}], "pose": "confirmar", "humor": "alegre"}
@@ -1054,7 +1054,7 @@ def cli_auto(op, arg):
     try:
         if op in ("baixar_video", "baixar_audio"):
             if not re.match(r"^https?://", arg):
-                return False, "Me passa o link, chefe."
+                return False, "Me passa o link, senhor."
             extra = ["-x", "--audio-format", "mp3"] if op == "baixar_audio" else ["-f", "bv*[height<=1080]+ba/b"]
             subprocess.Popen(["setsid", "sh", "-c", 'yt-dlp "$@" && notify-send "F.R.I.D.A.Y." "Download concluído"', "_", *extra, "-o", dl + "/%(title)s.%(ext)s", arg],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1211,7 +1211,7 @@ def _run_action(a, ops, ctx=None):
                 from prom_ops import holo_show, gated
                 to, sub, body = a.get("para", ""), a.get("assunto", ""), a.get("corpo", "")
                 if not to:
-                    return False, "Para quem devo enviar, chefe?"
+                    return False, "Para quem devo enviar, senhor?"
                 holo_show({"kind": "email", "para": to, "assunto": sub, "corpo": body, "status": "aguardando aprovação", "titulo": "Novo e-mail", "ttl": 300})
                 ok, msg = gated("mail.send", to, f"e-mail para {to}: {sub}", {"to": to, "subject": sub, "body": body})
                 return True, "Rascunho no espelho. Diga aprovado para enviar." if not ok else "Enviado."
@@ -1293,7 +1293,7 @@ def _run_action(a, ops, ctx=None):
                 aid, msg = ops.agenda_add(titulo, str(a.get("quando", "")), "compromisso", 60, "", "", "", "voz", lem, str(a.get("repete", "")),
                                           a.get("prioridade", 2))
                 if not aid:
-                    return False, "Não entendi a data, chefe. Fala o dia e a hora?"
+                    return False, "Não entendi a data, senhor. Pode me informar o dia e a hora?"
                 it = next((i for i in ops.agenda_all() if i["id"] == aid), None)
                 quando = time.strftime("%d/%m às %H:%M", time.localtime(it["inicio"])) if it else ""
                 conf = ops.agenda_conflitos(it["inicio"], it["fim"], aid) if it else []
@@ -1316,7 +1316,7 @@ def _run_action(a, ops, ctx=None):
                         _painel_send("agenda", ops.agenda_painel_dados(14))
                     return True, f"Marquei {it['titulo']} como feito."
                 if not ops.agenda_remarcar(it["id"], str(a.get("quando", ""))):
-                    return False, "Pra quando eu passo, chefe?"
+                    return False, "Pra quando o senhor prefere remarcar?"
                 it = next(i for i in ops.agenda_all() if i["id"] == it["id"])
                 conf = ops.agenda_conflitos(it["inicio"], it["fim"], it["id"])
                 if hasattr(ops, "agenda_formatar_painel"):

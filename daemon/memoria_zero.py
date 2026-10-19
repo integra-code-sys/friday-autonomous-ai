@@ -33,7 +33,7 @@ CONFIG_PADRAO = {
     "versao": "2.3.1-commercial",
     "onboarding_concluido": False,
     "usuario": {
-        "nome": "Chefe",
+        "nome": "Senhor",
         "idioma": "pt-BR",
         "tratamento": "você"
     },
@@ -194,7 +194,7 @@ def _inicializar_sqlite_episodios():
     con.close()
 
 
-def inicializar_do_zero(forcar=False, nome_usuario="Chefe", manter_config_ia=True):
+def inicializar_do_zero(forcar=False, nome_usuario="Senhor", manter_config_ia=True):
     """Realiza a limpeza geral do banco de dados e inicializa a memória 100% do zero (Factory Reset).
     Se forcar=False, apenas garante que os arquivos existem sem apagar dados existentes."""
     with _LOCK:
@@ -374,7 +374,7 @@ def registrar_licao_aprendida(texto_licao, *partes_extras):
         return True
 
 
-def concluir_onboarding(nome_usuario="Chefe", provedor_ia="ollama", modo_cameras="auto"):
+def concluir_onboarding(nome_usuario="Senhor", provedor_ia="ollama", modo_cameras="auto"):
     """Conclui o onboarding inicial do usuário e registra os primeiros fatos na memória limpa."""
     cfg = carregar_config()
     cfg["onboarding_concluido"] = True
@@ -424,7 +424,7 @@ def status_memoria():
     return {
         "onboarding_concluido": concluido,
         "onboarding_pendente": not concluido,
-        "usuario": cfg.get("usuario", {}).get("nome", "Chefe"),
+        "usuario": cfg.get("usuario", {}).get("nome", "Senhor"),
         "fatos_aprendidos": fatos_n,
         "eventos_registrados": eventos_n,
         "episodios_aprendidos": episodios_n,
@@ -436,7 +436,7 @@ def status_memoria():
 
 if __name__ == "__main__":
     if "--reset" in sys.argv or "--init" in sys.argv:
-        nome = "Chefe"
+        nome = "Senhor"
         for i, a in enumerate(sys.argv):
             if a == "--nome" and i + 1 < len(sys.argv):
                 nome = sys.argv[i + 1]

@@ -195,12 +195,12 @@ def _run(goal, fr):
     except OSError:
         pass
     hist = []
-    final = "Terminei o que consegui, chefe."
+    final = "Terminei o que consegui, senhor."
     try:
         t_ini = time.time()
         for i in range(MAX_STEPS):
             if time.time() - t_ini > MAX_SECONDS:
-                final = "Passei do tempo limite, chefe. Parei."
+                final = "Passei do tempo limite, senhor. Parei."
                 break
             if os.path.exists(STOP):
                 final = "Parei, como pediu."
@@ -217,7 +217,7 @@ def _run(goal, fr):
                 break
             if ac == "clicar" and alvo:
                 if SENSIVEL.search(alvo):
-                    final = f"O próximo passo é clicar em {alvo}, e isso eu deixo para você, chefe."
+                    final = f"O próximo passo é clicar em {alvo}, e isso eu deixo para o senhor."
                     break
                 l, sc = _find(alvo, linhas)
                 if not l:
@@ -226,7 +226,7 @@ def _run(goal, fr):
                 hist.append(f"cliquei em '{l['t']}'")
             elif ac == "digitar" and texto:
                 if SENSIVEL.search(texto) and re.search(r"senha|password", texto, re.I):
-                    final = "Isso parece uma senha; essa parte é com você, chefe."
+                    final = "Isso parece uma senha; essa parte é com o senhor."
                     break
                 _pc("type", texto)
                 if d.get("enter"):
@@ -255,7 +255,7 @@ def _run(goal, fr):
                 hist.append(f"ação inválida: {ac}")
             time.sleep(0.35)                                      # só o tempo da tela reagir
         else:
-            final = "Cheguei no limite de passos, chefe."
+            final = "Cheguei no limite de passos, senhor."
     except Exception as e:
         final = f"Travei no meio do caminho: {str(e)[:60]}"
     finally:
@@ -266,6 +266,6 @@ def _run(goal, fr):
 
 def start(goal, fr):
     if _state["running"]:
-        return False, "Já estou fazendo uma tarefa na mão, chefe."
+        return False, "Já estou fazendo uma tarefa na mão, senhor."
     threading.Thread(target=_run, args=(goal, fr), daemon=True, name="manual").start()
     return True, None

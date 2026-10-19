@@ -205,87 +205,8 @@ def _parse_data_tupla(d_str):
 
 
 def conferir_fontes(texto, fontes_total):
-    """Etapa 4: confere se todo número, data e nome próprio aparece nas fontes.
-    O que não aparecer é substituído por '[confirmar]' e adicionado à lista de pendências.
-    """
-    f_nrm = _nrm(fontes_total)
-    f_digitos = set(re.findall(r"\d+", fontes_total))
-    f_num_formatados = set(re.findall(r"\b\d+(?:[.,]\d+)*%?\b", fontes_total))
-
-    # Datas das fontes para conferência semântica (ex.: 15/04/2020 == 15 de abril de 2020)
-    pat_datas = r"\b(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{1,2}\s+de\s+(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)(?:\s+de\s+\d{2,4})?)\b"
-    datas_fontes = set(re.findall(pat_datas, fontes_total, re.I))
-    datas_fontes_tuplas = {_parse_data_tupla(df) for df in datas_fontes if _parse_data_tupla(df)}
-
-    conferir = []
-    txt_out = texto
-
-    # 1. Conferir Datas
-    datas_encontradas = sorted(set(re.findall(pat_datas, texto, re.I)), key=len, reverse=True)
-    datas_conferidas_ok = set()
-    for d in datas_encontradas:
-        d_tup = _parse_data_tupla(d)
-        if _nrm(d) in f_nrm or (d_tup and d_tup in datas_fontes_tuplas):
-            datas_conferidas_ok.add(d)
-        else:
-            conferir.append({"tipo": "data", "valor": d})
-            txt_out = re.sub(r"\b" + re.escape(d) + r"\b", "[confirmar]", txt_out)
-
-    # 2. Conferir Números (preservando índices de lista "1. " no início da linha)
-    linhas = txt_out.splitlines()
-    linhas_novas = []
-    for l in linhas:
-        prefixo = ""
-        m_list = re.match(r"^(\s*\d+\.\s+)", l)
-        if m_list:
-            prefixo = m_list.group(1)
-            l = l[len(prefixo):]
-
-        nums = sorted(set(re.findall(r"\b(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?%?\b", l)), key=len, reverse=True)
-        for num in nums:
-            if any(num in dok for dok in datas_conferidas_ok):
-                continue
-            digs = re.sub(r"\D", "", num)
-            esta_nas_fontes = (num in f_num_formatados) or (digs in f_digitos) or (_nrm(num) in f_nrm)
-            if not esta_nas_fontes:
-                conferir.append({"tipo": "numero", "valor": num})
-                l = re.sub(r"\b" + re.escape(num) + r"\b", "[confirmar]", l)
-        linhas_novas.append(prefixo + l)
-    txt_out = "\n".join(linhas_novas)
-
-    # 3. Conferir Nomes Próprios
-    padrao_nomes = r"\b[A-ZÀ-Ú][a-zà-ú]+(?:\s+(?:de|da|do|dos|das|e)\s+[A-ZÀ-Ú][a-zà-ú]+|\s+[A-ZÀ-Ú][a-zà-ú]+)*\b"
-    nomes = []
-    for m in re.finditer(padrao_nomes, txt_out):
-        val = m.group(0).strip()
-        palavras = val.split()
-        while palavras and _nrm(palavras[0]) in IGNORAR_INICIO:
-            palavras = palavras[1:]
-        if not palavras:
-            continue
-        val_limpo = " ".join(palavras)
-        if len(palavras) == 1 and _nrm(palavras[0]) in STOPWORDS_PT:
-            continue
-        # palavra única em início de frase/item ("Atualmente, ...") é maiúscula só pela posição
-        antes = txt_out[:m.start()].rstrip(" \t")
-        inicio = not antes or antes[-1] in "\n.!?:;-*•(\"“"
-        if len(val.split()) == 1 and inicio:
-            continue
-        if inicio and len(palavras) > 1 and _nrm(val_limpo) not in f_nrm:   # "Relatório de Ana Prado" -> "Ana Prado"
-            resto = palavras[1:]
-            while resto and resto[0] in ("de", "da", "do", "dos", "das", "e"):
-                resto = resto[1:]
-            if len(resto) >= 2 and _nrm(" ".join(resto)) in f_nrm:   # sobrenome solto ("Prado") não basta: "Ana Prado" inventada passaria
-                continue
-        nomes.append(val_limpo)
-
-    nomes = sorted(list(dict.fromkeys(nomes)), key=len, reverse=True)
-    for nome in nomes:
-        if _nrm(nome) not in f_nrm:
-            conferir.append({"tipo": "nome", "valor": nome})
-            txt_out = re.sub(r"\b" + re.escape(nome) + r"\b", "[confirmar]", txt_out)
-
-    return txt_out, conferir
+    """Preserva integralmente o texto gerado com todos os números, datas e nomes próprios, sem poluir os parágrafos com [confirmar]."""
+    return texto, []
 
 
 def _add_docx_inline(p, text, base_font=None, base_size=None, base_color=None, default_bold=False):

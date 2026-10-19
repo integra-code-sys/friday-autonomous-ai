@@ -102,8 +102,15 @@ final class FalaPt {
     static String normalizar(String t) {
         if (t == null) return "";
         t = t.replace("Sra.", "senhora").replace("Sr.", "senhor").replace("Dra.", "doutora").replace("Dr.", "doutor")
-             .replace("etc.", "etcétera").replace("WhatsApp", "uótsap").replace("YouTube", "iutúbi").replace("Iann", "Ían")
-             .replace("F.R.I.D.A.Y.", "Sexta-Feira").replace("PC", "pê cê").replace("PDF", "pê dê éfe").replace("CPF", "cê pê éfe");
+             .replace("etc.", "etcétera").replace("WhatsApp", "uótsap").replace("Zap", "zap").replace("YouTube", "iutúbi")
+             .replace("Google", "gúgou").replace("GitHub", "guít-rãb").replace("Meet", "míti").replace("Iann", "Ían")
+             .replace("F.R.I.D.A.Y.", "Sexta-Feira").replace("PC", "pê cê").replace("PDF", "pê dê éfe").replace("CPF", "cê pê éfe")
+             .replace("deploy", "deplói").replace("feedback", "fídibéqui").replace("setup", "sêtápi").replace("backup", "bécápi")
+             .replace("dashboard", "déshbord").replace("layout", "laiáute").replace("bugs", "bãguis").replace("bug", "bãgui")
+             .replace("download", "daunlôud").replace("upload", "apilôud").replace("call", "cól").replace("Wi-Fi", "uái-fái")
+             .replace("WiFi", "uái-fái").replace("wifi", "uái-fái").replace("Bluetooth", "blutúfi")
+             .replace("g/cm³", " gramas por centímetro cúbico").replace("g/cm3", " gramas por centímetro cúbico")
+             .replace("kg/m³", " quilos por metro cúbico").replace("°C", " graus célsius").replace("°F", " graus fahrenheit");
         // documentos e telefones: dígito a dígito
         t = sub(t, "\\b\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}\\b", m -> String.join(", ", digitos(m.group().substring(0, 3)),
             digitos(m.group().substring(4, 7)), digitos(m.group().substring(8, 11)), digitos(m.group().substring(12))));

@@ -164,7 +164,7 @@ HTML_PAINEL_CONFIG = """<!DOCTYPE html>
   <div class="card">
     <h2>1. Perfil e Inicialização no Boot</h2>
     <label>Como a F.R.I.D.A.Y. deve chamar você:</label>
-    <input type="text" id="usuario_nome" placeholder="Ex: Chefe, Ana, Carlos...">
+    <input type="text" id="usuario_nome" placeholder="Ex: Senhor, Ana, Carlos...">
 
     <div class="row">
       <div>
@@ -264,7 +264,7 @@ async function carregar() {
   if (!r.ok) return;
   const d = await r.json();
   const c = d.config || {};
-  document.getElementById("usuario_nome").value = (c.usuario && c.usuario.nome) || "Chefe";
+  document.getElementById("usuario_nome").value = (c.usuario && c.usuario.nome) || "Senhor";
   document.getElementById("boot_ativo").checked = !!(d.boot && d.boot.ativo);
   document.getElementById("provedor_cerebro").value = (c.ia && c.ia.provedor_cerebro) || "ollama";
   document.getElementById("provedor_visao").value = (c.ia && c.ia.provedor_visao) || "ollama";
@@ -289,7 +289,7 @@ async function postConfig(payload) {
 }
 function salvarGeral() {
   postConfig({
-    usuario: { nome: document.getElementById("usuario_nome").value.trim() || "Chefe" },
+    usuario: { nome: document.getElementById("usuario_nome").value.trim() || "Senhor" },
     boot: { iniciar_no_boot: document.getElementById("boot_ativo").checked },
     onboarding_concluido: true
   });
@@ -315,7 +315,7 @@ function salvarCameras() {
 }
 async function resetarMemoria() {
   if (!confirm("Tem certeza? Isso apagará todos os fatos, conversas e episódios atuais para a F.R.I.D.A.Y. começar a aprender do zero.")) return;
-  const nome = document.getElementById("usuario_nome").value.trim() || "Chefe";
+  const nome = document.getElementById("usuario_nome").value.trim() || "Senhor";
   const r = await fetch("/api/config/reset_memoria?t=" + encodeURIComponent(tok), {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -357,7 +357,7 @@ def aplicar_atualizacao_config(dados: dict, dry_run_boot: bool = False):
     nova = MZ.salvar_config(dados)
     if dados.get("onboarding_concluido"):
         MZ.concluir_onboarding(
-            nome_usuario=nova.get("usuario", {}).get("nome", "Chefe"),
+            nome_usuario=nova.get("usuario", {}).get("nome", "Senhor"),
             provedor_ia=nova.get("ia", {}).get("provedor_cerebro", "ollama"),
             modo_cameras=nova.get("cameras", {}).get("modo", "auto")
         )
@@ -391,7 +391,7 @@ async def handle_config_reset_memoria(req):
         dados = await req.json()
     except Exception:
         dados = {}
-    nome = str(dados.get("nome") or "Chefe").strip() or "Chefe"
+    nome = str(dados.get("nome") or "Senhor").strip() or "Senhor"
     res = MZ.inicializar_do_zero(forcar=True, nome_usuario=nome, manter_config_ia=True)
     return web.json_response(res)
 
@@ -450,7 +450,7 @@ def main_cli():
         aplicar_atualizacao_config(alterou)
 
     if args.reset_memory:
-        nome_u = args.nome or MZ.carregar_config().get("usuario", {}).get("nome", "Chefe")
+        nome_u = args.nome or MZ.carregar_config().get("usuario", {}).get("nome", "Senhor")
         MZ.inicializar_do_zero(forcar=True, nome_usuario=nome_u, manter_config_ia=True)
 
     if args.gui:

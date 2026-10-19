@@ -702,9 +702,9 @@ def frase_final(p, falar=None):
             if ult.get("tipo") == "resumir":
                 final += " " + res(ult)[:350]
             elif ult.get("tipo") in ("zap", "whatsapp"):
-                final = f"Pronto, chefe. Pesquisei as informações e preparei a mensagem no WhatsApp. {res(ult)}"
+                final = f"Pronto, senhor. Pesquisei as informações e preparei a mensagem no WhatsApp. {res(ult)}"
             elif ult.get("tipo") == "email":
-                final = f"Pronto, chefe. Preparei o e-mail. {res(ult)}"
+                final = f"Pronto, senhor. Preparei o e-mail. {res(ult)}"
             elif ult.get("tipo") == "pesquisar":
                 final = res(ult)[:500] or final
         return final.strip()
@@ -776,7 +776,7 @@ def executar(pedido, fr, ag, ops, ctx="", programar=None, progress=None, aviso=N
             e["estado"] = "pulado"
             e["resultado"] = "etapa pulada a pedido do usuário"
             _salvar(p)
-            say(f"Pulei a etapa {i + 1}, chefe.")
+            say(f"Pulei a etapa {i + 1}, senhor.")
             continue
         e["resultado"] = str(r)[:2500]
         e["estado"] = "ok" if ok_v else "falhou"

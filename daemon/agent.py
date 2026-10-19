@@ -295,7 +295,7 @@ def t_navegar_web(url="", objetivo="", profundidade=2, max_paginas=4, fr=None, *
     tudo = "\n\n".join(conteudos)
     if fr is not None and obj:
         resp = fr.llm(
-            "Você é a F.R.I.D.A.Y. Você navegou pela web e reuniu informações para o chefe. "
+            "Você é a F.R.I.D.A.Y. Você navegou pela web e reuniu informações para o senhor. "
             "Responda ao objetivo dele de forma direta, clara e precisa em português do Brasil (2 a 4 frases), citando os fatos encontrados.",
             f"Objetivo: {obj}\n\nMaterial coletado de {len(visitados)} páginas:\n{tudo[:6000]}",
             None, False, 350, 0.2, 90
@@ -644,10 +644,80 @@ def _urls_para_site_ou_busca(url="", busca="", contexto_lojas=""):
     return urls, termo
 
 
-def t_abrir_site(url="", busca="", contexto_lojas="", fr=None, ops=None, **_):
+_PORTAIS_CONHECIDOS = {
+    "google", "youtube", "wikipedia", "amazon", "mercadolivre", "ebay",
+    "github", "twitter", "instagram", "facebook", "reddit", "netflix",
+    "spotify", "chatgpt", "claude", "gemini", "bing", "duckduckgo",
+    "shopee", "aliexpress", "fortnite", "globo", "g1", "uol", "cnn",
+    "bbc", "gov", "onlyoffice", "discord", "whatsapp", "telegram",
+    "overleaf", "canva", "figma", "stackoverflow", "linkedin"
+}
+
+
+def _rotulos_host(host):
+    h = (host or "").lower()
+    if h.startswith("www."):
+        h = h[4:]
+    tlds = {"com", "br", "org", "net", "gov", "edu", "io", "ai", "co", "uk", "pt", "es", "de"}
+    sub_comuns = {"pt", "en", "es", "m", "mobile", "lista", "loja", "shop", "blog", "app", "web"}
+    partes = [p for p in h.split(".") if p not in tlds]
+    candidatos = [p for p in partes if p not in sub_comuns] or partes
+    return candidatos
+
+
+def _pedido_cita_host(pedido, host):
+    if not host or not pedido:
+        return False
+    import unicodedata
+    p_sem = "".join(c for c in unicodedata.normalize("NFD", str(pedido).lower()) if unicodedata.category(c) != "Mn")
+    n = p_sem.replace(" ", "")
+    h = host.lower()
+    if h.startswith("www."):
+        h = h[4:]
+    if h in n:
+        return True
+    candidatos = _rotulos_host(host)
+    if not candidatos:
+        return False
+    for rotulo in candidatos:
+        if rotulo in _PORTAIS_CONHECIDOS and re.search(r"\b" + re.escape(rotulo) + r"\b", p_sem):
+            return True
+        if re.search(r"(?i)\b(?:site|p[aá]gina|portal|loja)\s+(?:(?:d[oe]|d[ao]|em|para|do|da|de)\s+)?" + re.escape(rotulo) + r"\b", p_sem):
+            if not re.search(r"(?i)\b(?:pesquis\w*|busc\w*|procur\w*|sobre\s+(?:o|a|os|as)?)\s+" + re.escape(rotulo) + r"\b", p_sem):
+                return True
+    return False
+
+
+def _ajustar_busca_ao_pedido(pedido, url, busca):
+    """Pesquisa não vira domínio inventado nem URL enfiada no q= do Google."""
+    if not pedido:
+        return url, busca
+    tem_pesquisa = bool(re.search(r"(?i)\b(?:pesquis\w*|busc\w*|procur\w*|descubr\w*|investig\w*|relat[oó]rio|docx|xlsx|pptx|planilha|slides?)\b", pedido))
+    if not tem_pesquisa:
+        return url, busca
+    consulta = _limpar_termo_busca(pedido)
+    if len(consulta) < 3:
+        return url, busca
+    u = str(url or "").strip()
+    if not u:
+        return url, (busca or consulta)
+    import urllib.parse
+    absoluta = u if u.startswith(("http://", "https://")) else ("https://" + u if "." in u and " " not in u else "")
+    if not absoluta:
+        return "", consulta
+    host = urllib.parse.urlparse(absoluta).netloc
+    if not _pedido_cita_host(pedido, host):
+        return "", consulta
+    return url, busca
+
+
+def t_abrir_site(url="", busca="", contexto_lojas="", fr=None, ops=None, pedido="", **_):
     """Abre um site ou pesquisa diretamente em nova(s) aba(s) do navegador Chromium e foca a janela."""
     u = str(url).strip()
     b = str(busca).strip()
+    if pedido:
+        u, b = _ajustar_busca_ao_pedido(pedido, u, b)
+        u, b = str(u).strip(), str(b).strip()
     if not u and not b:
         raise ValueError("faltou url ou busca")
     urls, termo = _urls_para_site_ou_busca(u, b, contexto_lojas)
@@ -2340,7 +2410,7 @@ def _midia_direta(text, fr, ops, progress=None):
         if YT.search(t):
             _say(progress, "Abrindo o YouTube no navegador.")
             t_abrir_site(url="https://www.youtube.com", fr=fr, ops=ops)
-            return "Pronto, chefe. YouTube aberto no navegador."
+            return "Pronto, senhor. YouTube aberto no navegador."
         return None
     vid = ""
     _say(progress, f"Certo, procurando {consulta} no YouTube.")
@@ -2352,12 +2422,12 @@ def _midia_direta(text, fr, ops, progress=None):
         except Exception:
             vid = ""
     if CANCEL.is_set():
-        return "Parei, chefe."
+        return "Parei, senhor."
     _say(progress, "Achei. Abrindo no navegador.")
     if vid:
         t_abrir_site(url="https://www.youtube.com/watch?v=" + vid, fr=fr, ops=ops)
         vigiar_anuncios(120)                            # se vier anúncio, pula sozinha
-        return f"Pronto, chefe. Coloquei no YouTube: {consulta}."
+        return f"Pronto, senhor. Coloquei no YouTube: {consulta}."
     t_abrir_site(url="https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(consulta), fr=fr, ops=ops)
     return f"Abri a pesquisa no YouTube por {consulta}."
 
@@ -2650,7 +2720,7 @@ def _tarefa_composta(text, fr, ops=None, progress=None):
             nome_arq += ".md"
         res_arq = t_criar_arquivo(caminho=nome_arq, conteudo=conteudo, abrir=False)
         _log("tarefa_composta_arq", {"tema": tema, "arquivo": nome_arq}, True, 0.4, res_arq)
-        return f"Pronto, chefe. Pesquisei sobre {tema}, analisei os dados e salvei o relatório estruturado em {nome_arq} na pasta Documentos/Friday."
+        return f"Pronto, senhor. Pesquisei sobre {tema}, analisei os dados e salvei o relatório estruturado em {nome_arq} na pasta Documentos/Friday."
 
     _say(progress, f"Entrando nas páginas sobre {tema}.")
     det = _nivel_detalhe(t)
@@ -2770,14 +2840,14 @@ def _pesquisa_navegador_direta(text, fr, ops=None, progress=None, historico=None
             _log("pesquisar_web", {"consulta": q_web}, True, 0.4, achados)
             if achados and not achados.startswith("nenhum"):
                 resumo = fr.llm(
-                    "Você é a F.R.I.D.A.Y. Você já abriu as abas de pesquisa no navegador do chefe. Agora resuma em 2 frases curtas e diretas (sem markdown e sem ler URLs) o que encontrou nos resultados abaixo.",
+                    "Você é a F.R.I.D.A.Y. Você já abriu as abas de pesquisa no navegador do senhor. Agora resuma em 2 frases curtas e diretas (sem markdown e sem ler URLs) o que encontrou nos resultados abaixo.",
                     f"Pesquisa: {q_web}\nResultados:\n{achados[:3000]}", None, False, 200, 0.2, 45
                 )
                 if resumo and resumo.strip():
-                    return f"Abri a pesquisa por {termo} no navegador, chefe. {resumo.strip()}"
+                    return f"Abri a pesquisa por {termo} no navegador, senhor. {resumo.strip()}"
         except Exception:
             pass
-    return f"Pronto, chefe. Abri a pesquisa por {termo} em uma nova aba no navegador."
+    return f"Pronto, senhor. Abri a pesquisa por {termo} em uma nova aba no navegador."
 
 
 def _pesquisa_direta(text, fr, ops=None, progress=None):
@@ -3012,17 +3082,17 @@ def run(text, ctx, fr, ops, historico=None, progress=None, direto=True):
     if final is None and feito:                                          # cumpriu (e verificou) mas o modelo não fechou: resume o resultado
         ult = next((p for p in reversed(passos) if "ok" in p[:40]), "")
         arq = re.search(r"(/[^\n:]+?\.(?:docx|xlsx|pptx|md))\b", ult)
-        final = {"final": "Pronto, chefe. " + (f"Criei e abri {os.path.basename(arq.group(1))} no ONLYOFFICE." if arq else "Feito."), "pose": "confirmar", "humor": "neutro"}
+        final = {"final": "Pronto, senhor. " + (f"Criei e abri {os.path.basename(arq.group(1))} no ONLYOFFICE." if arq else "Feito."), "pose": "confirmar", "humor": "neutro"}
         verificado = True if evid else verificado
     if final is None:
         _ult = next((p for p in reversed(passos) if not p.startswith("(")), "")      # nunca fala "(resposta inválida...)"
-        final = {"final": "Não consegui concluir isso direito, chefe. " + _ult[:100], "pose": "neutro", "humor": "serio"}
+        final = {"final": "Não consegui concluir isso direito, senhor. " + _ult[:100], "pose": "neutro", "humor": "serio"}
         falhas += 1
         verificado = False
     elif verificado is False and not _NEG.search(str(final.get("final"))):     # checagem negativa: não finge que terminou
         _f = next((p for p in reversed(passos) if p.startswith("(VERIFICAÇÃO")), "")
         _falta = re.sub(r"^.*?falta:\s*|\. Continue.*$", "", _f)
-        final = {"final": "Não consegui confirmar que terminei, chefe." + (f" Falta: {_falta[:120]}." if _falta else ""),
+        final = {"final": "Não consegui confirmar que terminei, senhor." + (f" Falta: {_falta[:120]}." if _falta else ""),
                  "pose": "neutro", "humor": "serio"}
     if falhas:
         try:

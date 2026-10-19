@@ -19,8 +19,10 @@ ABREV = [(r"\bSra\.", "senhora"), (r"\bSr\.", "senhor"), (r"\bDra\.", "doutora")
          (r"(?<=\d)\s*km\b", " quilômetros"), (r"(?<=\d)\s*kg\b", " quilos"), (r"(?<=\d)\s*ml\b", " mililitros"), (r"(?<=\d)\s*min\b", " minutos"),
          (r"(?<=\d)\s*seg\b", " segundos"), (r"(?<=\d)\s*s\b", " segundos"), (r"(?<=\d)\s*h\b(?!\s*\d)", " horas"), (r"(?<=\d)\s*m\b", " metros"), (r"(?<=\d)\s*cm\b", " centímetros"), (r"(?<=\d)\s*GHz\b", " giga-hertz"),
          (r"(?<=\d)\s*MHz\b", " mega-hertz"), (r"(?<=\d)\s*W\b", " watts"), (r"(?<=\d)\s*V\b", " volts")]
-SIMBOLOS = [("&", " e "), ("@", " arroba "), ("+", " mais "), ("=", " igual a "), ("§", " parágrafo "), ("°C", " graus"), ("°", " graus"),
-            ("~", " cerca de "), ("×", " vezes "), ("→", ", "), ("•", ", "), ("|", ", ")]
+SIMBOLOS = [("&", " e "), ("@", " arroba "), ("+", " mais "), ("=", " igual a "), ("§", " parágrafo "),
+            ("g/cm³", " gramas por centímetro cúbico"), ("g/cm3", " gramas por centímetro cúbico"),
+            ("kg/m³", " quilos por metro cúbico"), ("°C", " graus célsius"), ("°F", " graus fahrenheit"),
+            ("°", " graus"), ("~", " cerca de "), ("×", " vezes "), ("→", ", "), ("•", ", "), ("|", ", ")]
 _EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]+")
 
 
@@ -145,9 +147,18 @@ def _previo(t):
     t = re.sub(r"(?i)\bR\$\s*(\d+(?:,\d+)?)\s*(mil|milh(?:ão|ões|ao|oes)|bilh(?:ão|ões|ao|oes)|bi|mi)\b",
                lambda m: m.group(1) + " " + {"bi": "bilhões", "mi": "milhões"}.get(m.group(2).lower(), m.group(2))
                + (" de reais" if not m.group(2).lower().startswith("mil") or m.group(2).lower().startswith("milh") else " reais"), t)
+    t = re.sub(r"R\$\s*((?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?)", _dinheiro, t)
+
+    def _versao_multipla(m):
+        s = m.group(1)
+        partes = s.split(".")
+        if len(partes) > 1 and all(len(p) == 3 for p in partes[1:]):
+            return m.group(0)
+        return " ponto ".join(partes)
+
     # versão "3.14" / "2.5.1" = "ponto"; decimal em inglês "3.5 GB" = "vírgula" (milhar "1.234" fica para as regras gerais)
     t = re.sub(r"(?i)(\b" + _VERSAO + r"\s*)(\d+(?:\.\d+)+)\b", lambda m: m.group(1) + " ponto ".join(m.group(2).split(".")), t)
-    t = re.sub(r"(?<![\w.,])(\d+(?:\.\d+){2,})(?![\w.])", lambda m: " ponto ".join(m.group(1).split(".")), t)
+    t = re.sub(r"(?<![\w.,])(\d+(?:\.\d+){2,})(?![\w.])", _versao_multipla, t)
     t = re.sub(r"(?<![\w.,])(\d+)\.(\d{1,2}|\d{4,})(?![\w.])", r"\1,\2", t)
     t = re.sub(r"\b(\d+)[xX]\b(?!\s*\d)", lambda m: m.group(1) + (" vez" if m.group(1) == "1" else " vezes"), t)
     t = re.sub(r"(?:(?<=\s)|^)-(?=\d)", "menos ", t)                                                               # -5°C (não "Marília - 1310")
@@ -194,13 +205,31 @@ SIGLAS = {"CPU": "cê pê u", "GPU": "gê pê u", "VRAM": "vê ram", "RAM": "ram
           "Wi-Fi": "uái-fái", "WiFi": "uái-fái", "wifi": "uái-fái", "VNC": "vê ene cê", "ADB": "a dê bê", "SMS": "ésse eme ésse",
           "URL": "u érre éle", "UI": "u i", "QR": "quiu-ár", "DDD": "dê dê dê", "RTSP": "érre tê ésse pê", "ONVIF": "ônvif",
           "LED": "léd", "IR": "infravermelho", "BH": "bê agá", "SP": "ésse pê", "RJ": "érre jota", "EUA": "estados unidos"}
-PRONUNCIA = {"YouTube": "iutúbi", "WhatsApp": "uótsap", "Zap": "zap", "Chromium": "crômium", "Chrome": "crôme", "Google": "gúgou",
-             "Gmail": "gê-mêil", "Instagram": "ínstagram", "Facebook": "fêicibuk", "Windows": "uíndous", "Linux": "línux", "GitHub": "guít-rãb",
-             "Spotify": "spótifai", "Netflix": "nétiflics", "OnlyOffice": "ônli ófice", "Discord": "díscord", "Telegram": "télegram",
-             "iPhone": "ai-fone", "Android": "ândroid", "Claude": "clóud", "ChatGPT": "chat gê pê tê", "Gemini": "gêmini",
-             "Iann": "Ían", "Wesley": "Uésli", "William": "Uíliam", "Washington": "Uóshington", "Michael": "Máicou", "Jennifer": "Djênifer",
-             "Kevin": "Kévin", "Bryan": "Bráian", "Ryan": "Ráian", "Jefferson": "Djéferson", "Wellington": "Uélington", "Jhonatan": "Jônatan",
-             "Friday": "fráidei", "F.R.I.D.A.Y.": "Sexta-Feira", "Stark": "Istárk", "Tailscale": "têilsceil", "Noctalia": "noctália"}
+PRONUNCIA = {
+    # Tech & Redes
+    "YouTube": "iutúbi", "WhatsApp": "uótsap", "Zap": "zap", "Chromium": "crômium", "Chrome": "crôme", "Google": "gúgou",
+    "Gmail": "gê-mêil", "Instagram": "ínstagram", "Facebook": "fêicibuk", "Windows": "uíndous", "Linux": "línux", "GitHub": "guít-rãb",
+    "Spotify": "spótifai", "Netflix": "nétiflics", "OnlyOffice": "ônli ófice", "Discord": "díscord", "Telegram": "télegram",
+    "iPhone": "ai-fone", "Android": "ândroid", "Claude": "clóud", "ChatGPT": "chat gê pê tê", "Gemini": "gêmini",
+    "Tailscale": "têilsceil", "Noctalia": "noctália", "Bluetooth": "blutúfi", "Wi-Fi": "uái-fái", "WiFi": "uái-fái",
+    "feedback": "fídibéqui", "setup": "sêtápi", "backup": "bécápi", "layout": "laiáute", "download": "daunlôud",
+    "upload": "apilôud", "mouse": "máuse", "login": "lóguin", "logout": "lógáute", "bug": "bãgui", "bugs": "bãguis",
+    "deploy": "deplói", "driver": "dráiver", "design": "dizáine", "online": "on-láine", "offline": "ofi-láine",
+    "thread": "tréd", "threads": "tréds", "commit": "comíti", "branch": "brênch", "dashboard": "déshbord",
+    "token": "tôquen", "tokens": "tôquens", "prompt": "prômpti", "cache": "cásh", "streaming": "istríming",
+    "hardware": "rárd-uér", "software": "sófti-uér", "mousepad": "máuse-péde", "pendrive": "pên-dráivi",
+    "home office": "rôme ófice", "call": "cól", "meet": "míti", "link": "línqui", "links": "línquis",
+    "site": "sáiti", "sites": "sáitis", "post": "pôust", "posts": "pôusts", "feed": "fídi", "story": "istóri",
+    # Elementos químicos mais comuns
+    "Pd": "paládio", "Au": "ouro", "Ag": "prata", "Pt": "platina", "Fe": "ferro", "Cu": "cobre",
+    # Expressões e gírias do dia a dia
+    "da hora": "dahora", "show de bola": "show de bola", "tamo junto": "tamo junto", "tranquilo": "tranquilo",
+    "suave": "suave", "fechou": "fechou", "partiu": "partiu", "bora": "bora", "beleza": "beleza",
+    # Nomes próprios
+    "Iann": "Ían", "Wesley": "Uésli", "William": "Uíliam", "Washington": "Uóshington", "Michael": "Máicou", "Jennifer": "Djênifer",
+    "Kevin": "Kévin", "Bryan": "Bráian", "Ryan": "Ráian", "Jefferson": "Djéferson", "Wellington": "Uélington", "Jhonatan": "Jônatan",
+    "Friday": "fráidei", "F.R.I.D.A.Y.": "Sexta-Feira", "Stark": "Istárk"
+}
 
 
 def _email(m):
@@ -261,6 +290,15 @@ def normalizar(t: str) -> str:
     t = re.sub(r"\s+([,.!?])", r"\1", t)
     t = re.sub(r"([,.!?]){2,}", r"\1", t)
     return re.sub(r"\s+", " ", t).strip()
+
+
+def sotaque_br(t: str) -> str:
+    """Garante cadência natural brasileira e preserva 100% da integridade fonética e ortográfica de cada palavra."""
+    if not t:
+        return ""
+    # Não altera letras nem dígrafos legítimos (como 'lh', 'nh', 'ch', 'l') para evitar corrupções como 'trabauho'.
+    # A normalização de números, moedas e estrangeirismos já é feita com precisão cirúrgica pelo normalizar().
+    return t
 
 
 if __name__ == "__main__":

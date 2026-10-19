@@ -178,9 +178,17 @@ def capturar_camera(dev_path):
 
 
 def consultar_vlm(jpg_bytes, prompt, max_tokens=180, temp=0.1):
-    """Envia uma imagem ao modelo multimodal Vision (Qwen-VL) via Ollama. Devolve o texto, ou None em falha."""
+    """Envia uma imagem ao modelo multimodal Vision (Local ou Cloud com fallback)."""
     if not jpg_bytes:
         return None
+    try:
+        import cloud_providers
+        res = cloud_providers.consultar_vlm(jpg_bytes, prompt, max_tokens=max_tokens, temp=temp)
+        if res:
+            return res
+    except Exception as e:
+        pass
+
     try:
         body = json.dumps({
             "model": VLM_MODEL,
@@ -196,6 +204,7 @@ def consultar_vlm(jpg_bytes, prompt, max_tokens=180, temp=0.1):
     except Exception as e:
         print("visão neural falhou:", str(e)[:120], flush=True)
         return None
+
 
 
 def olhar_tela(pergunta="Descreva o que está aberto e visível nesta tela do computador.") -> str:
