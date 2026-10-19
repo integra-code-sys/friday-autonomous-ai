@@ -306,6 +306,11 @@ def fast_intent(text):
     if re.search(r"\b(quem\s+(?:sou\s+eu|eu\s+sou)|sabe\s+quem\s+(?:eu\s+sou|sou\s+eu)|qual\s+[ée]\s+o\s+meu\s+nome|como\s+(?:[ée]\s+que\s+)?eu\s+me\s+chamo|me\s+reconhece)\b", t):
         return {"fala": "Você é o Iann, meu criador e chefe.", "acoes": [], "pose": "apresentar", "humor": "confiante"}
 
+    # 19/10: pedido longo/composto não cadastrado caía num atalho por palavra solta ("celular", "agenda", "painel"...) e ela fazia OUTRA tarefa.
+    # Frase com mais de 12 palavras vai inteira ao agente geral (cérebro/orquestrador), que faz exatamente o que foi pedido.
+    if len(re.findall(r"\w+", t)) > 12:
+        return {"fala": "", "acoes": [{"t": "tarefa", "pedido": text}], "pose": "apontar", "humor": "neutro"}
+
     # ---------------- ANTIGRAVITY / IDE ----------------
     if re.search(r"\b(?:abr[aeio]r?|abre|inicie|lance|foc[ae]r?|mostr[ae]|traga)?\s*(?:o\s+)?antigravity\b", t):
         return {"fala": "Trazendo o Antigravity para a tela.", "acoes": [{"t": "abrir_app", "nome": "antigravity"}], "pose": "apontar", "humor": "neutro"}
