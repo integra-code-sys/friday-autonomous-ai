@@ -1797,7 +1797,32 @@ def t_analisar_extrato(caminho="", **_):
     return json.dumps(d, ensure_ascii=False)
 
 
+def sudo_direto(comando, timeout=1800):
+    """19/10: com sudo SEM SENHA liberado pelo dono (/etc/sudoers.d/friday-dev), roda QUALQUER comando direto, sem aprovação.
+    Catastróficos (ftools.PERIGOSO: rm -rf /, mkfs, dd em disco...) seguem bloqueados. -> (ok, saída) ou (None, motivo) se não liberado."""
+    import ftools
+    c = str(comando or "").strip()
+    if not c:
+        return False, "comando vazio"
+    if ftools.PERIGOSO.search(c):
+        return False, "bloqueado: comando catastrófico (disco/sistema inteiro); faça manualmente se for isso mesmo"
+    if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+        return None, "sudo sem senha não liberado"
+    try:
+        r = subprocess.run(["sudo", "-n", "bash", "-c", c], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, "tempo esgotado"
+    return r.returncode == 0, ((r.stdout or "") + (r.stderr or ""))[-1500:]
+
+
 def t_comando_sudo(comando="", motivo="", ops=None, **_):
+    ok_d, out_d = sudo_direto(comando)
+    if ok_d is not None:
+        if ops is not None:
+            ops.audit("sudo.direto", "root", str(comando)[:200], ("ok: " if ok_d else "falhou: ") + out_d[:200])
+        if not ok_d:
+            raise RuntimeError(out_d[:400])
+        return "executado como root: " + out_d[:1200]
     if ops is None:
         raise RuntimeError("política indisponível")
     from prom_ops import holo_show

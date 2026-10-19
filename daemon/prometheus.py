@@ -6000,6 +6000,9 @@ async def _sudo_aprovado(cmd, espera=600):
             r = await asyncio.to_thread(subprocess.run, arg, capture_output=True, text=True, timeout=1800)
             return r.returncode == 0, ((r.stdout or "") + (r.stderr or ""))[-600:]
     import agent as _ag
+    ok_d, out_d = await asyncio.to_thread(_ag.sudo_direto, re.sub(r"^sudo\s+", "", cmd.strip()))
+    if ok_d is not None:                             # 19/10: dono liberou sudo sem senha -> qualquer comando roda direto (catastróficos seguem bloqueados)
+        return ok_d, out_d
     antes = {i["id"] for i in ops.approvals()}
     await asyncio.to_thread(_ag.t_comando_sudo, comando=re.sub(r"^sudo\s+", "", cmd), motivo="O Claude do MODO DEV precisa disso para continuar", ops=ops)   # o executor já põe sudo -A
     novo = next((i for i in ops.approvals() if i["id"] not in antes and i["acao"] == "sudo.run"), None)
