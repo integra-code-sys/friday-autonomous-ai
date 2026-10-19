@@ -568,8 +568,10 @@ def run(text, ctx, fr, ops, historico=None, progress=None, nome="Iann"):
                 humor, pose = "curioso", "pensando"
             else:
                 aid = re.search(r"\(id ([^)]+)\)", parar[1])
-                final = ("Deixei o rascunho no espelho. Diga 'aprovado' para eu enviar." if "wa." in parar[1] or "enviar" in parar[1]
-                         else "Isso precisa da sua aprovação: está no espelho. Diga 'aprovado' para eu seguir.")
+                eh_aprov = bool(aid) or re.search(r"aprova", parar[1], re.I)   # 19/10: loop/falha dizia "precisa de aprovação" e abria o espelho vazio
+                final = ("Deixei o rascunho no espelho. Diga 'aprovado' para eu enviar." if eh_aprov and ("wa." in parar[1] or "enviar" in parar[1])
+                         else "Isso precisa da sua aprovação: está no espelho. Diga 'aprovado' para eu seguir." if eh_aprov
+                         else "Não consegui terminar: " + re.sub(r"\s+", " ", parar[1])[:160] + " Me diga de outro jeito ou mande pelo modo dev.")
                 _log("PENDENTE", aid.group(1) if aid else "", parar[1][:120])
                 humor, pose = "serio", "apresentar"
             break

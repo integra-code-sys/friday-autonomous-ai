@@ -3337,6 +3337,16 @@ async def handle_modes(txt):
                 return True
         except Exception as e_:
             print("dev continuar:", e_, flush=True)
+    # 19/10: "fala para ela subir no hostinger..." com o MODO DEV em uso: 'ela/ele' é o Claude (ia ao cérebro, que criou aprovação sem sentido)
+    if re.search(r"\b(?:fal[ae]|diga|pe[çc]a|pede|mand[ae]|avis[ae])\s+(?:para|pra|pro|a|ao)\s+(?:ela|ele)\b", t):
+        try:
+            import dev_cli
+            if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600:
+                await dizer("Passei para o Claude.")
+                asyncio.create_task(run_programming(txt))
+                return True
+        except Exception as e_:
+            print("dev ela:", e_, flush=True)
     # 19/10: "ative o modo dev e nele crie ..." e "no diretório integra site coordene modificação ..." caíam no cérebro local (só consultava memória)
     _dev_tarefa = len(t.split()) >= 8 and (
         re.search(r"\bmodo\s+dev\b.{0,25}\b(?:e\s+(?:nele|l[áa]|ent[ãa]o|depois)?|para|pra)\s+\w+", t)
@@ -4012,6 +4022,7 @@ async def mind_think(reason: str, extra: str = ""):
             "pc_agora (janelas, agenda)": await asyncio.to_thread(_friday_ctx) if friday_state["on"] else "",
             "minhas_falhas_recentes": _falhas_recentes(),
             "minutos_desde_minha_ultima_oferta": round((now - oferta["t"]) / 60, 1) if oferta["t"] else None,
+            "minhas_ultimas_falas_espontaneas (NÃO repita nem parafraseie)": list(mind_state.get("ditas", []))[-8:],
         }
         prompt = (
             "Você é a mente de fundo do Prometheus, assistente autônomo que vive no PC do usuário (pt-BR). Você percebe o ambiente o tempo "
@@ -4063,8 +4074,12 @@ async def mind_think(reason: str, extra: str = ""):
                 await speak(txt); conv["t"] = time.time()
         elif acao == "falar" and str(d.get("texto", "")).strip():
             txt = str(d["texto"]).strip()[:240]
-            ok = (not speaking and not busy.locked() and state["state"] == "idle" and now - last_voice["t"] > 10
-                  and now - mind_state["last_proactive"] > (60 if friday_state["on"] else 150))
+            import difflib as _dl
+            repetida = any(_dl.SequenceMatcher(None, txt.lower(), x.lower()).ratio() > 0.55 for x in mind_state.get("ditas", []))
+            saudacao = re.search(r"\b(?:bom dia|boa tarde|boa noite|ol[áa]|oi)\b|tudo (?:bem|certo)", txt, re.I) and "voltou" not in reason
+            ok = (not speaking and not busy.locked() and state["state"] == "idle" and now - last_voice["t"] > 10 and not repetida and not saudacao
+                  and now - mind_state["last_proactive"] > (600 if friday_state["on"] else 900))     # 19/10: era 60 s -> saudação em loop
+            mind_state.setdefault("ditas", []).append(txt); del mind_state["ditas"][:-12]
             if ok:
                 mind_state["last_proactive"] = time.time()
                 await set_state(mood=_humor_norm(d.get("humor")) or "neutro")
@@ -5849,7 +5864,7 @@ async def friday_gesture(kind: str, data: dict):
 _RECUSA = re.compile(r"como (?:sou )?(?:um |uma )?(?:assistente|modelo|ia)\b|n[ãa]o (?:posso|consigo|tenho acesso|tenho como) (?:executar|rodar|acessar|alterar|modificar)|"
                      r"voc[êe] precisa (?:fornecer|me enviar)|aguardando (?:credenciais|informa)|forne[çc]a o c[óo]digo", re.I)
 _EH_CORRECAO = re.compile(r"\b(?:corre[çc][ãa]o|corrij\w*|modifica[çc][ãa]o|tarefa atual|na conversa|esse ponto|al[ée]m disso|tamb[ée]m|na verdade|"
-                          r"mude|troque|ajuste|fal[ae]\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|diga\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|avis[ae]\s+(?:o\s+)?claude)\b", re.I)
+                          r"mude|troque|ajuste|fal[ae]\s+(?:para|pro|pra|ao|a)\s+(?:o\s+)?(?:claude|ela|ele)|diga\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|avis[ae]\s+(?:o\s+)?claude)\b", re.I)
 
 
 def _pasta_do_pedido(pedido):
@@ -5873,7 +5888,7 @@ def _pasta_do_pedido(pedido):
 
 def _sem_meta_claude(pedido):
     """tira a parte dirigida à Friday ('eu quero que fale para o claude code que ...') e deixa só o conteúdo para o Claude."""
-    t = re.sub(r"^.*?\b(?:fal[ae]r?|diga|dizer|avis[ae]r?|pe[çc]a|pedir|mand[ae]r?)\s+(?:para|pro|pra|ao|a)\s+(?:o\s+)?claude(?:\s+code)?"
+    t = re.sub(r"^.*?\b(?:fal[ae]r?|diga|dizer|avis[ae]r?|pe[çc]a|pedir|mand[ae]r?)\s+(?:para|pro|pra|ao|a)\s+(?:(?:o\s+)?claude(?:\s+code)?|ela|ele)"
                r"(?:\s+(?:que|da|sobre|na|no))?\s*", "", pedido or "", count=1, flags=re.I).strip(" ,.:")
     return t if len(t.split()) >= 3 else (pedido or "").strip()
 
@@ -6265,7 +6280,7 @@ def mind_thread(loop):
                 if now - task_state["last_phone_poll"] > 20:
                     task_state["last_phone_poll"] = now
                     asyncio.run_coroutine_threadsafe(poll_phone_messages(), loop)
-            _gap, _idle = (40, 20) if friday_state["on"] else (900, 600)           # ligada: age sem parar (observa e propõe)
+            _gap, _idle = (300, 120) if friday_state["on"] else (900, 600)         # 19/10: 40 s/20 s repetia "Bom dia, tudo bem?" a cada ~80 s
             if (present or friday_state["on"]) and now - ms["last_reflect"] > _gap and now - max(conv["t"], mem.get("ultima_vez", 0)) > _idle \
                     and not speaking and state["state"] == "idle":
                 ms["last_reflect"] = now

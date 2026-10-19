@@ -281,6 +281,7 @@ ShellRoot {
                             if (m.pose) root.setPose(m.pose, m.ttl || 1800)
                         }
                         if (m.type === "holo") {
+                            if (m.op !== "clear" && !m.spec && !root.stageSpec) return    // 19/10: show sem conteúdo abria o holograma vazio
                             root.stageOp = m.op || "show"
                             if (m.op === "clear") root.stageSpec = null
                             else if (m.spec) root.stageSpec = m.spec
