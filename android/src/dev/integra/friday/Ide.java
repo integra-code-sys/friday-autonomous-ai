@@ -15,7 +15,7 @@ import java.util.List;
 final class Ide {
     interface Tela { void linhas(List<String[]> novas); void estado(String estado, int rodada); }
 
-    static final int MAX_RODADAS = 8;
+    static final int MAX_RODADAS = 60;                                  // 19/10: igual ao PC (para em FINALIZADO, não no teto)
     private static final Object trava = new Object();
     private static final List<String[]> linhas = new ArrayList<>();     // [tipo, texto]
     private static volatile Tela tela;
@@ -167,6 +167,20 @@ final class Ide {
         }
     }
 
+    /** 19/10: "continua"/"sim"/"prossiga" do dono retoma a última tarefa na MESMA conversa do Claude (-c) — antes virava pedido novo */
+    static String continuar(Context c) {
+        if (ativa()) { pausada = false; mudar("trabalhando"); return "já estou trabalhando nisso: " + objetivo; }
+        if (objetivo == null || objetivo.isEmpty()) return null;
+        ctx = c.getApplicationContext();
+        parar = false; pausada = false; retomar = true;
+        if (rodada < 1) rodada = 1;                                     // garante o -c (continua a conversa)
+        laco = new Thread(() -> executar(ctx), "friday-ide");
+        laco.start();
+        return "continuando no MODO DEV: " + objetivo;
+    }
+
+    private static volatile boolean retomar;
+
     static void pausar(boolean p) { pausada = p; mudar(p ? "pausada (termina a rodada atual)" : "trabalhando"); }
 
     static String jsonEstado() {
@@ -262,7 +276,9 @@ final class Ide {
     private static void executar(Context c) {
         try {
             mudar("escrevendo o prompt");
-            String prompt = promptInicial(c);
+            String prompt = retomar ? "Continue a tarefa de onde parou (" + objetivo + "): revise, teste, corrija e complete. Não pergunte nada. "
+                + "Quando estiver tudo implementado E testado, responda com uma linha contendo só FINALIZADO e depois um resumo curto." : promptInicial(c);
+            retomar = false;
             add("prompt", prompt);
             String tok = Link.token(c);
             while (rodada < MAX_RODADAS && !parar) {

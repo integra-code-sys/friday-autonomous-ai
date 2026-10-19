@@ -785,6 +785,10 @@ final class Cerebro {
             avisar("fim", fz);
             return fz;
         }
+        if (pedido.trim().split("\\s+").length <= 6 && pedido.toLowerCase().matches(".*\\b(continu\\w*|prossig\\w*|segue|siga|pode seguir)\\b.*")) {
+            String fc = Ide.continuar(c);                           // 19/10: resposta curta com tarefa do MODO DEV pendente = retomar, não pedido novo
+            if (fc != null) { avisar("passo", "dev continuar"); avisar("fim", fc); return fc; }
+        }
         java.util.regex.Matcher mcl = PRO_CLAUDE.matcher(pedido);
         if (modoDev() || mcl.matches()) {                       // MODO DEV / "pede pro Claude ...": direto ao MODO DEV
             String pd = mcl.matches() ? mcl.group(1) : pedido.trim();
