@@ -5809,6 +5809,25 @@ _EH_CORRECAO = re.compile(r"\b(?:corre[çc][ãa]o|corrij\w*|modifica[çc][ãa]o|
                           r"mude|troque|ajuste|fal[ae]\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|diga\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|avis[ae]\s+(?:o\s+)?claude)\b", re.I)
 
 
+def _pasta_do_pedido(pedido):
+    """19/10: 'no diretório integra site ...' abria na raiz (a rota do MODO DEV não passava pasta). Acha o nome de uma pasta real
+    de ~/Workspace/Projetos/Sistemas (ou Projetos) citado em qualquer parte da frase, sem acento/maiúscula, o mais longo primeiro."""
+    def n_(s):
+        return re.sub(r"[^a-z0-9]+", " ", unicodedata.normalize("NFKD", s.lower()).encode("ascii", "ignore").decode()).strip()
+    frase = " " + n_(pedido or "") + " "
+    cand = []
+    for base in ("~/Workspace/Projetos/Sistemas", "~/Workspace/Projetos"):
+        b = os.path.expanduser(base)
+        try:
+            cand += [(d, os.path.join(b, d)) for d in os.listdir(b) if not d.startswith(".") and os.path.isdir(os.path.join(b, d))]
+        except Exception:
+            pass
+    for nome, caminho in sorted(cand, key=lambda x: -len(n_(x[0]))):
+        if len(n_(nome)) >= 4 and " " + n_(nome) + " " in frase:
+            return caminho
+    return None
+
+
 def _sem_meta_claude(pedido):
     """tira a parte dirigida à Friday ('eu quero que fale para o claude code que ...') e deixa só o conteúdo para o Claude."""
     t = re.sub(r"^.*?\b(?:fal[ae]r?|diga|dizer|avis[ae]r?|pe[çc]a|pedir|mand[ae]r?)\s+(?:para|pro|pra|ao|a)\s+(?:o\s+)?claude(?:\s+code)?"
@@ -5979,13 +5998,15 @@ async def run_programming(pedido: str, pasta=None):
     if ops is None:
         return
     limpo = _sem_meta_claude(pedido)
+    if not pasta:
+        pasta = _pasta_do_pedido(pedido)
     try:                                                    # 19/10: correção no meio da tarefa ia colada crua ("eu quero que fale para o claude...")
         import dev_cli
         if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600 and _EH_CORRECAO.search(pedido):
             msg = await asyncio.to_thread(_instrucao_claude, limpo)
             await broadcast({"type": "text", "role": "tool", "text": "MODO DEV (correção): " + msg[:200]})
-            tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, None)
-            await _supervisionar_dev(limpo, tela, None)
+            tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, pasta)
+            await _supervisionar_dev(limpo, tela, pasta)
             return
     except Exception as e:
         print("dev correção:", e, flush=True)
