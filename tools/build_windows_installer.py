@@ -23,7 +23,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SFX_BIN = os.path.join(HERE, "sfx", "7z.sfx")
+SFX_BIN = os.path.join(HERE, "sfx", "7zSD.sfx")   # 19/10: 7z.sfx é só extrator (ignora RunProgram); 7zSD = módulo instalador do LZMA SDK oficial
 OUTPUT_EXE = os.path.join(ROOT, "Instalador_Friday_Windows.exe")
 
 # Backups e lixo que nunca vão para o instalador: *.bak, *.v12bak, *.v_agbak, *.f9bak, *.f9b2, face.frag.v2, assets.v1bak/...
@@ -198,6 +198,12 @@ Sincronização Mesh de 3 Nós:
 - Quando qualquer um dos nós é desligado e religado, os dados (agenda, conversas,
   fatos da memória, tarefas e lições) são unificados automaticamente sem perder nada.
 """)
+
+        for bat in glob.glob(os.path.join(staging_dir, "*.bat")):              # cmd.exe precisa de CRLF (LF quebra blocos com parênteses)
+            with open(bat, "rb") as f:
+                b = f.read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            with open(bat, "wb") as f:
+                f.write(b)
 
         problemas = _auditar(staging_dir)
         if problemas:

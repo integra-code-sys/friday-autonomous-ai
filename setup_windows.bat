@@ -3,6 +3,16 @@ chcp 65001 >nul
 title Instalador F.R.I.D.A.Y. - Projeto Prometheus
 cd /d "%~dp0"
 
+:: 19/10: o instalador .exe extrai numa pasta temporária que é APAGADA no fim -> copia tudo para a pasta definitiva e instala de lá
+set "DEST=%LOCALAPPDATA%\Friday"
+if /i not "%~dp0"=="%DEST%\" (
+    echo Copiando a F.R.I.D.A.Y. para %DEST% ...
+    if not exist "%DEST%" mkdir "%DEST%"
+    robocopy "%~dp0." "%DEST%" /E /NFL /NDL /NJH /NJS /NP >nul
+    call "%DEST%\setup_windows.bat"
+    exit /b %errorlevel%
+)
+
 echo =======================================================
 echo     INSTALADOR F.R.I.D.A.Y. - PROJETO PROMETHEUS
 echo             Configuração do Nó Windows
@@ -129,8 +139,7 @@ if %errorlevel% neq 0 (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex"
 )
 if exist "%~dp0installer\wallpaper_friday.jpg" (
-    copy /Y "%~dp0installer\wallpaper_friday.jpg" "%LOCALAPPDATA%\Friday\wallpaper_friday.jpg" >nul 2>nul || (mkdir "%LOCALAPPDATA%\Friday" & copy /Y "%~dp0installer\wallpaper_friday.jpg" "%LOCALAPPDATA%\Friday\wallpaper_friday.jpg" >nul)
-    powershell -NoProfile -Command "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class W { [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d); }'; [W]::SystemParametersInfo(20, 0, \"$env:LOCALAPPDATA\Friday\wallpaper_friday.jpg\", 3)"
+    powershell -NoProfile -Command "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class W { [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d); }'; [W]::SystemParametersInfo(20, 0, \"$env:LOCALAPPDATA\Friday\installer\wallpaper_friday.jpg\", 3)"
 )
 
 :: 5. Criação de Atalhos (Área de Trabalho e Inicialização Automática)
