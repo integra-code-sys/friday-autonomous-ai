@@ -1,5 +1,14 @@
 # Changelog — F.R.I.D.A.Y. Commercial Edition
 
+## [2.4.0-commercial] - 2026-10-19
+### Adicionado
+- Android 5.3: **papel de parede ao vivo Mark 85**. A armadura gira em 240 quadros de 1,5° com luz âmbar, em cima de um piso em perspectiva, pedestal holográfico, reflexo, brasas, paralaxe por inclinação e varredura com rótulos. Tem telemetria do aparelho (CPU, RAM, disco, bateria, rede, temperatura, núcleos) e 7 atalhos. Em paisagem mostra o busto. Roda num processo próprio, com canvas de hardware a 30 fps (~4 ms por quadro).
+- App: visual de desktop Linux (janelas de vidro, barra com relógio, dock flutuante) e fundo holográfico com a mesma armadura.
+- VNC: botões de clique esquerdo/direito/meio, rolagem, setas, ESC/TAB/F1–F12, CTRL/ALT/SHIFT/SUPER fixos e atalhos (CTRL+C/V/Z/A, ALT+TAB, ALT+F4, CTRL+ALT+DEL).
+- Controles: 9 ações novas (mídia, brilho, desempenho, janelas) e o botão "PAPEL DE PAREDE MARK 85".
+### Alterado
+- Partículas do assistente padrão passaram do azul para o âmbar.
+
 ## [2.3.1-commercial] - 2026-10-17
 ### Alterado
 - Plano composto começa em cursor, teclado ou gesto. Shell só depois que a tela falha.

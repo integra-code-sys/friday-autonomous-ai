@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.integra.friday"
-    android:versionCode="22"
-    android:versionName="5.1">
+    android:versionCode="25"
+    android:versionName="5.3">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
 
@@ -67,6 +67,11 @@
             </intent-filter>
         </activity>
         <receiver android:name=".Dev$Resultado" android:exported="false" />
+        <!-- PAPEL DE PAREDE AO VIVO: Mark 85 + métricas + atalhos (processo próprio :papel, isolado do LLM) -->
+        <service android:name=".Papel" android:label="F.R.I.D.A.Y. · Mark 85" android:process=":papel" android:exported="true" android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter><action android:name="android.service.wallpaper.WallpaperService" /></intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/papel" />
+        </service>
         <!-- ASSISTENTE DIGITAL PADRÃO (Configurações > Apps padrão > Assistente digital) -->
         <service
             android:name=".Assistente"

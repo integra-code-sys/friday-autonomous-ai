@@ -30,10 +30,10 @@ final class Particulas extends View {
     private static float cn(float a) { return SEN[((int) (a * TK) + TAB / 4) & TM]; }
 
     // ---------- paleta por estado, igual à pílula do Assistente: espera azul-ciano · ouvindo CIANO · pensando AMBAR · falando TEAL ----------
-    private static final float[][] TINTA = {{40, 168, 255}, {54, 214, 255}, {255, 160, 56}, {70, 255, 214}};
+    private static final float[][] TINTA = {{255, 140, 30}, {255, 196, 84}, {255, 92, 36}, {255, 168, 60}};
     private static final float LR = 255, LG = 138, LB = 31;      // laranja de acento
-    private static final float GR = 216, GG = 246, GB = 255;     // branco-gelo
-    private static final float FR = 24, FG = 62, FB = 170;       // azul profundo (partículas do fundo)
+    private static final float GR = 255, GG = 238, GB = 214;     // branco-gelo
+    private static final float FR = 120, FG = 46, FB = 10;       // azul profundo (partículas do fundo)
     private static final float DC = 5.2f, DCA = 6.5f, DN = 8f;  // distância da câmera: esfera/faíscas · anéis · poeira
 
     // ---------- esfera de plasma ----------
@@ -200,21 +200,21 @@ final class Particulas extends View {
                 new int[]{Color.argb(118, r, g, b), Color.argb(44, r, g, b), Color.argb(12, r, g, b), Color.TRANSPARENT},
                 new float[]{0f, 0.34f, 0.68f, 1f}, cla);
         }
-        gradNeb[0] = new RadialGradient(0, 0, R0 * 1.7f, new int[]{Color.argb(46, 110, 80, 255), Color.argb(16, 90, 70, 230), Color.TRANSPARENT},
+        gradNeb[0] = new RadialGradient(0, 0, R0 * 1.7f, new int[]{Color.argb(46, 255, 110, 30), Color.argb(16, 200, 70, 10), Color.TRANSPARENT},
             new float[]{0f, 0.5f, 1f}, cla);
-        gradNeb[1] = new RadialGradient(0, 0, R0 * 1.7f, new int[]{Color.argb(42, 30, 160, 255), Color.argb(14, 30, 120, 220), Color.TRANSPARENT},
+        gradNeb[1] = new RadialGradient(0, 0, R0 * 1.7f, new int[]{Color.argb(42, 255, 160, 40), Color.argb(14, 190, 90, 20), Color.TRANSPARENT},
             new float[]{0f, 0.5f, 1f}, cla);
         gradNucleo = new RadialGradient(0, 0, R0 * 0.55f,
-            new int[]{Color.WHITE, Color.argb(235, 216, 246, 255), Color.argb(120, 54, 214, 255), Color.TRANSPARENT},
+            new int[]{Color.WHITE, Color.argb(235, 255, 238, 214), Color.argb(120, 255, 170, 60), Color.TRANSPARENT},
             new float[]{0f, 0.16f, 0.45f, 1f}, cla);
         float rb0 = R0 * 1.40f, rb1 = rb0 + R0 * 0.42f;           // barras: tinta do estado na base, gelo no meio, laranja na ponta
         for (int s = 0; s < 4; s++) {
             int cor = Color.rgb((int) TINTA[s][0], (int) TINTA[s][1], (int) TINTA[s][2]);
-            gradBarras[s] = new RadialGradient(0, 0, rb1, new int[]{cor, cor, Color.rgb(216, 246, 255), Color.rgb(255, 138, 31)},
+            gradBarras[s] = new RadialGradient(0, 0, rb1, new int[]{cor, cor, Color.rgb(255, 238, 214), Color.rgb(255, 138, 31)},
                 new float[]{0f, rb0 / rb1, (rb0 + R0 * 0.2f) / rb1, 1f}, cla);
         }
         gradRaio = new LinearGradient(-R0 * 2.8f, 0, R0 * 2.8f, 0,
-            new int[]{Color.TRANSPARENT, Color.rgb(216, 246, 255), Color.TRANSPARENT}, new float[]{0f, 0.5f, 1f}, cla);
+            new int[]{Color.TRANSPARENT, Color.rgb(255, 238, 214), Color.TRANSPARENT}, new float[]{0f, 0.5f, 1f}, cla);
         pBlur.setMaskFilter(new BlurMaskFilter(R0 * 0.30f, BlurMaskFilter.Blur.NORMAL));
         // marcações do HUD (giram com canvas.rotate: nada de trigonometria por quadro)
         int nt = 120, nMai = nt / 10, a1 = 0, a2 = 0;

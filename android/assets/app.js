@@ -1056,6 +1056,9 @@ $("#bParar").onclick = () => { cmd({ type: "stop" }, "Parando tudo"); };
 const ACOES = [
   ["[ CLIMA HUD ]", { t: "painel", op: "clima" }], ["[ AGENDA FRIDAY ]", { t: "painel", op: "agenda" }], ["[ TELEMETRIA ]", { t: "painel", op: "sistema" }],
   ["[ PLAY / PAUSA ]", { t: "sistema", op: "midia", valor: "play-pause" }], ["[ PRÓXIMA FAIXA ]", { t: "sistema", op: "midia", valor: "next" }], ["[ PRINT TELA ]", { t: "cli", op: "print" }],
+  ["[ FAIXA ANTERIOR ]", { t: "sistema", op: "midia", valor: "previous" }], ["[ MUDO ]", { t: "sistema", op: "volume", valor: "mute" }], ["[ MÍDIA HUD ]", { t: "painel", op: "midia" }],
+  ["[ BRILHO − ]", { t: "sistema", op: "brilho", valor: "down" }], ["[ BRILHO + ]", { t: "sistema", op: "brilho", valor: "up" }], ["[ DESEMPENHO ]", { t: "sistema", op: "desempenho", valor: "performance" }],
+  ["[ PRÓXIMA JANELA ]", { t: "janela", op: "proxima" }], ["[ MAXIMIZAR ]", { t: "janela", op: "maximizar" }], ["[ FECHAR JANELA ]", { t: "janela", op: "fechar" }],
   ["[ VOLUME − ]", { t: "sistema", op: "volume", valor: "down" }], ["[ VOLUME + ]", { t: "sistema", op: "volume", valor: "up" }], ["[ LIMPAR HUD ]", { t: "painel", op: "fechar" }],
 ];
 for (const [t, a] of ACOES) {
@@ -1102,6 +1105,7 @@ function abrirVnc() {
     rfb = new RFB($("#vncTela"), `ws://${cfg.host}/vnc?t=${encodeURIComponent(cfg.tok)}`, { wsProtocols: ["binary"] });
     rfb.scaleViewport = true; rfb.resizeSession = false; rfb.background = "#02070c";
     rfb.qualityLevel = 5; rfb.compressionLevel = 1;
+    vncBotoes(rfb);
     rfb.addEventListener("connect", () => toast("VNC conectado"));
     rfb.addEventListener("disconnect", (e) => toast(e.detail.clean ? "VNC encerrado" : "VNC indisponível (wayvnc instalado no PC?)", 3500));
   } catch (e) { toast("Falha no VNC: " + e.message); }
@@ -1253,3 +1257,226 @@ if (cfg.tok) {
   }
 }
 setTimeout(bootFim, 2400);
+
+// ---------------- v5: VNC com botões do mouse, setas, atalhos e modificadores ----------------
+let vncBtn = 1; const vncMods = new Set();
+function vncBotoes(r) {
+  const orig = r._handleMouseButton.bind(r);
+  r._handleMouseButton = (x, y, down, b) => { orig(x, y, down, b === 1 ? vncBtn : b); if (!down && b === 1 && vncBtn !== 1) vncModo(1); };
+  const bar = $("#vncBar"); document.documentElement.style.setProperty("--vncH", bar.offsetHeight + "px");
+}
+function vncModo(b) { vncBtn = b; $$("#vncBar [data-vk^=m]").forEach((e) => e.classList.toggle("on", e.dataset.vk === ({ 1: "m1", 2: "m2", 4: "m3" })[b])); }
+function vncTecla(k, on) { rfb && rfb.sendKey(k, null, on); }
+$("#vncBar").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-vk]"); if (!b || !rfb) return; vibrar(10);
+  const v = b.dataset.vk;
+  if (/^m[123]$/.test(v)) return vncModo(+v[1] === 2 ? 2 : +v[1] === 3 ? 4 : 1);
+  if (v === "su" || v === "sd") { const p = rfb._mousePos || { x: 0, y: 0 }, m = v === "su" ? 8 : 16; for (let i = 0; i < 3; i++) { rfb._handleMouseButton(p.x, p.y, true, m); rfb._handleMouseButton(p.x, p.y, false, m); } return; }
+  if (v[0] === "M") { const k = parseInt(v.slice(1), 16), on = !vncMods.has(k); on ? vncMods.add(k) : vncMods.delete(k); vncTecla(k, on); return b.classList.toggle("on", on); }
+  if (v.startsWith("c:")) { const ks = v.slice(2).split("+").map((x) => parseInt(x, 16)); ks.forEach((k) => vncTecla(k, true)); ks.reverse().forEach((k) => vncTecla(k, false)); return; }
+  rfb.sendKey(parseInt(v, 16), null);
+});
+$("#vMais").onclick = () => { const bar = $("#vncBar"); bar.classList.toggle("min"); $("#vMais").textContent = bar.classList.contains("min") ? "▴ MAIS" : "▾ MENOS";
+  document.documentElement.style.setProperty("--vncH", bar.offsetHeight + "px"); };
+$("#vSair").addEventListener("click", () => { for (const k of vncMods) vncTecla(k, false); vncMods.clear(); $$("#vncBar [data-vk^=M]").forEach((e) => e.classList.remove("on")); vncModo(1); });
+const _abaOrig = window.abrirAba; window.abrirAba = (n) => n === "vnc" ? (irAba("tela"), abrirVnc()) : _abaOrig(n);
+
+// ---------------- v6: fundo holográfico — Mark 85 girando (quadros papel/ sob demanda + crossfade), brilho, brasas, pedestal/anéis, reflexo, varredura ----------------
+setInterval(() => { const e = $("#relogio"); if (e) e.textContent = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); }, 1000);
+(() => {
+  const cv = $("#armadura"); if (!cv) return;
+  const g = cv.getContext("2d"), vnc = $("#vnc"), PI2 = Math.PI * 2;
+  const OPAC = 0.52;                                    // opacidade geral do fundo (0.45–0.6): os cartões ficam legíveis por cima
+  const VEL = 12, FPS = 30, CACHE = 6, NB = 72, PAR = 9; // graus/s, teto de fps, quadros decodificados em memória, brasas, paralaxe (px)
+  const PROF_PEITO = 0.14, PROF_OLHO = 0.08, OLHO_DX = 0.027, REF = 0.28, VARRE = 7, VARRE_DUR = 2.2; // reator/olhos à frente do eixo (fração da largura, medido nos quadros); reflexo; varredura (s)
+  const PADRAO = { quadros: 240, corpo: { w: 666, h: 1130, peito: [0.5, 0.235], olhos: [0.5, 0.06], maos: [[0.08, 0.49], [0.93, 0.49]], pes: 0.985 }, busto: { w: 950, h: 794, peito: [0.5, 0.504], olhos: [0.5, 0.13] } };
+  const fixo = /[?&]ang=(-?\d+)/.exec(location.search), tt0 = /[?&]tt=([\d.]+)/.exec(location.search); // ?ang=30 congela o ângulo, ?tt=1 adianta o relógio (testes/capturas)
+  cv.style.opacity = OPAC;
+  // ---- sprites fixos (criados uma vez; no quadro só drawImage) ----
+  const mk = (w, h) => { const c = document.createElement("canvas"); c.width = Math.max(1, w | 0); c.height = Math.max(1, h | 0); return c; };
+  const grad = (c, gr, st) => { for (let i = 0; i < st.length; i += 2) gr.addColorStop(st[i], st[i + 1]); const x = c.getContext("2d"); x.fillStyle = gr; x.fillRect(0, 0, c.width, c.height); return c; };
+  const radial = (t, st) => { const c = mk(t, t); return grad(c, c.getContext("2d").createRadialGradient(t / 2, t / 2, 0, t / 2, t / 2, t / 2), st); };
+  const linear = (w, h, vert, st) => { const c = mk(w, h); return grad(c, vert ? c.getContext("2d").createLinearGradient(0, 0, 0, h) : c.getContext("2d").createLinearGradient(0, 0, w, 0), st); };
+  const sGlow = radial(256, [0, "rgba(255,138,30,.6)", .3, "rgba(255,119,0,.26)", .65, "rgba(255,90,0,.07)", 1, "rgba(255,80,0,0)"]);
+  const sBrasa = radial(32, [0, "rgba(255,243,230,1)", .16, "rgba(255,195,107,.95)", .42, "rgba(255,119,0,.38)", 1, "rgba(255,90,0,0)"]);
+  const sReator = radial(128, [0, "rgba(255,255,255,1)", .1, "rgba(255,243,230,.95)", .26, "rgba(255,195,107,.6)", .55, "rgba(255,119,0,.2)", 1, "rgba(255,100,0,0)"]);
+  const sDesce = linear(1, 128, true, [0, "#000", 1, "rgba(0,0,0,0)"]), sSobe = linear(1, 128, true, [0, "rgba(0,0,0,0)", 1, "#000"]);
+  const sBanda = linear(1, 128, true, [0, "rgba(255,157,36,0)", .65, "rgba(255,157,36,.28)", .93, "rgba(255,195,107,.75)", .97, "rgba(255,243,230,1)", 1, "rgba(255,243,230,0)"]);
+  const sLinha = linear(256, 1, false, [0, "rgba(255,157,36,0)", .5, "rgba(255,195,107,.9)", 1, "rgba(255,157,36,0)"]);
+  const sCone = linear(64, 256, false, [0, "rgba(255,140,30,0)", .5, "rgba(255,170,70,.9)", 1, "rgba(255,140,30,0)"]);
+  { const x = sCone.getContext("2d"); x.globalCompositeOperation = "destination-in"; x.drawImage(sSobe, 0, 0, 64, 256); }
+  function anel(R, tipo) { // anel HUD (R em px do dispositivo); 0 = marcações, 1 = segmentos/pontos
+    const t = Math.ceil(R * 2) + 6, c = mk(t, t), x = c.getContext("2d"), lw = Math.max(1, R / 170); c.R = t / 2; c.Rr = R; x.translate(t / 2, t / 2); x.lineCap = "round";
+    if (!tipo) {
+      x.strokeStyle = "rgba(255,157,36,.75)"; x.lineWidth = lw * 1.2; x.beginPath(); x.arc(0, 0, R, 0, PI2); x.stroke();
+      x.lineWidth = lw; x.beginPath(); for (let i = 0; i < 120; i++) { const a = i * PI2 / 120, l = i % 10 ? (i % 5 ? .965 : .935) : .9, cs = Math.cos(a), sn = Math.sin(a); x.moveTo(cs * R * l, sn * R * l); x.lineTo(cs * R * .995, sn * R * .995); } x.stroke();
+      x.strokeStyle = "rgba(255,157,36,.35)"; x.beginPath(); x.arc(0, 0, R * .8, 0, PI2); x.stroke();
+      x.strokeStyle = "rgba(255,195,107,.6)"; x.setLineDash([lw * 2, lw * 6]); x.lineWidth = lw * 1.6; x.beginPath(); x.arc(0, 0, R * .7, 0, PI2); x.stroke(); x.setLineDash([]);
+    } else {
+      const seg = [.05, .42, .62, .9, 1.12, 1.5, 1.68, 1.84]; x.strokeStyle = "rgba(255,119,0,.65)"; x.lineWidth = lw * 4;
+      for (let i = 0; i < seg.length; i += 2) { x.beginPath(); x.arc(0, 0, R * .9, seg[i] * Math.PI, seg[i + 1] * Math.PI); x.stroke(); }
+      x.strokeStyle = "rgba(255,195,107,.6)"; x.lineWidth = lw; x.beginPath(); x.arc(0, 0, R * .97, -.3, .3); x.stroke(); x.beginPath(); x.arc(0, 0, R * .97, Math.PI - .3, Math.PI + .3); x.stroke();
+      x.fillStyle = "rgba(255,195,107,.6)"; for (let i = 0; i < 36; i++) { const a = i * PI2 / 36; x.beginPath(); x.arc(Math.cos(a) * R * .58, Math.sin(a) * R * .58, lw * (i % 3 ? 1 : 2), 0, PI2); x.fill(); }
+      x.strokeStyle = "rgba(255,157,36,.45)"; x.beginPath(); x.arc(0, 0, R * .45, 0, PI2); x.stroke(); x.lineWidth = lw * 3; x.beginPath(); x.arc(0, 0, R * .45, 1.2 * Math.PI, 1.7 * Math.PI); x.stroke();
+    }
+    return c;
+  }
+  function radar(R) { // varredura tipo radar (cônico) atrás do busto
+    const t = Math.ceil(R * 2), c = mk(t, t), x = c.getContext("2d"); c.R = t / 2; c.Rr = R; if (!x.createConicGradient) return c;
+    const gr = x.createConicGradient(0, t / 2, t / 2); gr.addColorStop(0, "rgba(255,157,36,0)"); gr.addColorStop(.8, "rgba(255,157,36,0)"); gr.addColorStop(.995, "rgba(255,195,107,.38)"); gr.addColorStop(1, "rgba(255,157,36,0)");
+    x.fillStyle = gr; x.beginPath(); x.arc(t / 2, t / 2, R, 0, PI2); x.fill(); return c;
+  }
+  // ---- quadros sob demanda: Image + decode(), LRU de CACHE, pré-carrega à frente ----
+  let info = PADRAO, N = 240, PASSO = 1.5, pasta = "", ger = 0, carregando = 0, nq = 0, bustoFalhou = false, refaz = true;
+  let imgs = [], est = new Uint8Array(N), uso = new Float64Array(N);   // est: 0 nada, 1 carregando, 2 pronto, 3 falhou
+  function pede(i) { i %= N; uso[i] = nq; if (est[i] === 2) return imgs[i]; if (!est[i] && carregando < 3) carrega(i); return null; }
+  function carrega(i) {
+    const gg = ger, im = new Image(); est[i] = 1; carregando++; im.decoding = "async"; im.src = pasta + "f" + String(i).padStart(3, "0") + ".webp";
+    const ok = () => { if (gg !== ger) return; carregando--; imgs[i] = im; est[i] = 2; poda(); };
+    (im.decode ? im.decode() : new Promise((fim, er) => { im.onload = fim; im.onerror = er; })).then(ok,
+      () => { if (gg !== ger) return; if (im.complete && im.naturalWidth) return ok();   // decode() pode rejeitar à toa (WebView sob pressão de memória) com a imagem já carregada
+        carregando--; est[i] = 3; if (pasta.indexOf("busto") >= 0) { bustoFalhou = true; refaz = true; } else setTimeout(() => { if (gg === ger) est[i] = 0; }, 4000); });
+  }
+  function poda() { let n = 0; for (let i = 0; i < N; i++) if (est[i] === 2) n++;
+    while (n > CACHE) { let m = -1; for (let i = 0; i < N; i++) if (est[i] === 2 && (m < 0 || uso[i] < uso[m])) m = i; imgs[m].removeAttribute("src"); imgs[m] = null; est[m] = 0; n--; } }   // solta o bitmap já, sem esperar o GC
+  function fonte(pais) { // retrato = corpo; paisagem = busto (ou corpo recortado em cima se não houver busto / falhar)
+    const c = info.corpo, b = info.busto;
+    if (pais && b && b.w && b.h && !bustoFalhou) return { pasta: "papel/busto/", w: b.w, h: b.h, sh: b.h, peito: b.peito || [.5, .5], olhos: b.olhos || [.5, .13], pes: 1, corte: true, maos: null };
+    const sh = pais ? Math.round(c.h * .5) : c.h, r = c.h / sh;
+    return { pasta: "papel/corpo/", w: c.w, h: c.h, sh, peito: [c.peito[0], c.peito[1] * r], olhos: [c.olhos[0], c.olhos[1] * r], pes: pais ? 1 : c.pes || .985, corte: pais, maos: pais ? null : c.maos };
+  }
+  // ---- estado / layout ----
+  const oc = mk(1, 1), og = oc.getContext("2d"), rc = mk(1, 1), rg = rc.getContext("2d"), P = new Float32Array(NB * 6); // armadura fora da tela, reflexo, brasas (x,y,vel,tam,fase,y0)
+  let W = 0, H = 0, d = 1, L = null, sA = null, sB = null, sR = null, ang = fixo ? ((+fixo[1] % 360) + 360) % 360 : 0, tt = tt0 ? +tt0[1] : 0, DT = 0, ult = 0, aparece = 0, pronto = false, va = 0, vy = 0;
+  let hMax = 0, wUlt = 0;
+  const alto = () => { const w = innerWidth, h = innerHeight, ae = document.activeElement; if (w !== wUlt) { wUlt = w; hMax = h; } else if (h > hMax) hMax = h;   // teclado aberto (adjustResize): mantém a altura cheia — a armadura não pula/encolhe e nada é realocado
+    return h < hMax * .85 && ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable) ? hMax : h; };
+  function layout() {
+    W = innerWidth; H = alto(); d = Math.min(2, devicePixelRatio || 1); refaz = false; if (W < 8 || H < 8) { L = null; return; }   // WebView ainda sem tamanho
+    cv.width = Math.round(W * d); cv.height = Math.round(H * d); cv.style.height = H > innerHeight ? H + "px" : "";   // com teclado o canvas passa por baixo dele
+    N = info.quadros || 240; PASSO = 360 / N; if (est.length !== N) { est = new Uint8Array(N); uso = new Float64Array(N); pasta = ""; }
+    const pais = W > H, F = fonte(pais), k = pais ? H * .86 / F.sh : Math.min(H * .6 / F.sh, W * .98 / F.w), dw = F.w * k, dh = F.sh * k, x0 = (W - dw) / 2, y0 = pais ? H * .115 : H * .69 - F.pes * dh;   // retrato: pés acima do compositor do chat (#form é opaco)
+    L = { pais, F, dw, dh, x0, y0, cx: W / 2, py: y0 + F.peito[1] * dh, oy: y0 + F.olhos[1] * dh, pe: y0 + F.pes * dh, rx: dw * .4, R: Math.min(H * .62, W * .34) };
+    if (F.pasta !== pasta) { pasta = F.pasta; ger++; imgs = new Array(N).fill(null); est.fill(0); carregando = 0; aparece = 0; }
+    oc.width = Math.max(2, Math.min(F.w, Math.round(dw * d))); oc.height = Math.round(oc.width * F.sh / F.w); rc.width = oc.width >> 1; rc.height = Math.max(1, Math.round(oc.height * REF / 2)); pronto = false;
+    if (sA) { sA.width = sB.width = 0; if (sR) sR.width = 0; }   // solta os anéis do layout anterior (memória da WebView)
+    const Rs = (pais ? L.R : L.rx * 1.3) * d; sA = anel(Rs, 0); sB = anel(Rs, 1); sR = pais ? radar(Rs) : null;
+    for (let i = 0; i < NB; i++) nasce(i, true);
+  }
+  // ---- paralaxe pelo giroscópio (sem pedir permissão; sem evento = parado) ----
+  let ax = 0, ay = 0, px = 0, py = 0, b0 = null, g0 = 0;
+  const ori = (e) => {
+    if (e.beta == null || e.gamma == null) return; const o = (screen.orientation && screen.orientation.angle) || 0; let x = e.gamma, y = e.beta;
+    if (o === 90) { x = e.beta; y = -e.gamma; } else if (o === 270) { x = -e.beta; y = e.gamma; }
+    if (b0 === null) { b0 = y; g0 = x; } b0 += (y - b0) * .004; g0 += (x - g0) * .004;   // referência segue devagar: volta ao centro sozinho
+    ax = Math.max(-1, Math.min(1, (x - g0) / 18)); ay = Math.max(-1, Math.min(1, (y - b0) / 18));
+  };
+  let sensor = false; const giro = (on) => { if (on === sensor) return; sensor = on; on ? addEventListener("deviceorientation", ori, { passive: true }) : removeEventListener("deviceorientation", ori, { passive: true }); };   // sensor só ligado com o fundo animando (bateria)
+  const camada = (k) => g.setTransform(d, 0, 0, d, -px * k * d, -py * k * d);
+  // ---- peças ----
+  function nasce(i, ini) {
+    const o = i * 6, c = i < 28 ? 0 : i < 54 ? 1 : 2, ped = !L.pais && Math.random() < .5;
+    P[o] = ped ? L.cx + (Math.random() * 2 - 1) * L.rx * .9 : Math.random() * W;
+    P[o + 1] = ini ? Math.random() * H : ped ? L.pe + (Math.random() - .5) * L.rx * .3 : H + 4 + Math.random() * 40; P[o + 5] = P[o + 1] + (ini ? 40 : 0);
+    P[o + 2] = (c ? c > 1 ? 42 : 24 : 13) * (.7 + Math.random() * .7); P[o + 3] = (c ? c > 1 ? 3.8 : 2.4 : 1.5) * (.7 + Math.random() * .6); P[o + 4] = Math.random() * PI2;
+  }
+  function brasas(c) { // 3 profundidades: 0 longe (atrás de tudo), 1 meio (atrás da armadura), 2 perto (na frente, mais transparente)
+    const a0 = c ? c > 1 ? .6 : .9 : .7, amp = 5 + c * 6, n = c ? c > 1 ? NB : 54 : 28; g.globalCompositeOperation = "lighter";
+    for (let i = c ? c > 1 ? 54 : 28 : 0; i < n; i++) {
+      const o = i * 6; P[o + 1] -= P[o + 2] * DT; if (P[o + 1] < -10) { nasce(i, false); continue; }
+      const ph = P[o + 4], y = P[o + 1], al = a0 * Math.min(1, y / (H * .6), (P[o + 5] - y) / 40) * (.65 + .35 * Math.sin(tt * 2.2 + ph)); if (al < .02) continue;
+      const s = P[o + 3] * 2.2, x = P[o] + Math.sin(tt * .6 + ph) * amp; g.globalAlpha = al; g.drawImage(sBrasa, x - s, y - s, s * 2, s * 2);
+    }
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  }
+  function disco(sp, cx, cy, r, sq, rot, metade) { // sprite de anel girando, achatado em perspectiva (sq); metade -1 = de trás, 1 = da frente, 0 = inteiro
+    const e = sp.R * r / sp.Rr; g.save();
+    if (metade) { g.beginPath(); g.rect(cx - e, metade < 0 ? cy - e : cy, e * 2, e); g.clip(); }
+    g.translate(cx, cy); g.scale(1, sq); g.rotate(rot); g.drawImage(sp, -e, -e, e * 2, e * 2); g.restore();
+  }
+  function compoe(A, B, f) { // armadura no canvas fora da tela: crossfade aditivo (A·(1-f) + B·f), tinta âmbar e varredura só nos pixels dela
+    const F = L.F, ow = oc.width, oh = oc.height;
+    og.globalCompositeOperation = "source-over"; og.globalAlpha = 1; og.clearRect(0, 0, ow, oh);
+    if (B && f > .002) { og.globalCompositeOperation = "lighter"; og.globalAlpha = 1 - f; og.drawImage(A, 0, 0, F.w, F.sh, 0, 0, ow, oh); og.globalAlpha = f; og.drawImage(B, 0, 0, F.w, F.sh, 0, 0, ow, oh); }
+    else og.drawImage(A, 0, 0, F.w, F.sh, 0, 0, ow, oh);
+    og.globalCompositeOperation = "source-atop"; og.globalAlpha = 1; og.fillStyle = "rgba(255,110,20,.1)"; og.fillRect(0, 0, ow, oh);
+    if (va > 0) { const bh = oh * .22, by = vy * oh - bh; og.globalAlpha = va; og.drawImage(sBanda, 0, by, ow, bh); }
+    if (F.corte) { og.globalCompositeOperation = "destination-out"; og.globalAlpha = 1; og.drawImage(sSobe, 0, oh * .84, ow, oh * .16 + 1); } // busto: some na cintura
+    og.globalCompositeOperation = "source-over"; og.globalAlpha = 1;
+  }
+  function reflexo() { // pernas espelhadas em meia resolução, desvanecendo para baixo
+    const ow = oc.width, oh = oc.height, rw = rc.width, rh = rc.height, sh = oh * REF, sy = Math.max(0, oh * L.F.pes - sh);
+    rg.globalCompositeOperation = "source-over"; rg.setTransform(1, 0, 0, 1, 0, 0); rg.clearRect(0, 0, rw, rh);
+    rg.setTransform(1, 0, 0, -1, 0, rh); rg.drawImage(oc, 0, sy, ow, sh, 0, 0, rw, rh); rg.setTransform(1, 0, 0, 1, 0, 0);
+    rg.globalCompositeOperation = "destination-in"; rg.drawImage(sDesce, 0, 0, rw, rh); rg.globalCompositeOperation = "source-over";
+  }
+  function luzes(cs, sn, pul) { // reator ARC, olhos e repulsores: só de frente (cos > 0)
+    if (cs <= 0) return; const F = L.F, dw = L.dw, c2 = cs * cs; let s = dw * .085 * (.7 + .3 * cs), x = L.x0 + (F.peito[0] + PROF_PEITO * sn) * dw;
+    g.globalCompositeOperation = "lighter"; g.globalAlpha = c2 * (.75 + .25 * pul) * aparece; g.drawImage(sReator, x - s, L.py - s, s * 2, s * 2);
+    s = dw * .03; g.globalAlpha = c2 * cs * .9 * aparece;
+    for (let e = -1; e <= 1; e += 2) { x = L.x0 + (F.olhos[0] + PROF_OLHO * sn + e * OLHO_DX * cs) * dw; g.drawImage(sReator, x - s * 1.5, L.oy - s * .6, s * 3, s * 1.2); }
+    if (F.maos) { s = dw * .05; g.globalAlpha = cs * .35 * (.7 + .3 * pul) * aparece; for (let i = 0; i < 2; i++) { const m = F.maos[i]; x = L.x0 + (.5 + (m[0] - .5) * cs) * dw; g.drawImage(sReator, x - s, L.y0 + m[1] * L.dh - s, s * 2, s * 2); } }
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  }
+  function anelVarre(metade, cs) { // anel fino que acompanha a linha da varredura em volta da armadura
+    if (va <= 0) return; const rx = L.dw * (L.pais ? .26 : .18 + .2 * Math.abs(cs)), y = L.y0 + vy * L.dh;
+    g.globalCompositeOperation = "lighter"; g.globalAlpha = va * .55 * aparece; g.strokeStyle = "#ffc36b"; g.lineWidth = 1.2;
+    g.beginPath(); g.ellipse(L.cx, y, rx, rx * .16, 0, metade < 0 ? Math.PI : 0, metade < 0 ? PI2 : Math.PI); g.stroke();
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  }
+  function pedestal(metade, pul) { // retrato: base holográfica nos pés (metade de trás antes da armadura, da frente depois)
+    const cx = L.cx, cy = L.pe, rx = L.rx, sq = .25; g.globalCompositeOperation = "lighter";
+    if (metade < 0) {
+      g.globalAlpha = .5 + .15 * pul; g.drawImage(sGlow, cx - rx * 1.5, cy - rx * 1.5 * sq, rx * 3, rx * 3 * sq);
+      g.globalAlpha = .14 + .05 * pul; g.drawImage(sCone, cx - rx * .95, cy - L.dh * .92, rx * 1.9, L.dh * .92);
+      g.globalAlpha = .3 + .1 * pul; g.drawImage(sReator, cx - rx * .55, cy - rx * .55 * sq, rx * 1.1, rx * 1.1 * sq);   // núcleo do projetor sob os pés
+      g.globalAlpha = .45; g.drawImage(sLinha, cx - W * .7, cy - .5, W * 1.4, 1);
+    }
+    g.globalAlpha = .9; disco(sA, cx, cy, rx, sq, tt * .12, metade); g.globalAlpha = .8; disco(sB, cx, cy, rx * .74, sq, -tt * .22, metade); g.globalAlpha = .45; disco(sA, cx, cy, rx * 1.3, sq, -tt * .05, metade);
+    g.strokeStyle = "#ffc36b"; g.lineWidth = 1.4;
+    for (let i = 0; i < 2; i++) { const w = (tt * .4 + i * .5) % 1, r = rx * (.25 + 1.1 * w); g.globalAlpha = (1 - w) * (1 - w) * .7; g.beginPath(); g.ellipse(cx, cy, r, r * sq, 0, metade < 0 ? Math.PI : 0, metade < 0 ? PI2 : Math.PI); g.stroke(); }
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  }
+  function aneis() { // paisagem: anéis de HUD + radar atrás do busto
+    const cx = L.cx, cy = L.py - L.dh * .04, R = L.R; g.globalCompositeOperation = "lighter";
+    if (sR) { g.globalAlpha = .6; disco(sR, cx, cy, R * .98, 1, tt * .9, 0); }
+    g.globalAlpha = .55; disco(sA, cx, cy, R, 1, tt * .08, 0); g.globalAlpha = .5; disco(sB, cx, cy, R * .8, 1, -tt * .16, 0); g.globalAlpha = .4; disco(sA, cx, cy, R * .56, 1, tt * .3, 0);
+    g.globalAlpha = .35; g.drawImage(sLinha, 0, cy - .5, W, 1);
+    g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+  }
+  // ---- laço (≤30 fps; pausa com app oculto ou VNC aberto) ----
+  let ultRaf = 0, vivo = false, rodando = false; const parado = () => document.hidden || (vnc && vnc.classList.contains("open"));
+  const raf = (t) => { if (parado()) { rodando = false; giro(false); return; } requestAnimationFrame(raf); ultRaf = performance.now(); passo(t); };   // oculto/VNC: o laço para de vez (não reagenda)
+  const liga = () => { if (!vivo || rodando || parado()) return; rodando = true; ult = performance.now(); giro(true); requestAnimationFrame(raf); };
+  document.addEventListener("visibilitychange", liga);
+  setInterval(() => { if (!vivo || parado()) return; if (!rodando) return liga(); const n = performance.now(); if (n - ultRaf > 300) passo(n); }, 250);   // vigia: religa ao fechar o VNC; se o rAF parar (headless, WebView estrangulada) segue a ~4 fps
+  function passo(t) {
+    if (document.hidden || (vnc && vnc.classList.contains("open"))) { ult = t; return; }
+    if (t - ult < 1000 / FPS - 3) return;
+    DT = Math.min(.1, (t - ult) / 1000); ult = t; tt += DT; nq++;
+    if (refaz || innerWidth !== W || alto() !== H) layout();
+    if (!L) return;
+    const q = ang / PASSO, k0 = Math.floor(q), k = k0 % N, f = q - k0, A = pede(k), B = pede(k + 1); pede(k + 2); pede(k + 3);
+    const u = (tt % VARRE) / VARRE_DUR; if (u < 1) { va = Math.sqrt(Math.sin(Math.PI * u)) * .85; vy = -.05 + 1.1 * u; } else va = 0;
+    if (A) { if (!B) ang = k0 * PASSO; compoe(A, B, B ? f : 0); pronto = true; if (B && !fixo) ang = (ang + VEL * DT) % 360; }
+    if (pronto) aparece = Math.min(1, aparece + DT * 1.2);
+    px += (ax * PAR - px) * .08; py += (ay * PAR - py) * .08;
+    const a = ang * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a), pul = .5 + .5 * Math.sin(tt * 1.8), gr = L.dw * (L.pais ? .95 : .8);
+    g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, W, H);
+    camada(.35); brasas(0);
+    if (L.pais) { camada(.6); aneis(); }
+    camada(1); g.globalAlpha = .55 + .2 * pul; g.drawImage(sGlow, L.cx - gr, L.py - gr, gr * 2, gr * 2); g.globalAlpha = 1;
+    if (!L.pais) { if (pronto) { reflexo(); g.globalAlpha = .26 * aparece; g.drawImage(rc, L.x0, L.pe, L.dw, L.dh * REF); g.globalAlpha = 1; } pedestal(-1, pul); }
+    anelVarre(-1, cs);
+    camada(.7); brasas(1);
+    camada(1);
+    if (pronto) { g.globalAlpha = aparece; g.drawImage(oc, L.x0, L.y0, L.dw, L.dh); g.globalAlpha = 1; luzes(cs, sn, pul); }
+    if (!L.pais) pedestal(1, pul);
+    anelVarre(1, cs);
+    camada(1.8); brasas(2);
+  }
+  const ler = () => fetch("papel/info.json", { cache: "no-store" }).then((r) => { if (!r.ok) throw 0; return r.json(); }).catch(() => new Promise((ok) => { // file:// (testes) cai no XHR; sem nada, usa PADRAO
+    try { const x = new XMLHttpRequest(); x.open("GET", "papel/info.json"); x.onload = () => { try { ok(JSON.parse(x.responseText)); } catch { ok(null); } }; x.onerror = () => ok(null); x.send(); } catch { ok(null); } }));
+  Promise.race([ler(), new Promise((ok) => setTimeout(ok, 3000, null))]).then((j) => { const c = j && j.corpo; if (c && c.w && c.h && c.peito && c.olhos) info = j; vivo = true; liga(); });   // info.json travado/incompleto: PADRAO
+})();
+if (window.Nativo && Nativo.papelDeParede && $("#acoes")) { const b = document.createElement("button"); b.type = "button"; b.className = "bt lar"; b.textContent = "[ PAPEL DE PAREDE MARK 85 ]"; b.onclick = () => Nativo.papelDeParede(); $("#acoes").appendChild(b); }

@@ -71,9 +71,9 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
 #ouvi.vazio-o { opacity:.45; }
 #msgs { flex:1; overflow-y:auto; padding:6px 14px 8px; display:flex; flex-direction:column; gap:8px; user-select:text; overscroll-behavior:contain; }
 .m { max-width:88%; padding:9px 13px; font-size:15px; white-space:pre-wrap; overflow-wrap:anywhere; border-radius:12px; animation:entra .22s ease; }
-.m.u { align-self:flex-end; background:linear-gradient(135deg,rgba(255,138,31,.26),rgba(255,138,31,.1)); border:1px solid rgba(255,138,31,.5); border-bottom-right-radius:3px; }
-.m.a { align-self:flex-start; background:linear-gradient(135deg,rgba(255,157,36,.14),rgba(255,157,36,.04)); border:1px solid var(--lin2); border-bottom-left-radius:3px; }
-.m.t { align-self:center; color:var(--mut); font:11px var(--mono); border:0; padding:2px 6px; max-width:96%; }
+.m.u { align-self:flex-end; background:linear-gradient(135deg,rgba(255,138,31,.26),rgba(255,138,31,.1)),rgba(7,4,2,.5); border:1px solid rgba(255,138,31,.5); border-bottom-right-radius:3px; }
+.m.a { align-self:flex-start; background:linear-gradient(135deg,rgba(255,157,36,.14),rgba(255,157,36,.04)),rgba(7,4,2,.55); border:1px solid var(--lin2); border-bottom-left-radius:3px; }
+.m.t { align-self:center; color:var(--mut); font:11px var(--mono); border:0; padding:2px 6px; max-width:96%; text-shadow:0 0 3px #070402,0 0 8px #070402; }
 .m.h { opacity:.85; }
 #atalhosConv { flex:none; display:flex; gap:6px; overflow-x:auto; padding:4px 12px; border-top:1px solid rgba(255,157,36,.12); background:rgba(20,13,7,.92); }
 .chipAcao { flex:none; padding:5px 10px; border-radius:999px; border:1px solid var(--lin2); background:rgba(255,157,36,.08); color:var(--txt); font:600 10.5px var(--mono); letter-spacing:.06em; white-space:nowrap; }
@@ -273,17 +273,39 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
 @keyframes glitch { 0%,100% { text-shadow:2px 0 var(--lar),-2px 0 var(--cia); } 50% { text-shadow:-2px 0 var(--lar),2px 0 var(--cia); } }
 .fuiEu { margin-left:6px; padding:6px 12px; border-radius:14px; border:1px solid var(--cy,#ff9d24); background:rgba(255,157,36,.15); color:#fff; font:700 11px var(--mono,monospace); letter-spacing:.1em; }
 .fuiEu:disabled { opacity:.6; }
+/* ===== v5: visual desktop Linux + v6 fundo holográfico (canvas #armadura; opacidade real em OPAC no app.js) ===== */
+#armadura { position:fixed; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; opacity:.52; }
+main, #top, #tabs { z-index:5; }
+#top { background:rgba(10,7,4,.62); backdrop-filter:blur(14px) saturate(1.3); border-bottom:1px solid rgba(255,157,36,.18); }
+#relogio { font:700 12px var(--mono); color:var(--txt); letter-spacing:.08em; flex:none; }
+#tabs { background:rgba(10,7,4,.62) !important; backdrop-filter:blur(16px) saturate(1.3); margin:0 8px 6px; left:0; right:0; border:1px solid rgba(255,157,36,.2); border-radius:18px; height:calc(var(--tab) - 6px) !important; bottom:env(safe-area-inset-bottom) !important; }
+.card { background:rgba(18,11,6,.58); backdrop-filter:blur(12px) saturate(1.2); border:1px solid rgba(255,157,36,.16); border-radius:14px; padding-top:34px; box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04); overflow:hidden; }
+.card::before { top:0; left:0; right:0; width:auto; height:24px; border:0; background:linear-gradient(180deg,rgba(255,157,36,.10),rgba(255,157,36,.03)); border-bottom:1px solid rgba(255,157,36,.12); }
+.card::after { top:8px; left:12px; right:auto; bottom:auto; width:8px; height:8px; border:0; border-radius:50%; background:#ff5f56; box-shadow:13px 0 0 #ffbd2e, 26px 0 0 #27c93f; }
+.card h4 { position:absolute; top:5px; left:52px; right:12px; margin:0; font-size:10px; letter-spacing:.2em; color:var(--mut); }
+.card h4 small { margin-left:auto; }
+.bt { border-radius:10px !important; }
+/* VNC */
+#vncBar { top:auto !important; bottom:0; left:0; right:0; padding:6px 6px calc(env(safe-area-inset-bottom) + 6px); flex-direction:column; gap:6px; background:rgba(8,5,3,.9); backdrop-filter:blur(10px); border-top:1px solid rgba(255,157,36,.25); }
+#vncBar.min .vl:not(.fixa) { display:none; }
+#vncBar .vl { display:flex; gap:5px; overflow-x:auto; }
+#vncBar .vl::-webkit-scrollbar { height:0; }
+#vncBar .bt { min-height:38px; min-width:44px; padding:4px 9px; font:700 11px var(--mono); flex:none; background:rgba(30,18,8,.9); }
+#vncBar .bt.on { background:var(--lar); color:#140a02; box-shadow:0 0 12px var(--lar); }
+#vncTela { bottom:var(--vncH,150px) !important; }
 </style>
 </head>
 <body>
 <div id="boot"><div>F.R.I.D.A.Y.<small>CENTRO DE COMANDO REMOTO</small></div></div>
 
+<canvas id="armadura"></canvas>
 <header id="top">
   <i id="dot"></i>
   <span id="nome">F.R.I.D.A.Y.</span>
   <span id="vozLockTop" title="Reconhecimento Biométrico Estrito: Somente Voz do Dono">[BIO] SÓ DONO</span>
   <span id="aprBadge"></span>
   <span id="sub">CONECTANDO…</span>
+  <span id="relogio">--:--</span>
 </header>
 
 <main>
@@ -519,7 +541,7 @@ main { position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 52px
   <textarea id="aprEdit" maxlength="2000" rows="5" hidden></textarea>
   <div id="aprBtns"><button type="button" class="bt" id="aprOk">APROVAR</button><button type="button" class="bt" id="aprAlt">ALTERAR</button><button type="button" class="bt perigo" id="aprNo">CANCELAR</button></div>
 </div>
-<div id="vnc"><div id="vncBar"><button class="bt" id="vTeclado" type="button">TECLADO</button><button class="bt lar" id="vSair" type="button">SAIR</button></div><div id="vncTela"></div></div>
+<div id="vnc"><div id="vncBar" class="min"><div class="vl fixa"><button class="bt on" type="button" data-vk="m1">◧ ESQ</button><button class="bt " type="button" data-vk="m3">◨ DIR</button><button class="bt " type="button" data-vk="m2">◫ MEIO</button><button class="bt " type="button" data-vk="su">⇞ ROLAR</button><button class="bt " type="button" data-vk="sd">⇟ ROLAR</button><button class="bt" id="vTeclado" type="button">⌨ TECLADO</button><button class="bt" type="button" id="vMais">▴ MAIS</button><button class="bt lar" id="vSair" type="button">SAIR</button></div><div class="vl"><button class="bt " type="button" data-vk="ff1b">ESC</button><button class="bt " type="button" data-vk="ff09">TAB</button><button class="bt " type="button" data-vk="ff51">←</button><button class="bt " type="button" data-vk="ff52">↑</button><button class="bt " type="button" data-vk="ff54">↓</button><button class="bt " type="button" data-vk="ff53">→</button><button class="bt " type="button" data-vk="ff0d">ENTER</button><button class="bt " type="button" data-vk="ff08">⌫</button><button class="bt " type="button" data-vk="ffff">DEL</button><button class="bt " type="button" data-vk="ff50">HOME</button><button class="bt " type="button" data-vk="ff57">END</button><button class="bt " type="button" data-vk="ff55">PGUP</button><button class="bt " type="button" data-vk="ff56">PGDN</button></div><div class="vl"><button class="bt " type="button" data-vk="Mffe3">CTRL</button><button class="bt " type="button" data-vk="Mffe9">ALT</button><button class="bt " type="button" data-vk="Mffe1">SHIFT</button><button class="bt " type="button" data-vk="Mffeb">SUPER</button><button class="bt " type="button" data-vk="c:ffe3+63">CTRL+C</button><button class="bt " type="button" data-vk="c:ffe3+76">CTRL+V</button><button class="bt " type="button" data-vk="c:ffe3+7a">CTRL+Z</button><button class="bt " type="button" data-vk="c:ffe3+61">CTRL+A</button><button class="bt " type="button" data-vk="c:ffe9+ff09">ALT+TAB</button><button class="bt " type="button" data-vk="c:ffe9+ffc1">ALT+F4</button><button class="bt " type="button" data-vk="c:ffe3+ffe9+ffff">CTRL+ALT+DEL</button></div><div class="vl"><button class="bt " type="button" data-vk="ffbe">F1</button><button class="bt " type="button" data-vk="ffbf">F2</button><button class="bt " type="button" data-vk="ffc0">F3</button><button class="bt " type="button" data-vk="ffc1">F4</button><button class="bt " type="button" data-vk="ffc2">F5</button><button class="bt " type="button" data-vk="ffc3">F6</button><button class="bt " type="button" data-vk="ffc4">F7</button><button class="bt " type="button" data-vk="ffc5">F8</button><button class="bt " type="button" data-vk="ffc6">F9</button><button class="bt " type="button" data-vk="ffc7">F10</button><button class="bt " type="button" data-vk="ffc8">F11</button><button class="bt " type="button" data-vk="ffc9">F12</button></div></div><div id="vncTela"></div></div>
 <div id="setup">
   <h2>F.R.I.D.A.Y.<small>LINK REMOTO</small></h2>
   <input id="cfHost" placeholder="Endereço do PC (ex.: 100.110.230.55:8790)" inputmode="url">

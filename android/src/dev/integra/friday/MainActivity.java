@@ -323,6 +323,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void abrirAcessibilidade() {
             runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         }
+        @JavascriptInterface public void papelDeParede() {       // papel de parede ao vivo Mark 85 (o dono confirma "Definir")
+            Intent i = new Intent(android.app.WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(android.app.WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                new android.content.ComponentName(MainActivity.this, Papel.class));
+            try { startActivity(i); } catch (Exception e) { startActivity(new Intent(android.app.WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)); }
+        }
         @JavascriptInterface public void abrirInfoApp() {        // Android 13+: "Permitir configurações restritas" fica no menu ⋮ daqui
             runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));

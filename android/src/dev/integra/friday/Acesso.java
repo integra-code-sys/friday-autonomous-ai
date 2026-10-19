@@ -203,10 +203,34 @@ public class Acesso extends AccessibilityService {
                 else responder(out, 200, "image/jpeg", jpg);
                 return;
             }
+            if (rota.equals("/papel_png")) {                   // teste do papel de parede: ?w=&h=&seg=(s)&ang=(graus)&desl=(0..1) -> PNG (token no X-Token ou t=)
+                byte[] png = papelPng(q);
+                if (png == null) responder(out, 500, "application/json", "{\"erro\":\"falha ao renderizar o papel\"}".getBytes(StandardCharsets.UTF_8));
+                else responder(out, 200, "image/png", png);
+                return;
+            }
             JSONObject r;
             try { r = rotear(rota, q); } catch (Exception e) { r = new JSONObject().put("ok", false).put("erro", String.valueOf(e)); }
             responder(out, 200, "application/json", r.toString().getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {}
+    }
+
+    /** renderiza o papel de parede (PapelCena síncrona, sem threads) num bitmap de software */
+    private byte[] papelPng(Map<String, String> q) {
+        PapelCena cena = null; Bitmap b = null;
+        try {
+            int w = Math.max(64, Math.min(3000, num(q, "w", 1272))), h = Math.max(64, Math.min(3000, num(q, "h", 2772)));
+            String ts = q.get("seg") != null ? q.get("seg") : q.get("t");                 // "seg" (o "t" da query também é o token sem X-Token)
+            double t = 12.5; try { if (ts != null) t = Double.parseDouble(ts); } catch (Exception ignored) {}
+            if (Double.isNaN(t) || Double.isInfinite(t) || t < 0 || t > 1e6) t = 12.5;
+            b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            cena = new PapelCena(this, true); cena.tamanho(w, h); cena.amostrarMetricasJa();
+            if (q.get("ang") != null) try { cena.forcarAngulo(Float.parseFloat(q.get("ang"))); } catch (Exception ignored) {}
+            if (q.get("desl") != null) try { cena.deslocamento(Float.parseFloat(q.get("desl"))); } catch (Exception ignored) {}
+            cena.desenhar(new android.graphics.Canvas(b), (long) (t * 1e9));
+            ByteArrayOutputStream bo = new ByteArrayOutputStream(); b.compress(Bitmap.CompressFormat.PNG, 100, bo); return bo.toByteArray();
+        } catch (Throwable e) { android.util.Log.e("FridayPapel", "papel_png", e); return null; }
+        finally { if (cena != null) cena.liberar(); if (b != null) b.recycle(); }
     }
 
     private static void responder(OutputStream out, int cod, String tipo, byte[] corpo) throws Exception {
