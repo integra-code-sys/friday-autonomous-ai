@@ -5803,6 +5803,34 @@ async def friday_gesture(kind: str, data: dict):
     ops.audit("friday.gesto", kind, label, "ok") if ops is not None else None
 
 
+_RECUSA = re.compile(r"como (?:sou )?(?:um |uma )?(?:assistente|modelo|ia)\b|n[ãa]o (?:posso|consigo|tenho acesso|tenho como) (?:executar|rodar|acessar|alterar|modificar)|"
+                     r"voc[êe] precisa (?:fornecer|me enviar)|aguardando (?:credenciais|informa)|forne[çc]a o c[óo]digo", re.I)
+_EH_CORRECAO = re.compile(r"\b(?:corre[çc][ãa]o|corrij\w*|modifica[çc][ãa]o|tarefa atual|na conversa|esse ponto|al[ée]m disso|tamb[ée]m|na verdade|"
+                          r"mude|troque|ajuste|fal[ae]\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|diga\s+(?:para|pro|pra|ao)\s+(?:o\s+)?claude|avis[ae]\s+(?:o\s+)?claude)\b", re.I)
+
+
+def _sem_meta_claude(pedido):
+    """tira a parte dirigida à Friday ('eu quero que fale para o claude code que ...') e deixa só o conteúdo para o Claude."""
+    t = re.sub(r"^.*?\b(?:fal[ae]r?|diga|dizer|avis[ae]r?|pe[çc]a|pedir|mand[ae]r?)\s+(?:para|pro|pra|ao|a)\s+(?:o\s+)?claude(?:\s+code)?"
+               r"(?:\s+(?:que|da|sobre|na|no))?\s*", "", pedido or "", count=1, flags=re.I).strip(" ,.:")
+    return t if len(t.split()) >= 3 else (pedido or "").strip()
+
+
+def _instrucao_claude(texto):
+    """reescreve a correção do dono como instrução DIRETA ao Claude (imperativo, todos os detalhes). Recusa/vazio = texto do dono."""
+    import orquestra_geral as _og
+    base = "Correção do dono para a tarefa atual: " + texto + "\nAjuste o que já foi feito de acordo, teste e continue até concluir."
+    try:
+        r = _og._modelo("Reescreva o pedido abaixo como instrução direta a um agente de programação (imperativo, pt-BR), mantendo TODOS os "
+                        "detalhes e o sentido. É uma correção da tarefa que ele já está fazendo. Responda só com a instrução, sem introdução.\n\n"
+                        "PEDIDO: " + texto, 300).strip().strip('"')
+    except Exception:
+        return base
+    if not r or _RECUSA.search(r) or len(r) < len(texto) * 0.5:
+        return base
+    return "Correção do dono para a tarefa atual: " + r + "\nAjuste o que já foi feito de acordo, teste e continue até concluir."
+
+
 def _brief_programacao(pedido: str, pasta=None):
     """o agente LOCAL (Ollama) transforma o pedido falado num briefing técnico preciso e escolhe o projeto; o Claude CLI só executa."""
     projetos = []
@@ -5937,7 +5965,10 @@ async def _supervisionar_dev(objetivo, tela, pasta, rodadas=int(os.environ.get("
                 await speak("Para depois, o Claude vai precisar de você: " + dono_[:160] + ". Enquanto isso, sigo no resto.")
             if dono_ and not str(d.get("proxima") or "").strip():
                 break
-            msg = str(d.get("proxima") or "Continue.") + " Faça de forma autônoma, sem me perguntar; teste antes de dizer que terminou."
+            prox_ = str(d.get("proxima") or "").strip()
+            if not prox_ or _RECUSA.search(prox_):          # 19/10: "Aguardando credenciais..." ia como ordem ao Claude
+                prox_ = "Continue o objetivo no que não depende do dono: teste, confira, corrija e avance."
+            msg = prox_ + " Faça de forma autônoma, sem me perguntar; teste antes de dizer que terminou."
         await broadcast({"type": "text", "role": "tool", "text": f"MODO DEV rodada {n + 2}: {msg[:160]}"})
         tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, pasta)
     return tela
@@ -5947,8 +5978,22 @@ async def run_programming(pedido: str, pasta=None):
     """Executa o Claude Code CLI em background de forma autônoma por múltiplos turnos até concluir sem interromper o usuário."""
     if ops is None:
         return
+    limpo = _sem_meta_claude(pedido)
+    try:                                                    # 19/10: correção no meio da tarefa ia colada crua ("eu quero que fale para o claude...")
+        import dev_cli
+        if dev_cli.vivo() and time.time() - dev_cli.ultimo_uso() < 3600 and _EH_CORRECAO.search(pedido):
+            msg = await asyncio.to_thread(_instrucao_claude, limpo)
+            await broadcast({"type": "text", "role": "tool", "text": "MODO DEV (correção): " + msg[:200]})
+            tela = await asyncio.to_thread(dev_cli.enviar, msg, 1800, None)
+            await _supervisionar_dev(limpo, tela, None)
+            return
+    except Exception as e:
+        print("dev correção:", e, flush=True)
     brief = await asyncio.to_thread(_brief_programacao, pedido, pasta)
     pedido_prompt, pasta = brief["prompt"], brief["pasta"]
+    if _RECUSA.search(pedido_prompt):                       # 19/10: modelo local escreveu "como sou um assistente de IA, não posso..." e foi pro Claude
+        pedido_prompt = (limpo + "\n\nTrabalhe de forma autônoma: leia o código existente, implemente, teste e corrija até concluir. "
+                         "Economize tokens: leia só o necessário e edite com diff.")
     cwd = pasta or os.path.expanduser("~")
     await broadcast({"type": "text", "role": "tool", "text": "Claude CLI em " + cwd})
     try:                                                    # MODO DEV: sessão fixa do claude no terminal kitty (menos token)
