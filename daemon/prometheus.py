@@ -4794,7 +4794,10 @@ def _zap_transcribe(path):
         from faster_whisper import WhisperModel
         zap_cmd["wh"] = WhisperModel("small", device="cpu", compute_type="int8", cpu_threads=3,
                                      download_root=os.path.join(ROOT, "models", "whisper"))
-    segs, _ = zap_cmd["wh"].transcribe(path, language="pt", vad_filter=True, beam_size=1)
+    import numpy as _np                                  # 19/10: decode_audio do faster-whisper quebra com o PyAV instalado (metadata_errors) -> ffmpeg
+    pcm = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", path, "-ar", "16000", "-ac", "1", "-f", "f32le", "-"],
+                         capture_output=True, timeout=120).stdout
+    segs, _ = zap_cmd["wh"].transcribe(_np.frombuffer(pcm, dtype="float32"), language="pt", vad_filter=True, beam_size=1)
     return " ".join(s_.text.strip() for s_ in segs).strip()
 
 
@@ -6207,7 +6210,9 @@ def _stt_prompt():
         "Tarefa. Etapa. Documento, Word, docx, planilha, Excel, slides, apresentação, PowerPoint. "
         "Navegador, pesquisa. Mensagens, Eduardo Becker, Wander, sessões, datas, encaminhar, enviar, ler. "
         "Me localize, me localiza, seguir, parar. Vire para a direita, vire para a esquerda. "
-        "Olhe para a porta, a cama, o guarda-roupa. Desativar modo mão livre. Ativar modo mão livre."
+        "Olhe para a porta, a cama, o guarda-roupa. Desativar modo mão livre. Ativar modo mão livre. "
+        "Pedidos no imperativo: abre, abra, desbloqueia, desbloqueie, procura, pesquisa, cria, crie, coloca, toca, manda, envia, faz, mostra. "   # 19/10: medido 95% -> 98% (vinha 'Desbloquei', 'abri')
+        "Modo dev, Integra Site, Integra Code, Claude, YouTube."
     )
     if time.time() - _stt_cache["t"] > 4:
         _stt_cache["t"] = time.time()
