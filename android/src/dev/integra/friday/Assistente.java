@@ -360,7 +360,7 @@ public class Assistente extends VoiceInteractionService {
             String dica = args == null ? null : args.getString("dica");
             if (dica != null && legenda != null) legenda(dica, false);
             else if (msgs != null && msgs.getChildCount() == 0 && legenda != null && legenda.getText().length() == 0)
-                legenda("Oi, Iann. Estou ouvindo você (reconhecimento exclusivo da sua voz).", false);
+                legenda("Oi, senhor. Estou ouvindo você (reconhecimento exclusivo da sua voz).", false);
             main.removeCallbacks(pulso);
             main.post(pulso);
             ouvir();

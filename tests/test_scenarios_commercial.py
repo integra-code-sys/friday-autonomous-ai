@@ -33,14 +33,14 @@ import sync_mesh
 class TestFridayCommercialScenarios(unittest.TestCase):
 
     def setUp(self):
-        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Chefe", manter_config_ia=False)
+        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Senhor", manter_config_ia=False)
         camera_manager.forcar_cenario_teste(None)
         cloud_providers.set_mock_http(None)
 
     def tearDown(self):
         camera_manager.forcar_cenario_teste(None)
         cloud_providers.set_mock_http(None)
-        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Chefe", manter_config_ia=False)
+        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Senhor", manter_config_ia=False)
 
     def test_01_zero_state_database_and_clean_memory(self):
         """Verifica que o banco de dados comercial inicia 100% limpo e sem dados pessoais."""
@@ -48,7 +48,7 @@ class TestFridayCommercialScenarios(unittest.TestCase):
         self.assertEqual(st["fatos_aprendidos"], 0)
         self.assertEqual(st["episodios_aprendidos"], 0)
         self.assertEqual(st["licoes_aprendidas"], 0)
-        self.assertEqual(st["usuario"], "Chefe")
+        self.assertEqual(st["usuario"], "Senhor")
         self.assertTrue(st["onboarding_pendente"])
 
         with open(os.path.join(ROOT, "memory", "people.json"), encoding="utf-8") as fp:
@@ -246,9 +246,9 @@ class TestFridayCommercialScenarios(unittest.TestCase):
                 self.assertTrue(d3["ok"])
                 self.assertEqual(memoria_zero.carregar_config()["usuario"]["nome"], "Carlos")
 
-                r4 = await client.post("/api/config/reset_memoria", json={"nome": "Chefe"})
+                r4 = await client.post("/api/config/reset_memoria", json={"nome": "Senhor"})
                 self.assertEqual(r4.status, 200)
-                self.assertEqual(memoria_zero.carregar_config()["usuario"]["nome"], "Chefe")
+                self.assertEqual(memoria_zero.carregar_config()["usuario"]["nome"], "Senhor")
 
         asyncio.run(_test_http())
 

@@ -168,8 +168,8 @@ final class Cerebro {
 
     private String sistema(boolean permitePc) {
         return "<|im_start|>system\n"
-            + "Você é a F.R.I.D.A.Y. (Sexta-Feira), assistente e orquestradora autônoma do Iann, rodando no celular Android dele. "
-            + "Fale português do Brasil, inteligente, natural, proativo e assertivo. Você controla o celular com ferramentas.\n"
+            + "Você é a F.R.I.D.A.Y. (Sexta-Feira), assistente e orquestradora autônoma, rodando no celular Android do senhor. "
+            + "Fale português do Brasil, inteligente, natural, proativo e assertivo. Trate-o de 'senhor' com elegância e respeito. Você controla o celular com ferramentas.\n"
             + "Responda SEMPRE só com JSON: {\"acao\": \"ferramenta\", \"args\": {...}}. Um passo por vez; depois do resultado decida o próximo. "
             + "Para encerrar use {\"acao\": \"responder\", \"args\": {\"texto\": \"...\"}} dizendo o que fez de verdade. NUNCA escreva placeholders como [links].\n"
             + (permitePc
@@ -204,7 +204,7 @@ final class Cerebro {
             + (permitePc ? "pedido: pede pro PC abrir o Chromium -> {\"acao\": \"pc\", \"args\": {\"pedido\": \"abrir o Chromium\"}}\n" : "")
             + "pedido: toca Yellow no YouTube -> {\"acao\": \"pesquisar\", \"args\": {\"consulta\": \"Yellow Coldplay\", \"onde\": \"youtube\"}}\n"
             + "depois de uma ferramenta dar certo -> {\"acao\": \"responder\", \"args\": {\"texto\": \"Pronto, abri o Instagram.\"}}\n"
-            + "O que você sabe do Iann:\n" + ferr.fatos(30)
+            + "O que você sabe do senhor:\n" + ferr.fatos(30)
             + "<|im_end|>\n";
     }
 

@@ -42,14 +42,14 @@ import visao
 class TestMegaBatteryIntegraCode(unittest.TestCase):
 
     def setUp(self):
-        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Chefe", manter_config_ia=False)
+        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Senhor", manter_config_ia=False)
         camera_manager.forcar_cenario_teste(None)
         cloud_providers.set_mock_http(None)
 
     def tearDown(self):
         camera_manager.forcar_cenario_teste(None)
         cloud_providers.set_mock_http(None)
-        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Chefe", manter_config_ia=False)
+        memoria_zero.inicializar_do_zero(forcar=True, nome_usuario="Senhor", manter_config_ia=False)
 
     # =========================================================================
     # 1. COMPILAÇÃO AST E INTEGRIDADE DE SINTAXE DE TODOS OS MÓDULOS
