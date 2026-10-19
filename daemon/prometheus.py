@@ -3003,10 +3003,19 @@ def autonomy_thread(loop):
                 dif = tela.detectar_dificuldades()
                 if dif.get("tem_dificuldade") and dif.get("severidade") == "alta":
                     resumo_dif = dif.get("resumo", "")
-                    if resumo_dif != mem.get("ult_dificuldade_tela") and now - mem.get("t_dificuldade_tela", 0) > 300:
+                    if resumo_dif != mem.get("ult_dificuldade_tela") and now - mem.get("t_dificuldade_tela", 0) > 300 \
+                            and now - oferta["t"] > 75 and not speaking and not busy.locked() and now - last_voice["t"] > 8:
                         mem["ult_dificuldade_tela"] = resumo_dif
                         mem["t_dificuldade_tela"] = now
-                        evento = f"O usuário está enfrentando uma dificuldade visível na tela: {dif.get('tipo')}. {dif.get('detalhes')[:120]}. Sugestão de apoio: {dif.get('sugestao')}"
+                        # 19/10: oferece e ESPERA o "sim" (antes virava evento p/ o cérebro, que agia/inventava sozinho)
+                        det_ = str(dif.get("detalhes") or "")[:400]
+                        app_ = str(dif.get("app") or "na tela")
+                        tarefa_ = (f"no modo dev, corrija este erro que apareceu {app_}: {det_}" if re.search(r"c[óo]digo|compila|exce|traceback|syntax|erro de", str(dif.get("tipo")), re.I)
+                                   else f"me ajude com esta dificuldade na tela ({dif.get('tipo')}): {det_}. Sugestão: {dif.get('sugestao')}")
+                        oferta.update(tarefa=tarefa_, t=now)
+                        fala_ = f"Vi um problema {app_}: {dif.get('tipo')}. Quer que eu resolva?"
+                        asyncio.run_coroutine_threadsafe(broadcast({"type": "text", "role": "assistant", "text": fala_ + "\n" + det_[:200]}), loop)
+                        asyncio.run_coroutine_threadsafe(speak(fala_), loop)
             except Exception:
                 pass
 
@@ -5125,11 +5134,45 @@ def _proxima_da_fila():
         asyncio.get_event_loop().call_later(1.5, lambda: asyncio.ensure_future(friday_ask(prox)))
 
 
+_fila_falada = {"n": 0}
+_SEM_TELA = re.compile(r"^\W*(?:o\s*que|qual|quais|quem|quando|onde|como|quanto|quantos|por\s*que|porque|me\s+(?:diga|fala|explica)|explique|pesquis\w*|procur\w*\s+(?:sobre|na\s+internet)|"
+                       r"que\s+horas|qual\s+(?:a\s+)?(?:cota|previs|temperatura))\b", re.I)
+_USA_TELA = re.compile(r"\b(?:abr[aei]\w*|cliq\w*|clique|digit\w*|tela|janela|navegador|aba|whats\w*|zap\w*|envi\w*|mand[ae]\w*|celular|c[âa]mera|olh[ae]\w*|mostr\w*|toc[ae]\w*|m[úu]sica)\b", re.I)
+
+
+async def _responder_paralelo(text):
+    """pista paralela: responde pergunta/pesquisa sem usar cursor, teclado nem tela, enquanto a outra tarefa segue."""
+    try:
+        import agent as _ag
+        log_turn("usuario", text)
+        await broadcast({"type": "text", "role": "user", "text": text, "files": []})
+        fontes = ""
+        if re.search(r"pesquis|procur|cota[çc]|pre[çc]o|not[íi]cia|hoje|agora|atual|previs|quem (?:é|foi|ganhou)", text, re.I):
+            fontes = await asyncio.to_thread(_ag.t_pesquisar_web, consulta=text)
+        r = await asyncio.to_thread(fr.llm, "Você é a Sexta-Feira. Responda em pt-BR, falado, em 1 a 3 frases, direto. Use as FONTES se houver; "
+                                    "não invente números.", f"PERGUNTA: {text}\nFONTES:\n{str(fontes)[:3500]}", None, False, 260, 0.3, 60)
+        r = (r or "Não consegui responder agora; tento quando terminar a outra tarefa.").strip()
+        await broadcast({"type": "text", "role": "assistant", "text": r}); log_turn("prometheus", r)
+        await speak(r)
+    except Exception as e:
+        print("paralelo:", e, flush=True)
+
+
 async def friday_ask(text: str, files=None, proactive=False):
     """pipeline LOCAL: intent rápido por regra -> senão LLM local (gemma3) -> executa ações -> fala (Kokoro)."""
     if fr is None:
         return
+    if busy.locked() and not proactive and not files:
+        # 19/10: tudo esperava calado atrás da tarefa em andamento. Pergunta/pesquisa (sem tela) roda JÁ, em paralelo;
+        # o que usa cursor/teclado entra na fila com aviso (duas tarefas no mesmo mouse se atrapalham).
+        if _SEM_TELA.search(text) and not _USA_TELA.search(text):
+            asyncio.create_task(_responder_paralelo(text))
+            return
+        _fila_falada["n"] += 1
+        await speak("Estou terminando outra tarefa. Essa vem logo em seguida." if _fila_falada["n"] == 1
+                    else f"Anotado. Tenho {_fila_falada['n']} pedidos na fila.")
     async with busy:
+        _fila_falada["n"] = max(0, _fila_falada["n"] - 1)
         conv["t"] = time.time()
         if not proactive:
             await broadcast({"type": "text", "role": "user", "text": text, "files": files or []})
